@@ -199,7 +199,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   settingsUI = new SettingsUI(appSettings, onSettingsChange);
 
   // Init chatbot
-  new Chatbot("chat-messages", "chat-input", "btn-send-chat", () => appSettings.ai);
+  new Chatbot("chat-messages", "chat-input", "btn-send-chat", "chat-sessions", () => appSettings.ai);
 
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
