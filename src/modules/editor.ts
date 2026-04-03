@@ -1,6 +1,8 @@
 import ace from "ace-builds";
 import "ace-builds/src-min-noconflict/mode-javascript";
+import "ace-builds/src-min-noconflict/mode-jsx";
 import "ace-builds/src-min-noconflict/mode-typescript";
+import "ace-builds/src-min-noconflict/mode-tsx";
 import "ace-builds/src-min-noconflict/mode-json";
 import "ace-builds/src-min-noconflict/mode-html";
 import "ace-builds/src-min-noconflict/mode-css";
@@ -25,7 +27,9 @@ import "ace-builds/src-min-noconflict/ext-searchbox";
 import "ace-builds/src-min-noconflict/ext-language_tools";
 import "ace-builds/src-min-noconflict/ext-inline_autocomplete";
 import "ace-builds/src-min-noconflict/snippets/javascript";
+import "ace-builds/src-min-noconflict/snippets/jsx";
 import "ace-builds/src-min-noconflict/snippets/typescript";
+import "ace-builds/src-min-noconflict/snippets/tsx";
 import "ace-builds/src-min-noconflict/snippets/html";
 import "ace-builds/src-min-noconflict/snippets/css";
 import "ace-builds/src-min-noconflict/snippets/json";
@@ -35,6 +39,7 @@ import "ace-builds/src-min-noconflict/snippets/sh";
 import "ace-builds/src-min-noconflict/snippets/yaml";
 import "ace-builds/src-min-noconflict/snippets/markdown";
 import { invoke } from "@tauri-apps/api/core";
+import { lintTypeScript, shouldUseTsLint, getTsFileName } from "./ts-lint";
 
 export interface EditorSettings {
   theme: string;
@@ -63,9 +68,9 @@ interface OpenTab {
 
 const EXT_MODE_MAP: Record<string, string> = {
   js: "javascript",
-  jsx: "javascript",
+  jsx: "jsx",
   ts: "typescript",
-  tsx: "typescript",
+  tsx: "tsx",
   json: "json",
   html: "html",
   htm: "html",
@@ -90,15 +95,25 @@ export class Editor {
   private emptyEl: HTMLElement;
   private editorEl: HTMLElement;
   private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
+  private lintTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
     this.emptyEl = document.getElementById(emptyId)!;
     this.editorEl = document.getElementById(editorId)!;
 
+    // Set worker path so Ace can load lint workers (JS, CSS, HTML, JSON, YAML, etc.)
+    ace.config.set(
+      "basePath",
+      "https://cdn.jsdelivr.net/npm/ace-builds@" + ace.version + "/src-min-noconflict"
+    );
+
     this.ace = ace.edit(editorId);
     this.ace.setShowPrintMargin(false);
     this.ace.setReadOnly(false);
+
+    // Enable linting (workers provide real-time error/warning annotations)
+    this.ace.session.setUseWorker(true);
 
     // Enable autocompletion
     this.ace.setOptions({
@@ -140,7 +155,7 @@ export class Editor {
 
     this.applySettings(DEFAULT_EDITOR_SETTINGS);
 
-    // Auto-save on change (debounced)
+    // Auto-save and lint on change (debounced)
     let saveTimeout: ReturnType<typeof setTimeout>;
     this.ace.on("change", () => {
       const tab = this.tabs.find((t) => t.path === this.activeTab);
@@ -151,6 +166,10 @@ export class Editor {
       }
       clearTimeout(saveTimeout);
       saveTimeout = setTimeout(() => this.saveCurrentFile(), 1000);
+
+      // Debounced TS/TSX/JSX lint
+      if (this.lintTimeout) clearTimeout(this.lintTimeout);
+      this.lintTimeout = setTimeout(() => this.runTsLint(), 400);
     });
 
     // Initially hide editor
@@ -237,6 +256,14 @@ export class Editor {
     // Reapply session-level settings after mode change
     this.ace.session.setTabSize(this.currentSettings.tabSize);
     this.ace.session.setUseWrapMode(this.currentSettings.wordWrap);
+    // For TS/TSX/JSX: disable Ace's built-in worker (useless) and use our TS linter
+    // For JS/CSS/HTML/JSON/YAML: keep Ace's worker
+    if (shouldUseTsLint(tab.name)) {
+      this.ace.session.setUseWorker(false);
+      this.runTsLint();
+    } else {
+      this.ace.session.setUseWorker(true);
+    }
 
     this.renderTabs();
     this.ace.focus();
@@ -282,6 +309,24 @@ export class Editor {
       this.renderTabs();
     } catch (e) {
       console.error("Failed to save file:", e);
+    }
+  }
+
+  private async runTsLint() {
+    const tab = this.tabs.find((t) => t.path === this.activeTab);
+    if (!tab || !shouldUseTsLint(tab.name)) return;
+
+    const code = this.ace.getValue();
+    const fileName = getTsFileName(tab.name);
+
+    try {
+      const annotations = await lintTypeScript(fileName, code);
+      // Only apply if we're still on the same tab
+      if (this.activeTab === tab.path) {
+        this.ace.session.setAnnotations(annotations);
+      }
+    } catch {
+      // Silently ignore lint errors
     }
   }
 
