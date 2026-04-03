@@ -40,6 +40,7 @@ import "ace-builds/src-min-noconflict/snippets/yaml";
 import "ace-builds/src-min-noconflict/snippets/markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { lintTypeScript, shouldUseTsLint, getTsFileName } from "./ts-lint";
+import { Minimap } from "./minimap";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
 import * as prettierEstree from "prettier/plugins/estree";
@@ -123,6 +124,7 @@ export class Editor {
   private editorEl: HTMLElement;
   private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
   private lintTimeout: ReturnType<typeof setTimeout> | null = null;
+  private minimap: Minimap | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -180,6 +182,9 @@ export class Editor {
       },
     });
 
+    // Init minimap (inside the editor-container, which is the parent of ace-editor)
+    this.minimap = new Minimap(this.editorEl.parentElement!, this.ace);
+
     this.applySettings(DEFAULT_EDITOR_SETTINGS);
 
     // Auto-save and lint on change (debounced)
@@ -214,6 +219,11 @@ export class Editor {
     // Session-level settings need to be applied to current session
     this.ace.session.setTabSize(settings.tabSize);
     this.ace.session.setUseWrapMode(settings.wordWrap);
+
+    // Minimap
+    if (this.minimap) {
+      this.minimap.setVisible(settings.showMinimap);
+    }
 
     // Force a re-render
     this.ace.renderer.updateFull(true);

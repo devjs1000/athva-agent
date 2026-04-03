@@ -758,6 +758,28 @@ body {
   inset: 0;
 }
 
+/* ── Minimap ── */
+.minimap-canvas {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 5;
+  cursor: pointer;
+  display: none;
+}
+
+.minimap-viewport {
+  position: absolute;
+  right: 0;
+  width: 60px;
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 2px solid rgba(255, 255, 255, 0.15);
+  z-index: 6;
+  pointer-events: auto;
+  cursor: pointer;
+  display: none;
+}
+
 /* ── Chat Panel ── */
 .chat-panel {
   width: var(--chat-width);
