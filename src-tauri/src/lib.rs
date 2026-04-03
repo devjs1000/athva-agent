@@ -150,6 +150,79 @@ fn write_file(path: String, content: String) -> Result<(), String> {
     fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+// ── File search (recursive listing for quick-open) ──
+
+#[tauri::command]
+fn search_files(root: String, query: String, max_results: usize) -> Vec<FileEntry> {
+    let root_path = PathBuf::from(&root);
+    let query_lower = query.to_lowercase();
+    let max = if max_results == 0 { 200 } else { max_results };
+    let mut results = Vec::new();
+    collect_files(&root_path, &root_path, &query_lower, max, &mut results);
+    results
+}
+
+fn collect_files(
+    base: &PathBuf,
+    dir: &PathBuf,
+    query: &str,
+    max: usize,
+    results: &mut Vec<FileEntry>,
+) {
+    if results.len() >= max {
+        return;
+    }
+
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries {
+        if results.len() >= max {
+            return;
+        }
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden dirs and common noise
+        if name.starts_with('.') {
+            continue;
+        }
+        if matches!(
+            name.as_str(),
+            "node_modules" | "target" | "dist" | "build" | ".git" | "__pycache__"
+        ) {
+            continue;
+        }
+
+        let path = entry.path();
+        let is_dir = path.is_dir();
+
+        if is_dir {
+            collect_files(base, &path, query, max, results);
+        } else {
+            // Get relative path for display
+            let rel = path
+                .strip_prefix(base)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+
+            if query.is_empty() || rel.to_lowercase().contains(query) {
+                results.push(FileEntry {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    is_dir: false,
+                });
+            }
+        }
+    }
+}
+
 // ── Settings ──
 
 #[tauri::command]
@@ -184,6 +257,7 @@ pub fn run() {
             read_dir,
             read_file,
             write_file,
+            search_files,
             load_settings,
             save_settings,
         ])

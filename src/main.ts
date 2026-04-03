@@ -4,12 +4,15 @@ import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
 import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
+import { QuickOpen } from "./modules/quick-open";
 
 // ── State ──
 let appSettings: AppSettings;
-let editor: Editor;
-let fileExplorer: FileExplorer;
-let settingsUI: SettingsUI;
+let editor!: Editor;
+let fileExplorer!: FileExplorer;
+let settingsUI!: SettingsUI;
+let quickOpen!: QuickOpen;
+let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
 function $(id: string): HTMLElement {
@@ -89,10 +92,12 @@ async function renderRecentProjects() {
 // ── Project Opening ──
 async function openProject(path: string) {
   const project = await addProject(path);
+  currentProjectPath = project.path;
   $("workspace-project-name").textContent = project.name;
   showPage("workspace");
 
   await fileExplorer.loadRoot(project.path);
+  quickOpen.setProjectRoot(project.path);
 }
 
 async function handleOpenFolder() {
@@ -196,6 +201,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init chatbot
   new Chatbot("chat-messages", "chat-input", "btn-send-chat", () => appSettings.ai);
 
+  // Init quick open
+  quickOpen = new QuickOpen((path, name) => {
+    editor.openFile(path, name);
+    fileExplorer.setActiveFile(path);
+  });
+
   // Setup resize handles
   setupResizeHandle("sidebar-resize", $("sidebar"), "left");
   setupResizeHandle("chat-resize", $("chat-panel"), "right");
@@ -230,6 +241,46 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // ── Settings buttons ──
   $("btn-close-settings").addEventListener("click", () => showPage("workspace"));
+
+  // ── Global keyboard shortcuts ──
+  document.addEventListener("keydown", (e) => {
+    const isMod = e.metaKey || e.ctrlKey;
+    const isWorkspace = !$("workspace-page").classList.contains("hidden");
+
+    // Ctrl/Cmd + P → Quick Open
+    if (isMod && e.key === "p") {
+      e.preventDefault();
+      if (isWorkspace && currentProjectPath) {
+        quickOpen.open();
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + F → Find in file (ace handles it, but ensure focus)
+    if (isMod && e.key === "f" && !e.shiftKey) {
+      if (isWorkspace && editor.hasOpenFile() && !quickOpen.isOpen()) {
+        e.preventDefault();
+        editor.openSearch();
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + H → Replace in file
+    if (isMod && e.key === "h") {
+      if (isWorkspace && editor.hasOpenFile() && !quickOpen.isOpen()) {
+        e.preventDefault();
+        editor.openReplace();
+      }
+      return;
+    }
+
+    // Escape → close quick open
+    if (e.key === "Escape" && quickOpen.isOpen()) {
+      e.preventDefault();
+      quickOpen.close();
+      return;
+    }
+  });
 
   // ── Render welcome ──
   renderRecentProjects();

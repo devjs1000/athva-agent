@@ -21,6 +21,8 @@ import "ace-builds/src-min-noconflict/theme-twilight";
 import "ace-builds/src-min-noconflict/theme-cobalt";
 import "ace-builds/src-min-noconflict/theme-github";
 import "ace-builds/src-min-noconflict/theme-chrome";
+import "ace-builds/src-min-noconflict/ext-searchbox";
+import "ace-builds/src-min-noconflict/ext-language_tools";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface EditorSettings {
@@ -241,6 +243,18 @@ export class Editor {
 
   private escapeAttr(str: string): string {
     return str.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  openSearch() {
+    this.ace.execCommand("find");
+  }
+
+  openReplace() {
+    this.ace.execCommand("replace");
+  }
+
+  hasOpenFile(): boolean {
+    return this.tabs.length > 0;
   }
 
   resize() {
