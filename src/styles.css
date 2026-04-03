@@ -79,8 +79,14 @@ body {
 
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
 }
 
 .brand-name {
@@ -355,6 +361,12 @@ body {
   min-height: var(--titlebar-height);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
+}
+
+.titlebar-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 
 .workspace-title {
