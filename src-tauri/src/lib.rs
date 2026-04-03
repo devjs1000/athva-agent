@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+// ── Project management ──
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Project {
     pub name: String,
@@ -16,9 +18,21 @@ pub struct ProjectsStore {
 }
 
 fn get_config_path(app: &tauri::AppHandle) -> PathBuf {
-    let config_dir = app.path().app_config_dir().expect("failed to get config dir");
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("failed to get config dir");
     fs::create_dir_all(&config_dir).ok();
     config_dir.join("projects.json")
+}
+
+fn get_settings_path(app: &tauri::AppHandle) -> PathBuf {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("failed to get config dir");
+    fs::create_dir_all(&config_dir).ok();
+    config_dir.join("settings.json")
 }
 
 #[tauri::command]
@@ -52,7 +66,6 @@ fn add_project(app: tauri::AppHandle, path: String) -> Project {
         .unwrap()
         .as_secs();
 
-    // Remove existing entry with same path
     store.projects.retain(|p| p.path != path);
 
     let project = Project {
@@ -86,6 +99,77 @@ fn check_path_exists(path: String) -> bool {
     PathBuf::from(&path).exists()
 }
 
+// ── File system commands ──
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+}
+
+#[tauri::command]
+fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err("Not a directory".to_string());
+    }
+
+    let mut entries: Vec<FileEntry> = fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Skip hidden files/dirs
+            if name.starts_with('.') {
+                return None;
+            }
+            let path = entry.path().to_string_lossy().to_string();
+            let is_dir = entry.file_type().ok()?.is_dir();
+            Some(FileEntry { name, path, is_dir })
+        })
+        .collect();
+
+    // Sort: dirs first, then alphabetically
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
+fn read_file(path: String) -> Result<String, String> {
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_file(path: String, content: String) -> Result<(), String> {
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+// ── Settings ──
+
+#[tauri::command]
+fn load_settings(app: tauri::AppHandle) -> String {
+    let path = get_settings_path(&app);
+    if path.exists() {
+        fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        "{}".to_string()
+    }
+}
+
+#[tauri::command]
+fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> {
+    let path = get_settings_path(&app);
+    fs::write(&path, settings).map_err(|e| e.to_string())
+}
+
+// ── App entry ──
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -97,6 +181,11 @@ pub fn run() {
             add_project,
             remove_project,
             check_path_exists,
+            read_dir,
+            read_file,
+            write_file,
+            load_settings,
+            save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

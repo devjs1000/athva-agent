@@ -1,129 +1,19 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { getProjects, addProject, removeProject, type Project } from "./store/projects";
+import { getProjects, addProject, removeProject } from "./store/projects";
+import { FileExplorer } from "./modules/file-explorer";
+import { Editor } from "./modules/editor";
+import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
+import { Chatbot } from "./modules/chatbot";
 
-// DOM references
-let welcomePage: HTMLElement;
-let workspacePage: HTMLElement;
-let createDialog: HTMLElement;
-let recentProjectsList: HTMLElement;
-let projectPathInput: HTMLInputElement;
-let workspaceProjectName: HTMLElement;
-let workspaceProjectPath: HTMLElement;
+// ── State ──
+let appSettings: AppSettings;
+let editor: Editor;
+let fileExplorer: FileExplorer;
+let settingsUI: SettingsUI;
 
+// ── DOM Helpers ──
 function $(id: string): HTMLElement {
   return document.getElementById(id)!;
-}
-
-// Render recent projects list
-async function renderRecentProjects() {
-  const store = await getProjects();
-  const projects = store.projects;
-
-  if (projects.length === 0) {
-    recentProjectsList.innerHTML = `<p class="empty-state">No recent projects</p>`;
-    return;
-  }
-
-  recentProjectsList.innerHTML = projects
-    .map(
-      (p) => `
-    <div class="recent-item" data-path="${escapeHtml(p.path)}">
-      <div class="recent-item-info">
-        <span class="recent-item-name">${escapeHtml(p.name)}</span>
-        <span class="recent-item-path">${escapeHtml(p.path)}</span>
-      </div>
-      <button class="recent-item-remove" data-remove="${escapeHtml(p.path)}" title="Remove from recent">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
-        </svg>
-      </button>
-    </div>
-  `
-    )
-    .join("");
-
-  // Bind click to open project
-  recentProjectsList.querySelectorAll(".recent-item").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest(".recent-item-remove")) return;
-      const path = (el as HTMLElement).dataset.path!;
-      openProject(path);
-    });
-  });
-
-  // Bind remove buttons
-  recentProjectsList.querySelectorAll(".recent-item-remove").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const path = (btn as HTMLElement).dataset.remove!;
-      await removeProject(path);
-      await renderRecentProjects();
-    });
-  });
-}
-
-// Open a project and switch to workspace view
-async function openProject(path: string) {
-  const project = await addProject(path);
-  showWorkspace(project);
-}
-
-function showWorkspace(project: Project) {
-  workspaceProjectName.textContent = project.name;
-  workspaceProjectPath.textContent = project.path;
-  welcomePage.classList.add("hidden");
-  createDialog.classList.add("hidden");
-  workspacePage.classList.remove("hidden");
-}
-
-function showWelcome() {
-  workspacePage.classList.add("hidden");
-  createDialog.classList.add("hidden");
-  welcomePage.classList.remove("hidden");
-  renderRecentProjects();
-}
-
-// Open folder dialog
-async function handleOpenFolder() {
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: "Open Project Folder",
-  });
-
-  if (selected) {
-    await openProject(selected as string);
-  }
-}
-
-// Create project dialog
-function showCreateDialog() {
-  projectPathInput.value = "";
-  createDialog.classList.remove("hidden");
-  projectPathInput.focus();
-}
-
-function hideCreateDialog() {
-  createDialog.classList.add("hidden");
-}
-
-async function handleBrowsePath() {
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: "Select Project Location",
-  });
-
-  if (selected) {
-    projectPathInput.value = selected as string;
-  }
-}
-
-async function handleConfirmCreate() {
-  const path = projectPathInput.value.trim();
-  if (!path) return;
-  await openProject(path);
 }
 
 function escapeHtml(str: string): string {
@@ -132,33 +22,215 @@ function escapeHtml(str: string): string {
   return div.innerHTML;
 }
 
-// Init
-window.addEventListener("DOMContentLoaded", () => {
-  welcomePage = $("welcome-page");
-  workspacePage = $("workspace-page");
-  createDialog = $("create-dialog");
-  recentProjectsList = $("recent-projects");
-  projectPathInput = $("project-path-input") as HTMLInputElement;
-  workspaceProjectName = $("workspace-project-name");
-  workspaceProjectPath = $("workspace-project-path");
+// ── Pages ──
+const pages = () => ({
+  welcome: $("welcome-page"),
+  workspace: $("workspace-page"),
+  settings: $("settings-page"),
+  createDialog: $("create-dialog"),
+});
 
+function showPage(name: "welcome" | "workspace" | "settings") {
+  const p = pages();
+  p.welcome.classList.add("hidden");
+  p.workspace.classList.add("hidden");
+  p.settings.classList.add("hidden");
+  p.createDialog.classList.add("hidden");
+  p[name].classList.remove("hidden");
+
+  if (name === "workspace" && editor) {
+    setTimeout(() => editor.resize(), 0);
+  }
+}
+
+// ── Welcome Page ──
+async function renderRecentProjects() {
+  const listEl = $("recent-projects");
+  const store = await getProjects();
+  const projects = store.projects;
+
+  if (projects.length === 0) {
+    listEl.innerHTML = `<p class="empty-state">No recent projects</p>`;
+    return;
+  }
+
+  listEl.innerHTML = projects
+    .map(
+      (p) => `
+    <div class="recent-item" data-path="${escapeHtml(p.path)}">
+      <div class="recent-item-info">
+        <span class="recent-item-name">${escapeHtml(p.name)}</span>
+        <span class="recent-item-path">${escapeHtml(p.path)}</span>
+      </div>
+      <button class="recent-item-remove" data-remove="${escapeHtml(p.path)}" title="Remove from recent">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+      </button>
+    </div>
+  `
+    )
+    .join("");
+
+  listEl.querySelectorAll(".recent-item").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".recent-item-remove")) return;
+      openProject((el as HTMLElement).dataset.path!);
+    });
+  });
+
+  listEl.querySelectorAll(".recent-item-remove").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await removeProject((btn as HTMLElement).dataset.remove!);
+      await renderRecentProjects();
+    });
+  });
+}
+
+// ── Project Opening ──
+async function openProject(path: string) {
+  const project = await addProject(path);
+  $("workspace-project-name").textContent = project.name;
+  showPage("workspace");
+
+  await fileExplorer.loadRoot(project.path);
+}
+
+async function handleOpenFolder() {
+  const selected = await open({ directory: true, multiple: false, title: "Open Project Folder" });
+  if (selected) await openProject(selected as string);
+}
+
+function showCreateDialog() {
+  const input = $("project-path-input") as HTMLInputElement;
+  input.value = "";
+  $("create-dialog").classList.remove("hidden");
+  input.focus();
+}
+
+function hideCreateDialog() {
+  $("create-dialog").classList.add("hidden");
+}
+
+async function handleBrowsePath() {
+  const selected = await open({ directory: true, multiple: false, title: "Select Project Location" });
+  if (selected) ($("project-path-input") as HTMLInputElement).value = selected as string;
+}
+
+async function handleConfirmCreate() {
+  const path = ($("project-path-input") as HTMLInputElement).value.trim();
+  if (!path) return;
+  hideCreateDialog();
+  await openProject(path);
+}
+
+// ── Chat Panel Toggle ──
+function toggleChat() {
+  const panel = $("chat-panel");
+  const resizeHandle = $("chat-resize");
+  const isVisible = !panel.classList.contains("hidden");
+
+  if (isVisible) {
+    panel.classList.add("hidden");
+    resizeHandle.classList.add("hidden");
+  } else {
+    panel.classList.remove("hidden");
+    resizeHandle.classList.remove("hidden");
+  }
+
+  setTimeout(() => editor.resize(), 0);
+}
+
+// ── Sidebar Resize ──
+function setupResizeHandle(handleId: string, target: HTMLElement, side: "left" | "right") {
+  const handle = $(handleId);
+  let startX: number;
+  let startWidth: number;
+
+  const onMouseMove = (e: MouseEvent) => {
+    const dx = e.clientX - startX;
+    const newWidth = side === "left" ? startWidth + dx : startWidth - dx;
+    target.style.width = `${Math.max(160, Math.min(600, newWidth))}px`;
+    editor.resize();
+  };
+
+  const onMouseUp = () => {
+    handle.classList.remove("active");
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+  };
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    startX = e.clientX;
+    startWidth = target.getBoundingClientRect().width;
+    handle.classList.add("active");
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+}
+
+// ── Settings ──
+function onSettingsChange(settings: AppSettings) {
+  appSettings = settings;
+  editor.applySettings(settings.editor);
+}
+
+// ── Init ──
+window.addEventListener("DOMContentLoaded", async () => {
+  // Load settings
+  appSettings = await loadSettings();
+
+  // Init editor
+  editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
+  editor.applySettings(appSettings.editor);
+
+  // Init file explorer
+  fileExplorer = new FileExplorer("file-tree", (path, name) => {
+    editor.openFile(path, name);
+    fileExplorer.setActiveFile(path);
+  });
+
+  // Init settings UI
+  settingsUI = new SettingsUI(appSettings, onSettingsChange);
+
+  // Init chatbot
+  new Chatbot("chat-messages", "chat-input", "btn-send-chat", () => appSettings.ai);
+
+  // Setup resize handles
+  setupResizeHandle("sidebar-resize", $("sidebar"), "left");
+  setupResizeHandle("chat-resize", $("chat-panel"), "right");
+
+  // ── Welcome page buttons ──
   $("btn-open-folder").addEventListener("click", handleOpenFolder);
   $("btn-create-project").addEventListener("click", showCreateDialog);
   $("btn-browse-path").addEventListener("click", handleBrowsePath);
   $("btn-cancel-create").addEventListener("click", hideCreateDialog);
   $("btn-confirm-create").addEventListener("click", handleConfirmCreate);
-  $("btn-back-home").addEventListener("click", showWelcome);
 
-  // Allow Enter key in path input
-  projectPathInput.addEventListener("keydown", (e) => {
+  // Create dialog keyboard
+  ($("project-path-input") as HTMLInputElement).addEventListener("keydown", (e) => {
     if (e.key === "Enter") handleConfirmCreate();
     if (e.key === "Escape") hideCreateDialog();
   });
-
-  // Close dialog on overlay click
-  createDialog.addEventListener("click", (e) => {
-    if (e.target === createDialog) hideCreateDialog();
+  $("create-dialog").addEventListener("click", (e) => {
+    if (e.target === $("create-dialog")) hideCreateDialog();
   });
 
+  // ── Workspace buttons ──
+  $("btn-back-home").addEventListener("click", () => {
+    showPage("welcome");
+    renderRecentProjects();
+  });
+  $("btn-settings").addEventListener("click", () => {
+    settingsUI.updateSettings(appSettings);
+    showPage("settings");
+  });
+  $("btn-toggle-chat").addEventListener("click", toggleChat);
+  $("btn-close-chat").addEventListener("click", toggleChat);
+
+  // ── Settings buttons ──
+  $("btn-close-settings").addEventListener("click", () => showPage("workspace"));
+
+  // ── Render welcome ──
   renderRecentProjects();
 });

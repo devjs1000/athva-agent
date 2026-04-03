@@ -10,34 +10,26 @@
 
   <body>
     <div id="app">
-      <!-- Welcome Page -->
+      <!-- ========== Welcome Page ========== -->
       <div id="welcome-page" class="page">
         <div class="welcome-container">
-          <!-- Left: Start Section -->
           <div class="welcome-left">
             <div class="brand">
               <h1 class="brand-name">Athva Agent</h1>
               <span class="brand-version">v0.1.0</span>
             </div>
-
             <div class="start-section">
               <h2 class="section-title">Start</h2>
               <button id="btn-open-folder" class="action-btn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M1.5 2A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 14.5 4H8.21l-1.6-1.6A1.5 1.5 0 0 0 5.55 2H1.5z"/>
-                </svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 2A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 14.5 4H8.21l-1.6-1.6A1.5 1.5 0 0 0 5.55 2H1.5z"/></svg>
                 Open Folder...
               </button>
               <button id="btn-create-project" class="action-btn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/>
-                </svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
                 Create New Project...
               </button>
             </div>
           </div>
-
-          <!-- Right: Recent Projects -->
           <div class="welcome-right">
             <h2 class="section-title">Recent</h2>
             <div id="recent-projects" class="recent-list">
@@ -47,7 +39,7 @@
         </div>
       </div>
 
-      <!-- Create Project Dialog -->
+      <!-- ========== Create Project Dialog ========== -->
       <div id="create-dialog" class="dialog-overlay hidden">
         <div class="dialog">
           <h2>Create New Project</h2>
@@ -66,19 +58,151 @@
         </div>
       </div>
 
-      <!-- Project Workspace (shown after selecting a project) -->
+      <!-- ========== Workspace Page ========== -->
       <div id="workspace-page" class="page hidden">
-        <div class="workspace-header">
+        <!-- Title bar -->
+        <div class="workspace-titlebar">
           <button id="btn-back-home" class="btn-icon" title="Back to Home">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-            </svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
           </button>
           <span id="workspace-project-name" class="workspace-title"></span>
+          <div class="titlebar-actions">
+            <button id="btn-settings" class="btn-icon" title="Settings">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/><path fill-rule="evenodd" d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.421 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.421-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/></svg>
+            </button>
+            <button id="btn-toggle-chat" class="btn-icon" title="Toggle AI Chat">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4.414A2 2 0 0 0 3 11.586l-2 2V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12.793a.5.5 0 0 0 .854.353l2.853-2.853A1 1 0 0 1 4.414 12H14a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/><path d="M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zM3 6a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 6zm0 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/></svg>
+            </button>
+          </div>
         </div>
-        <div class="workspace-body">
-          <p class="workspace-path" id="workspace-project-path"></p>
-          <p class="workspace-hint">Project loaded. Workspace is ready.</p>
+
+        <!-- Main workspace area -->
+        <div class="workspace-main">
+          <!-- File Explorer Sidebar -->
+          <div id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+              <span class="sidebar-title">EXPLORER</span>
+            </div>
+            <div id="file-tree" class="file-tree"></div>
+          </div>
+
+          <!-- Sidebar resize handle -->
+          <div id="sidebar-resize" class="resize-handle-v"></div>
+
+          <!-- Editor area -->
+          <div id="editor-area" class="editor-area">
+            <!-- Tabs -->
+            <div id="editor-tabs" class="editor-tabs"></div>
+            <!-- Ace editor container -->
+            <div id="editor-container" class="editor-container">
+              <div id="editor-empty" class="editor-empty">
+                <p>Select a file to open</p>
+              </div>
+              <div id="ace-editor" class="ace-editor"></div>
+            </div>
+          </div>
+
+          <!-- Chat panel resize handle -->
+          <div id="chat-resize" class="resize-handle-v hidden"></div>
+
+          <!-- AI Chat Panel -->
+          <div id="chat-panel" class="chat-panel hidden">
+            <div class="chat-header">
+              <span class="chat-header-title">AI Chat</span>
+              <button id="btn-close-chat" class="btn-icon btn-icon-sm" title="Close">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+              </button>
+            </div>
+            <div id="chat-messages" class="chat-messages"></div>
+            <div class="chat-input-area">
+              <textarea id="chat-input" class="chat-input" placeholder="Ask AI..." rows="2"></textarea>
+              <button id="btn-send-chat" class="btn-primary btn-send">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Settings Page ========== -->
+      <div id="settings-page" class="page hidden">
+        <div class="settings-container">
+          <div class="settings-header">
+            <button id="btn-close-settings" class="btn-icon" title="Back to Workspace">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/></svg>
+            </button>
+            <h2>Settings</h2>
+          </div>
+
+          <div class="settings-body">
+            <!-- Editor Settings -->
+            <div class="settings-section">
+              <h3 class="settings-section-title">Editor</h3>
+
+              <div class="setting-row">
+                <label for="setting-theme">Theme</label>
+                <select id="setting-theme">
+                  <option value="monokai">Monokai</option>
+                  <option value="github_dark">GitHub Dark</option>
+                  <option value="tomorrow_night">Tomorrow Night</option>
+                  <option value="dracula">Dracula</option>
+                  <option value="one_dark">One Dark</option>
+                  <option value="solarized_dark">Solarized Dark</option>
+                  <option value="twilight">Twilight</option>
+                  <option value="cobalt">Cobalt</option>
+                  <option value="github">GitHub (Light)</option>
+                  <option value="chrome">Chrome (Light)</option>
+                </select>
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-font-size">Font Size</label>
+                <input id="setting-font-size" type="number" value="14" min="8" max="32" />
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-tab-size">Tab Size</label>
+                <input id="setting-tab-size" type="number" value="2" min="1" max="8" />
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-word-wrap">Word Wrap</label>
+                <input id="setting-word-wrap" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-show-gutter">Show Line Numbers</label>
+                <input id="setting-show-gutter" type="checkbox" checked />
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-minimap">Show Minimap</label>
+                <input id="setting-minimap" type="checkbox" />
+              </div>
+            </div>
+
+            <!-- AI Agent Settings -->
+            <div class="settings-section">
+              <h3 class="settings-section-title">AI Agent</h3>
+
+              <div class="setting-row">
+                <label for="setting-ai-provider">Provider</label>
+                <select id="setting-ai-provider">
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="google">Google Gemini</option>
+                </select>
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-ai-api-key">API Key</label>
+                <input id="setting-ai-api-key" type="password" placeholder="Enter your API key" />
+              </div>
+
+              <div class="setting-row">
+                <label for="setting-ai-model">Model</label>
+                <input id="setting-ai-model" type="text" placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
