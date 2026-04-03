@@ -1006,7 +1006,7 @@ body {
   accent-color: var(--accent);
 }
 
-/* ── Status Bar (VS Code style) ── */
+/* ── Status Bar (dark theme) ── */
 .status-bar {
   display: flex;
   align-items: center;
@@ -1014,8 +1014,9 @@ body {
   height: 22px;
   min-height: 22px;
   padding: 0 4px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -1034,20 +1035,21 @@ body {
   height: 22px;
   border: none;
   background: transparent;
-  color: #fff;
+  color: var(--text-secondary);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.1s, color 0.1s;
   white-space: nowrap;
 }
 
 .status-bar-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .status-bar-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -1058,7 +1060,72 @@ body {
 .status-bar-text {
   padding: 0 6px;
   font-size: 12px;
-  opacity: 0.85;
+  color: var(--text-muted);
+}
+
+/* ── Ace Search Box (dark theme override) ── */
+.ace_search {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border) !important;
+  border-top: none !important;
+  color: var(--text-primary) !important;
+  border-radius: 0 0 6px 6px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  padding: 6px 8px !important;
+}
+
+.ace_search_form,
+.ace_replace_form {
+  border: none !important;
+  margin: 0 !important;
+}
+
+.ace_search_field {
+  background: var(--bg-primary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 3px !important;
+  color: var(--text-primary) !important;
+  font-family: inherit !important;
+  padding: 3px 6px !important;
+  outline: none !important;
+}
+
+.ace_search_field:focus {
+  border-color: var(--accent) !important;
+}
+
+.ace_searchbtn,
+.ace_replacebtn {
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 3px !important;
+  color: var(--text-primary) !important;
+  padding: 2px 6px !important;
+  cursor: pointer !important;
+}
+
+.ace_searchbtn:hover,
+.ace_replacebtn:hover {
+  background: var(--bg-active) !important;
+}
+
+.ace_searchbtn.prev::after,
+.ace_searchbtn.next::after {
+  color: var(--text-primary) !important;
+}
+
+.ace_search_options .ace_button {
+  color: var(--text-secondary) !important;
+}
+
+.ace_search_options .ace_button:hover,
+.ace_search_options .ace_button.checked {
+  color: var(--text-primary) !important;
+  background: var(--bg-active) !important;
+}
+
+.ace_search_counter {
+  color: var(--text-muted) !important;
 }
 
 /* Sync spinning animation */

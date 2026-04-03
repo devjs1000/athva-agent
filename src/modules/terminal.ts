@@ -4,6 +4,11 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
 
+// Since tauri-plugin-shell doesn't provide a real PTY, we implement
+// a command-by-command execution model (like a basic shell prompt).
+// Each line the user types is executed as `sh -c "cd <cwd> && <command>"`
+// and stdout/stderr is streamed back to xterm.
+
 export class TerminalPanel {
   private panel: HTMLElement;
   private resizeHandle: HTMLElement;
@@ -11,9 +16,14 @@ export class TerminalPanel {
   private term: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private projectPath: string = "";
-  private shellProcess: any = null;
   private onResize: () => void;
   private isVisible = false;
+  private inputBuffer: string = "";
+  private isRunning = false;
+  private currentProcess: any = null;
+  private cwd: string = "";
+  private history: string[] = [];
+  private historyIndex: number = -1;
 
   constructor(onEditorResize: () => void) {
     this.panel = document.getElementById("terminal-panel")!;
@@ -29,7 +39,7 @@ export class TerminalPanel {
 
   setProject(path: string) {
     this.projectPath = path;
-    // If terminal is visible, restart with new cwd
+    this.cwd = path;
     if (this.isVisible && this.term) {
       this.restart();
     }
@@ -56,10 +66,15 @@ export class TerminalPanel {
     setTimeout(() => {
       this.fit();
       this.onResize();
+      this.term?.focus();
     }, 0);
   }
 
   hide() {
+    if (this.currentProcess) {
+      this.currentProcess.kill();
+      this.currentProcess = null;
+    }
     this.panel.classList.add("hidden");
     this.resizeHandle.classList.add("hidden");
     this.isVisible = false;
@@ -75,12 +90,16 @@ export class TerminalPanel {
       try {
         this.fitAddon.fit();
       } catch {
-        // ignore fit errors when not visible
+        // ignore
       }
     }
   }
 
   private createTerminal() {
+    this.cwd = this.projectPath || "/";
+    this.inputBuffer = "";
+    this.isRunning = false;
+
     this.term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
@@ -116,69 +135,219 @@ export class TerminalPanel {
     this.term.open(this.container);
     this.fit();
 
-    this.startShell();
+    // Welcome message
+    this.term.writeln("\x1b[90mAthva Terminal\x1b[0m");
+    this.printPrompt();
+
+    // Handle user input
+    this.term.onData((data) => this.handleInput(data));
   }
 
-  private async startShell() {
+  private getShortCwd(): string {
+    if (this.cwd === this.projectPath) return ".";
+    if (this.cwd.startsWith(this.projectPath + "/")) {
+      return this.cwd.substring(this.projectPath.length + 1);
+    }
+    // Show ~ for home dir
+    const home = this.cwd.replace(/^\/Users\/[^/]+/, "~");
+    return home;
+  }
+
+  private printPrompt() {
+    const dir = this.getShortCwd();
+    this.term?.write(`\x1b[36m${dir}\x1b[0m \x1b[33m$\x1b[0m `);
+  }
+
+  private handleInput(data: string) {
     if (!this.term) return;
 
-    const cwd = this.projectPath || ".";
+    // If a process is running, send data to it (for interactive stdin)
+    if (this.isRunning && this.currentProcess) {
+      // Ctrl+C to kill
+      if (data === "\x03") {
+        this.currentProcess.kill();
+        this.currentProcess = null;
+        this.isRunning = false;
+        this.term.writeln("^C");
+        this.printPrompt();
+        return;
+      }
+      this.currentProcess.write(data);
+      return;
+    }
 
-    // Use Tauri's shell plugin to spawn a process
+    for (let i = 0; i < data.length; i++) {
+      const ch = data[i];
+
+      if (ch === "\r" || ch === "\n") {
+        // Enter - execute command
+        this.term.writeln("");
+        const cmd = this.inputBuffer.trim();
+        this.inputBuffer = "";
+        this.historyIndex = -1;
+        if (cmd) {
+          this.history.push(cmd);
+          this.executeCommand(cmd);
+        } else {
+          this.printPrompt();
+        }
+      } else if (ch === "\x7f" || ch === "\b") {
+        // Backspace
+        if (this.inputBuffer.length > 0) {
+          this.inputBuffer = this.inputBuffer.slice(0, -1);
+          this.term.write("\b \b");
+        }
+      } else if (ch === "\x03") {
+        // Ctrl+C
+        this.inputBuffer = "";
+        this.term.writeln("^C");
+        this.printPrompt();
+      } else if (ch === "\x0c") {
+        // Ctrl+L - clear
+        this.term.clear();
+        this.inputBuffer = "";
+        this.printPrompt();
+      } else if (data.startsWith("\x1b[A", i)) {
+        // Up arrow - history back
+        i += 2; // skip [A
+        if (this.history.length > 0) {
+          if (this.historyIndex === -1) {
+            this.historyIndex = this.history.length - 1;
+          } else if (this.historyIndex > 0) {
+            this.historyIndex--;
+          }
+          this.replaceInput(this.history[this.historyIndex]);
+        }
+      } else if (data.startsWith("\x1b[B", i)) {
+        // Down arrow - history forward
+        i += 2;
+        if (this.historyIndex !== -1) {
+          if (this.historyIndex < this.history.length - 1) {
+            this.historyIndex++;
+            this.replaceInput(this.history[this.historyIndex]);
+          } else {
+            this.historyIndex = -1;
+            this.replaceInput("");
+          }
+        }
+      } else if (ch >= " ") {
+        // Regular character
+        this.inputBuffer += ch;
+        this.term.write(ch);
+      }
+    }
+  }
+
+  private replaceInput(newInput: string) {
+    if (!this.term) return;
+    // Erase current input
+    for (let j = 0; j < this.inputBuffer.length; j++) {
+      this.term.write("\b \b");
+    }
+    this.inputBuffer = newInput;
+    this.term.write(newInput);
+  }
+
+  private async executeCommand(command: string) {
+    if (!this.term) return;
+
+    // Handle built-in cd
+    if (command === "cd" || command.startsWith("cd ")) {
+      this.handleCd(command);
+      return;
+    }
+
+    // Handle clear
+    if (command === "clear" || command === "cls") {
+      this.term.clear();
+      this.printPrompt();
+      return;
+    }
+
+    // Handle exit
+    if (command === "exit") {
+      this.hide();
+      return;
+    }
+
+    this.isRunning = true;
+
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
 
-      // Detect shell
-      const shell = await this.detectShell();
-
-      const cmd = Command.create(shell, ["-l"], { cwd, encoding: "utf-8" });
-
-      cmd.on("close", () => {
-        this.term?.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
-        this.shellProcess = null;
-      });
-
-      cmd.on("error", (err: string) => {
-        this.term?.writeln(`\r\n\x1b[31mError: ${err}\x1b[0m`);
+      // Use sh -c to run the command so pipes, redirects, etc. work
+      const cmd = Command.create("sh", ["-c", `cd "${this.cwd}" && ${command}`], {
+        encoding: "utf-8",
       });
 
       cmd.stdout.on("data", (data: string) => {
-        this.term?.write(data);
+        // Convert \n to \r\n for xterm
+        this.term?.write(data.replace(/\n/g, "\r\n"));
       });
 
       cmd.stderr.on("data", (data: string) => {
-        this.term?.write(data);
+        this.term?.write(data.replace(/\n/g, "\r\n"));
       });
 
-      this.shellProcess = await cmd.spawn();
-
-      // Send user input to the shell
-      this.term.onData((data: string) => {
-        if (this.shellProcess) {
-          this.shellProcess.write(data);
+      cmd.on("close", (payload: { code: number | null }) => {
+        this.isRunning = false;
+        this.currentProcess = null;
+        if (payload.code !== 0 && payload.code !== null) {
+          this.term?.writeln(`\x1b[90m[exit ${payload.code}]\x1b[0m`);
         }
+        this.printPrompt();
       });
+
+      cmd.on("error", (err: string) => {
+        this.isRunning = false;
+        this.currentProcess = null;
+        this.term?.writeln(`\x1b[31m${err}\x1b[0m`);
+        this.printPrompt();
+      });
+
+      this.currentProcess = await cmd.spawn();
     } catch (e) {
-      this.term.writeln(`\x1b[31mFailed to start shell: ${e}\x1b[0m`);
-      this.term.writeln("\x1b[90mMake sure shell permissions are configured.\x1b[0m");
+      this.isRunning = false;
+      this.term.writeln(`\x1b[31mError: ${e}\x1b[0m`);
+      this.printPrompt();
     }
   }
 
-  private async detectShell(): Promise<string> {
-    // Try zsh first (macOS default), then bash, then sh
-    try {
-      await invoke<boolean>("check_path_exists", { path: "/bin/zsh" });
-      return "zsh";
-    } catch {
-      // fall through
+  private async handleCd(command: string) {
+    const arg = command.substring(2).trim();
+    let newPath: string;
+
+    if (!arg || arg === "~") {
+      // cd home
+      newPath = this.projectPath;
+    } else if (arg === "-") {
+      newPath = this.projectPath;
+    } else if (arg.startsWith("/")) {
+      newPath = arg;
+    } else {
+      newPath = `${this.cwd}/${arg}`;
     }
-    return "bash";
+
+    // Resolve .. and .
+    try {
+      // Use the Rust backend to check if path exists
+      const exists = await invoke<boolean>("check_path_exists", { path: newPath });
+      if (exists) {
+        this.cwd = newPath;
+      } else {
+        this.term?.writeln(`\x1b[31mcd: no such directory: ${arg}\x1b[0m`);
+      }
+    } catch {
+      this.term?.writeln(`\x1b[31mcd: ${arg}: error\x1b[0m`);
+    }
+
+    this.printPrompt();
   }
 
   private restart() {
-    if (this.shellProcess) {
-      this.shellProcess.kill();
-      this.shellProcess = null;
+    if (this.currentProcess) {
+      this.currentProcess.kill();
+      this.currentProcess = null;
     }
     if (this.term) {
       this.term.dispose();
@@ -186,6 +355,8 @@ export class TerminalPanel {
       this.fitAddon = null;
       this.container.innerHTML = "";
     }
+    this.history = [];
+    this.historyIndex = -1;
     this.createTerminal();
   }
 

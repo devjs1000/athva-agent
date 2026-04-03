@@ -1,0 +1,24 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Allow all custom app commands"
+commands.allow = [
+  "get_projects",
+  "add_project",
+  "remove_project",
+  "check_path_exists",
+  "read_dir",
+  "read_file",
+  "write_file",
+  "create_file",
+  "create_dir",
+  "rename_path",
+  "delete_path",
+  "reveal_in_explorer",
+  "search_files",
+  "git_status",
+  "git_sync",
+  "git_pull",
+  "git_push",
+  "load_settings",
+  "save_settings"
+]
