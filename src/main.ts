@@ -7,6 +7,7 @@ import { Chatbot } from "./modules/chatbot";
 import { QuickOpen } from "./modules/quick-open";
 import { GitStatusBar } from "./modules/git-status";
 import { TerminalPanel } from "./modules/terminal";
+import { ScriptRunner } from "./modules/script-runner";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -16,6 +17,7 @@ let settingsUI!: SettingsUI;
 let quickOpen!: QuickOpen;
 let gitStatus!: GitStatusBar;
 let terminal!: TerminalPanel;
+let scriptRunner!: ScriptRunner;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -104,6 +106,7 @@ async function openProject(path: string) {
   quickOpen.setProjectRoot(project.path);
   gitStatus.setProject(project.path);
   terminal.setProject(project.path);
+  scriptRunner.setProject(project.path);
 }
 
 async function handleOpenFolder() {
@@ -213,6 +216,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init terminal
   terminal = new TerminalPanel(() => editor.resize());
 
+  // Init script runner
+  scriptRunner = new ScriptRunner(terminal);
+
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
     editor.openFile(path, name);
@@ -248,6 +254,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     settingsUI.updateSettings(appSettings);
     showPage("settings");
   });
+  $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
   $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);

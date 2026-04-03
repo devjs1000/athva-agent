@@ -248,6 +248,15 @@ export class TerminalPanel {
     this.term.write(newInput);
   }
 
+  // Run a command externally (from script runner etc.) - shows terminal, prints command, executes
+  async runCommand(command: string) {
+    this.show();
+    if (this.isRunning) return; // don't interrupt running process
+    // Print the command as if user typed it
+    this.term?.writeln(`\x1b[90m$ ${command}\x1b[0m`);
+    await this.executeCommand(command);
+  }
+
   private async executeCommand(command: string) {
     if (!this.term) return;
 

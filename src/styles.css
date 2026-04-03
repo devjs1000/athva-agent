@@ -1267,6 +1267,20 @@ body {
   min-width: 0;
 }
 
+.script-runner-header {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.script-item-icon {
+  color: #4ec9b0;
+  display: flex;
+  align-items: center;
+}
+
 .quick-open-empty {
   padding: 16px;
   text-align: center;
