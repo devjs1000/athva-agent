@@ -36,7 +36,10 @@ export class Chatbot {
 
   private renderWelcome() {
     this.messagesEl.innerHTML = "";
-    this.addMessageToDOM("assistant", "Hello! I'm your AI assistant. Ask me anything about your code or project.\n\nMake sure to configure your API key in Settings.");
+    this.addMessageToDOM(
+      "assistant",
+      "Hello! I'm your AI assistant. Ask me anything about your code or project.\n\nSupported providers: OpenAI, Anthropic, Google Gemini, Xiaomi MiMo, Mistral AI.\n\nConfigure your API key in Settings."
+    );
   }
 
   private async send() {
@@ -69,17 +72,23 @@ export class Chatbot {
       .filter((m) => m.role !== "error")
       .map((m) => ({ role: m.role, content: m.content }));
 
-    if (settings.provider === "openai") {
-      return this.callOpenAI(settings, history);
-    } else if (settings.provider === "anthropic") {
-      return this.callAnthropic(settings, history);
-    } else if (settings.provider === "google") {
-      return this.callGoogle(settings, history);
+    switch (settings.provider) {
+      case "openai":
+        return this.callOpenAI(settings, history);
+      case "anthropic":
+        return this.callAnthropic(settings, history);
+      case "google":
+        return this.callGoogle(settings, history);
+      case "mimo":
+        return this.callMiMo(settings, history);
+      case "mistral":
+        return this.callMistral(settings, history);
+      default:
+        throw new Error(`Unknown provider: ${settings.provider}`);
     }
-
-    throw new Error(`Unknown provider: ${settings.provider}`);
   }
 
+  // ── OpenAI ──
   private async callOpenAI(
     settings: AISettings,
     messages: { role: string; content: string }[]
@@ -103,6 +112,7 @@ export class Chatbot {
     return data.choices?.[0]?.message?.content || "No response.";
   }
 
+  // ── Anthropic ──
   private async callAnthropic(
     settings: AISettings,
     messages: { role: string; content: string }[]
@@ -132,6 +142,7 @@ export class Chatbot {
     return data.content?.[0]?.text || "No response.";
   }
 
+  // ── Google Gemini ──
   private async callGoogle(
     settings: AISettings,
     history: { role: string; content: string }[]
@@ -158,6 +169,70 @@ export class Chatbot {
 
     const data = await res.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
+  }
+
+  // ── Xiaomi MiMo (OpenAI-compatible endpoint) ──
+  // Models: mimo-v2-pro (1M ctx), mimo-v2-omni (256K), mimo-v2-flash (256K)
+  // Auth: api-key header or Bearer token
+  // Endpoint: https://api.xiaomimimo.com/v1/chat/completions
+  private async callMiMo(
+    settings: AISettings,
+    messages: { role: string; content: string }[]
+  ): Promise<string> {
+    const model = settings.model || "mimo-v2-flash";
+    const res = await fetch("https://api.xiaomimimo.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": settings.apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 1.0,
+        top_p: 0.95,
+        max_completion_tokens: 4096,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`MiMo API error ${res.status}: ${err}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "No response.";
+  }
+
+  // ── Mistral AI (OpenAI-compatible endpoint) ──
+  // Models: mistral-large-latest, mistral-medium-latest, mistral-small-latest
+  // Auth: Bearer token
+  // Endpoint: https://api.mistral.ai/v1/chat/completions
+  private async callMistral(
+    settings: AISettings,
+    messages: { role: string; content: string }[]
+  ): Promise<string> {
+    const model = settings.model || "mistral-small-latest";
+    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: 4096,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Mistral API error ${res.status}: ${err}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "No response.";
   }
 
   private addMessage(role: ChatMessage["role"], content: string) {
