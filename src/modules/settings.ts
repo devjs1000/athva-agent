@@ -76,6 +76,7 @@ export class SettingsUI {
   private wordWrapEl: HTMLInputElement;
   private showGutterEl: HTMLInputElement;
   private minimapEl: HTMLInputElement;
+  private aiInlineEl: HTMLInputElement;
 
   // AI elements
   private providerEl: HTMLSelectElement;
@@ -104,6 +105,7 @@ export class SettingsUI {
     this.wordWrapEl = document.getElementById("setting-word-wrap") as HTMLInputElement;
     this.showGutterEl = document.getElementById("setting-show-gutter") as HTMLInputElement;
     this.minimapEl = document.getElementById("setting-minimap") as HTMLInputElement;
+    this.aiInlineEl = document.getElementById("setting-ai-inline") as HTMLInputElement;
 
     this.providerEl = document.getElementById("setting-ai-provider") as HTMLSelectElement;
     this.apiKeyEl = document.getElementById("setting-ai-api-key") as HTMLInputElement;
@@ -140,6 +142,7 @@ export class SettingsUI {
     this.wordWrapEl.checked = this.settings.editor.wordWrap;
     this.showGutterEl.checked = this.settings.editor.showGutter;
     this.minimapEl.checked = this.settings.editor.showMinimap;
+    this.aiInlineEl.checked = this.settings.editor.aiInlineSuggestions;
 
     // AI
     this.providerEl.value = this.settings.ai.provider;
@@ -184,6 +187,7 @@ export class SettingsUI {
         wordWrap: this.wordWrapEl.checked,
         showGutter: this.showGutterEl.checked,
         showMinimap: this.minimapEl.checked,
+        aiInlineSuggestions: this.aiInlineEl.checked,
       },
       ai: {
         provider: this.providerEl.value,

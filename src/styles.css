@@ -768,6 +768,17 @@ body {
   display: none;
 }
 
+/* ── AI Ghost Text ── */
+.ai-ghost-text {
+  position: absolute;
+  pointer-events: none;
+  color: rgba(150, 150, 150, 0.5);
+  font-family: "SF Mono", Menlo, Monaco, "Courier New", monospace;
+  white-space: pre;
+  z-index: 4;
+  line-height: 1.4;
+}
+
 .minimap-viewport {
   position: absolute;
   right: 0;

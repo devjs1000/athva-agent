@@ -197,6 +197,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init editor
   editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
   editor.applySettings(appSettings.editor);
+  editor.setAISettings(() => appSettings.ai);
 
   // Init file explorer
   fileExplorer = new FileExplorer("file-tree", (path, name) => {

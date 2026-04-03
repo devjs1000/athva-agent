@@ -41,6 +41,8 @@ import "ace-builds/src-min-noconflict/snippets/markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { lintTypeScript, shouldUseTsLint, getTsFileName } from "./ts-lint";
 import { Minimap } from "./minimap";
+import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
+import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
 import * as prettierEstree from "prettier/plugins/estree";
@@ -76,6 +78,7 @@ export interface EditorSettings {
   wordWrap: boolean;
   showGutter: boolean;
   showMinimap: boolean;
+  aiInlineSuggestions: boolean;
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -85,6 +88,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   wordWrap: false,
   showGutter: true,
   showMinimap: false,
+  aiInlineSuggestions: false,
 };
 
 interface OpenTab {
@@ -185,6 +189,9 @@ export class Editor {
     // Init minimap (inside the editor-container, which is the parent of ace-editor)
     this.minimap = new Minimap(this.editorEl.parentElement!, this.ace);
 
+    // Attach AI ghost text completer
+    attachAICompleter(this.ace);
+
     this.applySettings(DEFAULT_EDITOR_SETTINGS);
 
     // Auto-save and lint on change (debounced)
@@ -224,6 +231,9 @@ export class Editor {
     if (this.minimap) {
       this.minimap.setVisible(settings.showMinimap);
     }
+
+    // AI inline suggestions
+    setAICompleterEnabled(settings.aiInlineSuggestions);
 
     // Force a re-render
     this.ace.renderer.updateFull(true);
@@ -289,6 +299,9 @@ export class Editor {
     const ext = tab.name.split(".").pop()?.toLowerCase() || "";
     const mode = EXT_MODE_MAP[ext] || "text";
     this.ace.session.setMode(`ace/mode/${mode}`);
+
+    // Set filename for AI completer context
+    (this.ace as any)._athvaFileName = tab.name;
 
     // Reapply session-level settings after mode change
     this.ace.session.setTabSize(this.currentSettings.tabSize);
@@ -375,6 +388,10 @@ export class Editor {
 
   private escapeAttr(str: string): string {
     return str.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  setAISettings(getter: () => AISettings) {
+    setAICompleterConfig(getter);
   }
 
   openSearch() {
