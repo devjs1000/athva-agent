@@ -13,9 +13,9 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "athva-agent",
-        "width": 800,
-        "height": 600
+        "title": "Athva Agent",
+        "width": 900,
+        "height": 650
       }
     ],
     "security": {
