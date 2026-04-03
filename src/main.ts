@@ -248,6 +248,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     settingsUI.updateSettings(appSettings);
     showPage("settings");
   });
+  $("btn-format").addEventListener("click", () => editor.formatDocument());
   $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);
   $("btn-close-chat").addEventListener("click", toggleChat);
@@ -274,6 +275,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (isWorkspace && editor.hasOpenFile() && !quickOpen.isOpen()) {
         e.preventDefault();
         editor.openSearch();
+      }
+      return;
+    }
+
+    // Shift+Alt+F / Shift+Option+F / Cmd+Shift+I → Format document
+    if ((e.shiftKey && e.altKey && e.key === "F") || (isMod && e.shiftKey && e.key === "I")) {
+      if (isWorkspace && editor.hasOpenFile()) {
+        e.preventDefault();
+        editor.formatDocument();
       }
       return;
     }

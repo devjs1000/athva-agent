@@ -40,6 +40,33 @@ import "ace-builds/src-min-noconflict/snippets/yaml";
 import "ace-builds/src-min-noconflict/snippets/markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { lintTypeScript, shouldUseTsLint, getTsFileName } from "./ts-lint";
+import * as prettier from "prettier/standalone";
+import * as prettierBabel from "prettier/plugins/babel";
+import * as prettierEstree from "prettier/plugins/estree";
+import * as prettierTs from "prettier/plugins/typescript";
+import * as prettierPostcss from "prettier/plugins/postcss";
+import * as prettierHtml from "prettier/plugins/html";
+import * as prettierMd from "prettier/plugins/markdown";
+import * as prettierYaml from "prettier/plugins/yaml";
+
+const PRETTIER_PLUGINS = [prettierBabel, prettierEstree, prettierTs, prettierPostcss, prettierHtml, prettierMd, prettierYaml];
+
+const PRETTIER_PARSER_MAP: Record<string, string> = {
+  js: "babel",
+  jsx: "babel",
+  ts: "typescript",
+  tsx: "typescript",
+  json: "json",
+  html: "html",
+  htm: "html",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  md: "markdown",
+  mdx: "mdx",
+  yaml: "yaml",
+  yml: "yaml",
+};
 
 export interface EditorSettings {
   theme: string;
@@ -350,6 +377,40 @@ export class Editor {
 
   hasOpenFile(): boolean {
     return this.tabs.length > 0;
+  }
+
+  async formatDocument() {
+    const tab = this.tabs.find((t) => t.path === this.activeTab);
+    if (!tab) return;
+
+    const ext = tab.name.split(".").pop()?.toLowerCase() || "";
+    const parser = PRETTIER_PARSER_MAP[ext];
+    if (!parser) return; // No formatter for this file type
+
+    const code = this.ace.getValue();
+    const cursor = this.ace.getCursorPosition();
+
+    try {
+      const formatted = await prettier.format(code, {
+        parser,
+        plugins: PRETTIER_PLUGINS as any,
+        tabWidth: this.currentSettings.tabSize,
+        useTabs: false,
+        singleQuote: true,
+        semi: true,
+        trailingComma: "all",
+      });
+
+      if (formatted !== code) {
+        this.ace.setValue(formatted, -1);
+        this.ace.clearSelection();
+        // Restore cursor as close as possible
+        this.ace.moveCursorToPosition(cursor);
+        this.ace.renderer.scrollCursorIntoView(cursor, 0.5);
+      }
+    } catch (e) {
+      console.error("Format failed:", e);
+    }
   }
 
   resize() {
