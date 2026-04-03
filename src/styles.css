@@ -499,6 +499,58 @@ body {
   display: block;
 }
 
+/* ── Context Menu ── */
+.context-menu {
+  position: fixed;
+  z-index: 300;
+  min-width: 180px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 24px 5px 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.05s;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.context-menu-arrow {
+  font-size: 8px;
+  opacity: 0.6;
+  margin-left: 16px;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.context-submenu {
+  position: absolute;
+  min-width: 160px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 301;
+}
+
 /* ── Resize Handles ── */
 .resize-handle-v {
   width: 4px;

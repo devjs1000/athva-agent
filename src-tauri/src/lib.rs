@@ -150,6 +150,72 @@ fn write_file(path: String, content: String) -> Result<(), String> {
     fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+// ── File operations (for context menu) ──
+
+#[tauri::command]
+fn create_file(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.exists() {
+        return Err("File already exists".to_string());
+    }
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&p, "").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_dir(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.exists() {
+        return Err("Directory already exists".to_string());
+    }
+    fs::create_dir_all(&p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
+    fs::rename(&old_path, &new_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_path(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.is_dir() {
+        fs::remove_dir_all(&p).map_err(|e| e.to_string())
+    } else {
+        fs::remove_file(&p).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+fn reveal_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(PathBuf::from(&path).parent().unwrap_or(&PathBuf::from(".")))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // ── File search (recursive listing for quick-open) ──
 
 #[tauri::command]
@@ -339,6 +405,11 @@ pub fn run() {
             read_dir,
             read_file,
             write_file,
+            create_file,
+            create_dir,
+            rename_path,
+            delete_path,
+            reveal_in_explorer,
             search_files,
             git_status,
             git_sync,
