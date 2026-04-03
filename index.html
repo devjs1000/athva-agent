@@ -60,6 +60,30 @@
         </div>
       </div>
 
+      <!-- ========== Input Dialog (reusable prompt/confirm) ========== -->
+      <div id="input-dialog" class="dialog-overlay hidden">
+        <div class="dialog dialog-sm">
+          <h2 id="input-dialog-title">Title</h2>
+          <input id="input-dialog-field" type="text" class="input-dialog-field" placeholder="" autocomplete="off" spellcheck="false" />
+          <div class="dialog-actions">
+            <button id="input-dialog-cancel" class="btn-secondary">Cancel</button>
+            <button id="input-dialog-ok" class="btn-primary">OK</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Confirm Dialog ========== -->
+      <div id="confirm-dialog" class="dialog-overlay hidden">
+        <div class="dialog dialog-sm">
+          <h2 id="confirm-dialog-title">Confirm</h2>
+          <p id="confirm-dialog-message" class="confirm-msg"></p>
+          <div class="dialog-actions">
+            <button id="confirm-dialog-cancel" class="btn-secondary">Cancel</button>
+            <button id="confirm-dialog-ok" class="btn-primary btn-danger">Delete</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ========== Quick Open Palette (Ctrl+P / Cmd+P) ========== -->
       <div id="quick-open-overlay" class="quick-open-overlay hidden">
         <div class="quick-open">

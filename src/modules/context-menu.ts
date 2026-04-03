@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { showInputDialog, showConfirmDialog } from "./dialogs";
 
 export interface ContextMenuTarget {
   path: string;
@@ -12,7 +13,6 @@ export type OnOpenFile = (path: string, name: string) => void;
 
 interface MenuItem {
   label: string;
-  icon?: string;
   action?: () => void;
   separator?: boolean;
   submenu?: MenuItem[];
@@ -32,7 +32,6 @@ export class ContextMenu {
     this.el.className = "context-menu hidden";
     document.body.appendChild(this.el);
 
-    // Close on any outside click
     document.addEventListener("click", () => this.close());
     document.addEventListener("contextmenu", (e) => {
       if (!this.el.contains(e.target as Node)) {
@@ -53,7 +52,6 @@ export class ContextMenu {
     this.el.style.left = `${x}px`;
     this.el.style.top = `${y}px`;
 
-    // Adjust if overflowing viewport
     requestAnimationFrame(() => {
       const rect = this.el.getBoundingClientRect();
       if (rect.right > window.innerWidth) {
@@ -67,8 +65,6 @@ export class ContextMenu {
 
   close() {
     this.el.classList.add("hidden");
-    // Remove any open submenus
-    this.el.querySelectorAll(".context-submenu").forEach((s) => s.remove());
   }
 
   private buildMenu(target: ContextMenuTarget): MenuItem[] {
@@ -107,7 +103,7 @@ export class ContextMenu {
         ],
       },
       {
-        label: "Copy",
+        label: "Copy Name",
         action: () => this.copyToClipboard(target.name),
       },
       { separator: true, label: "" },
@@ -156,7 +152,6 @@ export class ContextMenu {
         }
 
         row.addEventListener("mouseenter", () => {
-          // Position submenu
           const rect = row.getBoundingClientRect();
           sub.style.left = `${rect.width}px`;
           sub.style.top = `${rect.top - this.el.getBoundingClientRect().top}px`;
@@ -188,7 +183,7 @@ export class ContextMenu {
   // ── Actions ──
 
   private async promptNewFile(dir: string) {
-    const name = prompt("New file name:");
+    const name = await showInputDialog("New File", "Enter file name", "");
     if (!name) return;
     const fullPath = `${dir}/${name}`;
     try {
@@ -196,42 +191,46 @@ export class ContextMenu {
       this.onRefresh(dir);
       this.onOpenFile(fullPath, name);
     } catch (e) {
-      alert(`Failed to create file: ${e}`);
+      await showConfirmDialog("Error", `Failed to create file: ${e}`, "OK");
     }
   }
 
   private async promptNewFolder(dir: string) {
-    const name = prompt("New folder name:");
+    const name = await showInputDialog("New Folder", "Enter folder name", "");
     if (!name) return;
     const fullPath = `${dir}/${name}`;
     try {
       await invoke("create_dir", { path: fullPath });
       this.onRefresh(dir);
     } catch (e) {
-      alert(`Failed to create folder: ${e}`);
+      await showConfirmDialog("Error", `Failed to create folder: ${e}`, "OK");
     }
   }
 
   private async promptRename(target: ContextMenuTarget) {
-    const newName = prompt("Rename to:", target.name);
+    const newName = await showInputDialog("Rename", `Rename "${target.name}" to:`, target.name);
     if (!newName || newName === target.name) return;
     const newPath = `${target.parentDir}/${newName}`;
     try {
       await invoke("rename_path", { oldPath: target.path, newPath });
       this.onRefresh(target.parentDir);
     } catch (e) {
-      alert(`Failed to rename: ${e}`);
+      await showConfirmDialog("Error", `Failed to rename: ${e}`, "OK");
     }
   }
 
   private async confirmDelete(target: ContextMenuTarget) {
-    const ok = confirm(`Delete "${target.name}"? This cannot be undone.`);
+    const ok = await showConfirmDialog(
+      "Delete",
+      `Are you sure you want to delete "${target.name}"? This cannot be undone.`,
+      "Delete"
+    );
     if (!ok) return;
     try {
       await invoke("delete_path", { path: target.path });
       this.onRefresh(target.parentDir);
     } catch (e) {
-      alert(`Failed to delete: ${e}`);
+      await showConfirmDialog("Error", `Failed to delete: ${e}`, "OK");
     }
   }
 
@@ -247,7 +246,6 @@ export class ContextMenu {
 
   private copyToClipboard(text: string) {
     navigator.clipboard.writeText(text).catch(() => {
-      // Fallback
       const ta = document.createElement("textarea");
       ta.value = text;
       document.body.appendChild(ta);

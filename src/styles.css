@@ -238,10 +238,46 @@ body {
   gap: 20px;
 }
 
+.dialog.dialog-sm {
+  width: 360px;
+  padding: 20px;
+  gap: 16px;
+}
+
 .dialog h2 {
   font-size: 16px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.input-dialog-field {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.input-dialog-field:focus {
+  border-color: var(--accent);
+}
+
+.confirm-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.btn-danger {
+  background: var(--danger);
+}
+
+.btn-danger:hover {
+  background: #d93636;
 }
 
 .dialog-field {
