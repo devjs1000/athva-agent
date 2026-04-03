@@ -99,6 +99,13 @@ export class SettingsUI {
     this.modelEl.value = this.settings.ai.model;
   }
 
+  private showSavedToast() {
+    const toast = document.getElementById("settings-saved-toast");
+    if (!toast) return;
+    toast.classList.remove("hidden");
+    setTimeout(() => toast.classList.add("hidden"), 1500);
+  }
+
   private bindEvents() {
     const save = () => {
       this.settings.editor.theme = this.themeEl.value;
@@ -112,19 +119,24 @@ export class SettingsUI {
       this.settings.ai.apiKey = this.apiKeyEl.value;
       this.settings.ai.model = this.modelEl.value;
 
-      this.onChange(this.settings);
-      saveSettings(this.settings);
+      this.onChange({ ...this.settings });
+      saveSettings(this.settings).then(() => this.showSavedToast());
     };
 
-    // Bind all inputs
+    // Bind all inputs - change for selects/checkboxes/number, input for text fields
     [this.themeEl, this.fontSizeEl, this.tabSizeEl, this.providerEl].forEach(
       (el) => el.addEventListener("change", save)
     );
     [this.wordWrapEl, this.showGutterEl, this.minimapEl].forEach((el) =>
       el.addEventListener("change", save)
     );
+    // Debounce text inputs so they don't fire on every keystroke
+    let debounce: ReturnType<typeof setTimeout>;
     [this.apiKeyEl, this.modelEl].forEach((el) =>
-      el.addEventListener("input", save)
+      el.addEventListener("input", () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(save, 500);
+      })
     );
   }
 }

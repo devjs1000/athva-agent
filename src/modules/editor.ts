@@ -76,6 +76,7 @@ export class Editor {
   private tabsContainer: HTMLElement;
   private emptyEl: HTMLElement;
   private editorEl: HTMLElement;
+  private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -105,23 +106,28 @@ export class Editor {
   }
 
   applySettings(settings: EditorSettings) {
+    this.currentSettings = { ...settings };
+
+    // Theme and font size are global on the editor instance
     this.ace.setTheme(`ace/theme/${settings.theme}`);
     this.ace.setFontSize(settings.fontSize);
+    this.ace.renderer.setShowGutter(settings.showGutter);
+
+    // Session-level settings need to be applied to current session
     this.ace.session.setTabSize(settings.tabSize);
     this.ace.session.setUseWrapMode(settings.wordWrap);
-    this.ace.renderer.setShowGutter(settings.showGutter);
-    // minimap not natively supported by ace, but we track the setting
+
+    // Force a re-render
+    this.ace.renderer.updateFull(true);
   }
 
   async openFile(path: string, name: string) {
-    // If already open, just switch to it
     const existing = this.tabs.find((t) => t.path === path);
     if (existing) {
       this.switchToTab(path);
       return;
     }
 
-    // Read file content
     let content: string;
     try {
       content = await invoke<string>("read_file", { path });
@@ -176,6 +182,10 @@ export class Editor {
     const mode = EXT_MODE_MAP[ext] || "text";
     this.ace.session.setMode(`ace/mode/${mode}`);
 
+    // Reapply session-level settings after mode change
+    this.ace.session.setTabSize(this.currentSettings.tabSize);
+    this.ace.session.setUseWrapMode(this.currentSettings.wordWrap);
+
     this.renderTabs();
     this.ace.focus();
     this.ace.resize();
@@ -193,7 +203,6 @@ export class Editor {
       )
       .join("");
 
-    // Bind tab clicks
     this.tabsContainer.querySelectorAll(".editor-tab").forEach((el) => {
       el.addEventListener("click", (e) => {
         if ((e.target as HTMLElement).closest(".editor-tab-close")) return;
@@ -202,7 +211,6 @@ export class Editor {
       });
     });
 
-    // Bind close buttons
     this.tabsContainer.querySelectorAll(".editor-tab-close").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();

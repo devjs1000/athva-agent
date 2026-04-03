@@ -1,7 +1,7 @@
 [package]
 name = "athva-agent"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Athva - AI-powered development agent"
 authors = ["you"]
 edition = "2021"
 
