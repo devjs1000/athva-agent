@@ -91,6 +91,10 @@ function scheduleSuggestBtn() {
 function showSuggestBtn() {
   if (!suggestBtn || !activeEditor || isLoading) return;
 
+  // Don't show if editor is empty or has no meaningful content
+  const content = activeEditor.getValue().trim();
+  if (!content) return;
+
   const pos = activeEditor.getCursorPosition();
   const renderer = activeEditor.renderer;
   const coords = renderer.textToScreenCoordinates(pos.row, pos.column);
@@ -114,12 +118,16 @@ function hideSuggestBtn() {
 async function onSuggestClick() {
   if (!activeEditor || !suggestBtn || isLoading) return;
 
+  // Save cursor position and refocus editor immediately
+  const pos = activeEditor.getCursorPosition();
+  activeEditor.focus();
+  activeEditor.moveCursorToPosition(pos);
+
   isLoading = true;
   suggestBtn.textContent = "⏳ Thinking...";
   suggestBtn.disabled = true;
 
   const session = activeEditor.session;
-  const pos = activeEditor.getCursorPosition();
   const lines = session.getLines(0, session.getLength() - 1);
 
   const beforeLines = lines.slice(0, pos.row);
