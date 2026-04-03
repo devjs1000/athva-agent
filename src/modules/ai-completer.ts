@@ -2,6 +2,7 @@
 // Shows a small "Suggest" button after 2.5s idle. Click it to get AI completion.
 
 import type { AISettings } from "./settings";
+import { showInputDialog } from "./dialogs";
 
 type GetAISettings = () => AISettings;
 
@@ -13,9 +14,28 @@ let currentRequestId = 0;
 let ghostText = "";
 let suggestBtn: HTMLButtonElement | null = null;
 let ghostEl: HTMLElement | null = null;
+let actionMenu: HTMLElement | null = null;
 let isLoading = false;
 
 const DEBOUNCE_MS = 2500;
+
+const SELECTION_ACTIONS = [
+  { label: "🔧 Fix", action: "fix", prompt: "Fix any bugs, errors, or issues in the following code. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
+  { label: "💡 Explain", action: "explain", prompt: "Explain the following code concisely. Be brief and clear." },
+  { label: "✨ Enhance", action: "enhance", prompt: "Improve and enhance the following code - better naming, cleaner logic, modern patterns. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
+  { label: "♻️ Apply DRY", action: "dry", prompt: "Refactor the following code to remove repetition (Don't Repeat Yourself principle). Extract shared logic into functions/variables. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
+  { label: "📝 Add Docs", action: "docs", prompt: "Add JSDoc/TSDoc comments and inline comments to the following code. Add documentation for functions, parameters, return types, and any complex logic. Return ONLY the documented raw code, no explanation, no markdown fences, no backticks." },
+  { label: "🧹 Clean", action: "clean", prompt: "Clean up the following code - remove dead code, unused variables, unnecessary comments, fix formatting inconsistencies, simplify overly complex expressions. Return ONLY the cleaned raw code, no explanation, no markdown fences, no backticks." },
+  { label: "✏️ Edit", action: "edit", prompt: "" },
+  { label: "💬 Send to Chat", action: "chat", prompt: "" },
+];
+
+// Callback to send code to chat panel
+let onSendToChat: ((text: string) => void) | null = null;
+
+export function setOnSendToChat(cb: (text: string) => void) {
+  onSendToChat = cb;
+}
 
 export function setAICompleterConfig(getter: GetAISettings) {
   getAISettings = getter;
@@ -43,17 +63,51 @@ export function attachAICompleter(editor: any) {
   });
   (editor.container as HTMLElement).appendChild(suggestBtn);
 
-  // On change: hide button + ghost, restart debounce
+  // Create selection action menu
+  actionMenu = document.createElement("div");
+  actionMenu.className = "ai-action-menu hidden";
+  for (const item of SELECTION_ACTIONS) {
+    const btn = document.createElement("button");
+    btn.className = "ai-action-item";
+    btn.textContent = item.label;
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      hideActionMenu();
+      onActionClick(item.action, item.prompt);
+    });
+    actionMenu.appendChild(btn);
+  }
+  (editor.container as HTMLElement).appendChild(actionMenu);
+
+  // On change: hide button + ghost + action menu, restart debounce
   editor.on("change", () => {
     hideSuggestBtn();
     clearGhost();
+    hideActionMenu();
     if (!enabled) return;
     scheduleSuggestBtn();
   });
 
-  // Cursor move: hide ghost
+  // On selection change: show/hide action menu
+  editor.selection.on("changeSelection", () => {
+    clearGhost();
+    if (!enabled) return;
+    const selectedText = editor.getSelectedText();
+    if (selectedText && selectedText.trim().length > 0) {
+      showActionMenu();
+    } else {
+      hideActionMenu();
+    }
+  });
+
+  // Cursor move without selection: hide ghost + action menu
   editor.selection.on("changeCursor", () => {
     clearGhost();
+    const selectedText = editor.getSelectedText();
+    if (!selectedText || !selectedText.trim()) {
+      hideActionMenu();
+    }
   });
 
   // Tab to accept ghost text
@@ -113,6 +167,207 @@ function showSuggestBtn() {
 function hideSuggestBtn() {
   if (debounceTimer) clearTimeout(debounceTimer);
   suggestBtn?.classList.add("hidden");
+}
+
+// ── Selection Action Menu ──
+
+function showActionMenu() {
+  if (!actionMenu || !activeEditor || isLoading) return;
+
+  const selection = activeEditor.selection.getRange();
+  const renderer = activeEditor.renderer;
+  const coords = renderer.textToScreenCoordinates(selection.end.row, selection.end.column);
+  const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
+
+  const x = coords.pageX - editorRect.left + 8;
+  const y = coords.pageY - editorRect.top + renderer.lineHeight + 4;
+
+  actionMenu.style.left = `${Math.max(0, x)}px`;
+  actionMenu.style.top = `${Math.max(0, y)}px`;
+  actionMenu.classList.remove("hidden");
+}
+
+function hideActionMenu() {
+  actionMenu?.classList.add("hidden");
+}
+
+async function onActionClick(action: string, systemPrompt: string) {
+  if (!activeEditor) return;
+
+  const selectedText = activeEditor.getSelectedText();
+  if (!selectedText || !selectedText.trim()) return;
+
+  // "Edit" - ask user what to change
+  if (action === "edit") {
+    const instruction = await showInputDialog("Edit Code", "What should I change?", "");
+    if (!instruction) { activeEditor.focus(); return; }
+
+    const settings = getAISettings();
+    if (!settings.apiKey) { activeEditor.focus(); return; }
+
+    const selection = activeEditor.selection.getRange();
+    const fileName = activeEditor._athvaFileName || "file.ts";
+    const lang = fileName.split(".").pop() || "code";
+    const editPrompt = `Apply the following edit to the code: "${instruction}". Return ONLY the modified raw code, no explanation, no markdown fences, no backticks.\n\nLanguage: ${lang}\n\n\`\`\`${lang}\n${selectedText}\n\`\`\``;
+
+    isLoading = true;
+    try {
+      let result = await fetchActionResult(settings, editPrompt);
+      isLoading = false;
+      if (result) {
+        result = result.replace(/^```[\w]*\s*\n?/, "").replace(/\n?```\s*$/, "").trimEnd();
+        activeEditor.session.replace(selection, result);
+      }
+    } catch { isLoading = false; }
+    activeEditor.focus();
+    return;
+  }
+
+  // "Send to Chat" - no API call needed
+  if (action === "chat") {
+    if (onSendToChat) {
+      const fileName = activeEditor._athvaFileName || "file";
+      const lang = fileName.split(".").pop() || "code";
+      const contextText = `\`\`\`${lang}\n${selectedText}\n\`\`\`\n\n`;
+      onSendToChat(contextText);
+    }
+    activeEditor.focus();
+    return;
+  }
+
+  if (isLoading) return;
+
+  const settings = getAISettings();
+  if (!settings.apiKey) return;
+
+  const selection = activeEditor.selection.getRange();
+  const fileName = activeEditor._athvaFileName || "file.ts";
+  const lang = fileName.split(".").pop() || "code";
+
+  const isReplace = action !== "explain";
+
+  const prompt = `${systemPrompt}\n\nLanguage: ${lang}\n\n\`\`\`${lang}\n${selectedText}\n\`\`\``;
+
+  isLoading = true;
+
+  try {
+    let result = await fetchActionResult(settings, prompt);
+    isLoading = false;
+
+    if (!result) return;
+
+    // Strip markdown code fences from result
+    if (isReplace) {
+      result = result.replace(/^```[\w]*\s*\n?/, "").replace(/\n?```\s*$/, "").trimEnd();
+      activeEditor.session.replace(selection, result);
+    } else {
+      showExplanation(result, selection.end.row, selection.end.column);
+    }
+  } catch {
+    isLoading = false;
+  }
+
+  activeEditor.focus();
+}
+
+function showExplanation(text: string, row: number, col: number) {
+  if (!activeEditor) return;
+
+  // Remove existing explanation
+  const existing = document.getElementById("ai-explanation");
+  if (existing) existing.remove();
+
+  const editorEl = activeEditor.container as HTMLElement;
+  const renderer = activeEditor.renderer;
+  const coords = renderer.textToScreenCoordinates(row, col);
+  const editorRect = editorEl.getBoundingClientRect();
+
+  const el = document.createElement("div");
+  el.id = "ai-explanation";
+  el.className = "ai-explanation";
+  el.textContent = text;
+
+  // Close button
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "ai-explanation-close";
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", () => el.remove());
+  el.appendChild(closeBtn);
+
+  el.style.left = `${coords.pageX - editorRect.left}px`;
+  el.style.top = `${coords.pageY - editorRect.top + renderer.lineHeight + 4}px`;
+
+  editorEl.appendChild(el);
+
+  // Auto-dismiss on next keystroke
+  const dismiss = () => {
+    el.remove();
+    activeEditor.off("change", dismiss);
+  };
+  activeEditor.on("change", dismiss);
+}
+
+async function fetchActionResult(settings: AISettings, prompt: string): Promise<string> {
+  try {
+    let data: any;
+    switch (settings.provider) {
+      case "openai": {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+          body: JSON.stringify({ model: settings.model || "gpt-4o", messages: [{ role: "user", content: prompt }], max_tokens: 500, temperature: 0 }),
+        });
+        if (!res.ok) return "";
+        data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim() || "";
+      }
+      case "anthropic": {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": settings.apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: settings.model || "claude-sonnet-4-20250514", max_tokens: 500, messages: [{ role: "user", content: prompt }] }),
+        });
+        if (!res.ok) return "";
+        data = await res.json();
+        return data.content?.[0]?.text?.trim() || "";
+      }
+      case "google": {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${settings.model || "gemini-2.0-flash"}:generateContent?key=${settings.apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 500, temperature: 0 } }),
+        });
+        if (!res.ok) return "";
+        data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      }
+      case "mimo": {
+        const model = settings.model === "mimo-v2-pro" ? "mimo-v2-flash" : (settings.model || "mimo-v2-flash");
+        const res = await fetch("https://api.xiaomimimo.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "api-key": settings.apiKey },
+          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_completion_tokens: 500, temperature: 0 }),
+        });
+        if (!res.ok) return "";
+        data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim() || "";
+      }
+      case "mistral": {
+        const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+          body: JSON.stringify({ model: settings.model || "mistral-small-latest", messages: [{ role: "user", content: prompt }], max_tokens: 500, temperature: 0 }),
+        });
+        if (!res.ok) return "";
+        data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim() || "";
+      }
+      default:
+        return "";
+    }
+  } catch {
+    return "";
+  }
 }
 
 async function onSuggestClick() {

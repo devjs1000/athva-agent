@@ -5,7 +5,7 @@ export function showInputDialog(title: string, placeholder: string, defaultValue
   return new Promise((resolve) => {
     const overlay = document.getElementById("input-dialog")!;
     const titleEl = document.getElementById("input-dialog-title")!;
-    const field = document.getElementById("input-dialog-field") as HTMLInputElement;
+    const field = document.getElementById("input-dialog-field") as HTMLTextAreaElement;
     const okBtn = document.getElementById("input-dialog-ok")!;
     const cancelBtn = document.getElementById("input-dialog-cancel")!;
 
@@ -37,7 +37,8 @@ export function showInputDialog(title: string, placeholder: string, defaultValue
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter") { e.preventDefault(); onOk(); }
+      // Cmd/Ctrl+Enter to submit (Enter alone inserts newline in textarea)
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onOk(); }
       if (e.key === "Escape") { e.preventDefault(); onCancel(); }
     };
 

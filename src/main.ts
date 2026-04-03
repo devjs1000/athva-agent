@@ -8,6 +8,7 @@ import { QuickOpen } from "./modules/quick-open";
 import { GitStatusBar } from "./modules/git-status";
 import { TerminalPanel } from "./modules/terminal";
 import { ScriptRunner } from "./modules/script-runner";
+import { setOnSendToChat } from "./modules/ai-completer";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -210,6 +211,21 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init chatbot
   new Chatbot("chat-messages", "chat-input", "btn-send-chat", "chat-sessions", () => appSettings.ai);
+
+  // Wire "Send to Chat" from editor selection actions
+  setOnSendToChat((text: string) => {
+    // Open chat panel if hidden
+    const panel = $("chat-panel");
+    if (panel.classList.contains("hidden")) {
+      toggleChat();
+    }
+    // Prefill the chat input
+    const chatInput = $("chat-input") as HTMLTextAreaElement;
+    chatInput.value = text;
+    chatInput.focus();
+    // Move cursor to end
+    chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+  });
 
   // Init git status bar
   gitStatus = new GitStatusBar();

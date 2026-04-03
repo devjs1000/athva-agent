@@ -260,6 +260,8 @@ body {
   font-size: 13px;
   font-family: inherit;
   outline: none;
+  resize: vertical;
+  line-height: 1.4;
 }
 
 .input-dialog-field:focus {
@@ -797,6 +799,78 @@ body {
 
 .ai-suggest-btn.hidden {
   display: none;
+}
+
+/* ── AI Action Menu (on selection) ── */
+.ai-action-menu {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.ai-action-menu.hidden {
+  display: none;
+}
+
+.ai-action-item {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+
+.ai-action-item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── AI Explanation Tooltip ── */
+.ai-explanation {
+  position: absolute;
+  z-index: 12;
+  max-width: 400px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px 30px 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.ai-explanation-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.ai-explanation-close:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
 }
 
 /* ── AI Ghost Text ── */
