@@ -1,5 +1,5 @@
-// AI-powered inline code suggestions (like GitHub Copilot)
-// Runs independently from Ace's autocomplete - shows ghost text after 2.5s idle
+// AI-powered inline code suggestions
+// Shows a small "Suggest" button after 2.5s idle. Click it to get AI completion.
 
 import type { AISettings } from "./settings";
 
@@ -7,10 +7,13 @@ type GetAISettings = () => AISettings;
 
 let getAISettings: GetAISettings = () => ({ provider: "", apiKey: "", model: "" });
 let enabled = false;
+let activeEditor: any = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let currentRequestId = 0;
-let activeEditor: any = null;
-let ghostText: string = "";
+let ghostText = "";
+let suggestBtn: HTMLButtonElement | null = null;
+let ghostEl: HTMLElement | null = null;
+let isLoading = false;
 
 const DEBOUNCE_MS = 2500;
 
@@ -20,127 +23,173 @@ export function setAICompleterConfig(getter: GetAISettings) {
 
 export function setAICompleterEnabled(v: boolean) {
   enabled = v;
-  if (!v) clearGhostText();
+  if (!v) {
+    hideSuggestBtn();
+    clearGhost();
+  }
 }
 
-// Attach to an Ace editor instance
 export function attachAICompleter(editor: any) {
   activeEditor = editor;
 
-  // On every change, debounce a completion request
+  // Create the suggest button
+  suggestBtn = document.createElement("button");
+  suggestBtn.className = "ai-suggest-btn hidden";
+  suggestBtn.textContent = "✨ Suggest";
+  suggestBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSuggestClick();
+  });
+  (editor.container as HTMLElement).appendChild(suggestBtn);
+
+  // On change: hide button + ghost, restart debounce
   editor.on("change", () => {
-    clearGhostText();
+    hideSuggestBtn();
+    clearGhost();
     if (!enabled) return;
-    scheduleCompletion();
+    scheduleSuggestBtn();
   });
 
-  // On cursor move, clear ghost text
+  // Cursor move: hide ghost
   editor.selection.on("changeCursor", () => {
-    clearGhostText();
+    clearGhost();
   });
 
-  // Tab to accept ghost text - use keydown on the container DOM element
-  // to intercept before Ace's own key handling
+  // Tab to accept ghost text
   (editor.container as HTMLElement).addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "Tab" && !e.shiftKey && ghostText) {
       e.preventDefault();
       e.stopPropagation();
       const text = ghostText;
-      clearGhostText();
+      clearGhost();
       activeEditor.insert(text);
     }
-    // Escape to dismiss ghost text
     if (e.key === "Escape" && ghostText) {
       e.preventDefault();
-      clearGhostText();
+      clearGhost();
     }
-  }, true); // capture phase to fire before Ace
+    // Any typing hides the suggest button
+    if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
+      hideSuggestBtn();
+    }
+  }, true);
 }
 
-function scheduleCompletion() {
+// ── Suggest Button ──
+
+function scheduleSuggestBtn() {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     if (!enabled || !activeEditor) return;
     const settings = getAISettings();
     if (!settings.apiKey) return;
-    triggerCompletion();
+    showSuggestBtn();
   }, DEBOUNCE_MS);
 }
 
-async function triggerCompletion() {
-  if (!activeEditor) return;
+function showSuggestBtn() {
+  if (!suggestBtn || !activeEditor || isLoading) return;
+
+  const pos = activeEditor.getCursorPosition();
+  const renderer = activeEditor.renderer;
+  const coords = renderer.textToScreenCoordinates(pos.row, pos.column);
+  const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
+
+  const x = coords.pageX - editorRect.left + 8;
+  const y = coords.pageY - editorRect.top;
+
+  suggestBtn.style.left = `${Math.max(0, x)}px`;
+  suggestBtn.style.top = `${Math.max(0, y)}px`;
+  suggestBtn.classList.remove("hidden");
+  suggestBtn.textContent = "✨ Suggest";
+  suggestBtn.disabled = false;
+}
+
+function hideSuggestBtn() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  suggestBtn?.classList.add("hidden");
+}
+
+async function onSuggestClick() {
+  if (!activeEditor || !suggestBtn || isLoading) return;
+
+  isLoading = true;
+  suggestBtn.textContent = "⏳ Thinking...";
+  suggestBtn.disabled = true;
 
   const session = activeEditor.session;
   const pos = activeEditor.getCursorPosition();
   const lines = session.getLines(0, session.getLength() - 1);
 
-  // Build prefix
   const beforeLines = lines.slice(0, pos.row);
   beforeLines.push(lines[pos.row]?.substring(0, pos.column) || "");
   const prefix = beforeLines.join("\n");
 
-  // Need at least some code
-  if (prefix.trim().length < 3) return;
-
-  // Build suffix
   const afterLines: string[] = [];
   afterLines.push(lines[pos.row]?.substring(pos.column) || "");
   afterLines.push(...lines.slice(pos.row + 1));
   const suffix = afterLines.join("\n");
 
+  if (prefix.trim().length < 2) {
+    hideSuggestBtn();
+    isLoading = false;
+    return;
+  }
+
   const fileName = activeEditor._athvaFileName || "file.ts";
   const requestId = ++currentRequestId;
 
   const completion = await fetchCompletion(prefix, suffix, fileName);
+  isLoading = false;
 
-  // Check if still relevant
   if (requestId !== currentRequestId) return;
-  if (!completion) return;
-  if (!activeEditor) return;
 
-  // Check cursor hasn't moved
+  hideSuggestBtn();
+
+  if (!completion) return;
+
+  // Verify cursor hasn't moved
   const newPos = activeEditor.getCursorPosition();
   if (newPos.row !== pos.row || newPos.column !== pos.column) return;
 
-  // Show ghost text
-  showGhostText(completion, pos.row, pos.column);
+  showGhost(completion, pos.row, pos.column);
 }
 
-function showGhostText(text: string, row: number, col: number) {
-  if (!activeEditor) return;
+// ── Ghost Text ──
 
-  clearGhostText();
+function showGhost(text: string, row: number, col: number) {
+  if (!activeEditor) return;
+  clearGhost();
   ghostText = text;
 
-  // Add ghost text as DOM overlay
   const editorEl = activeEditor.container as HTMLElement;
-  const ghostEl = document.createElement("div");
+  ghostEl = document.createElement("div");
   ghostEl.className = "ai-ghost-text";
-  ghostEl.id = "ai-ghost-overlay";
 
-  // Get position of cursor in pixels
   const renderer = activeEditor.renderer;
-  const charPos = renderer.textToScreenCoordinates(row, col);
+  const coords = renderer.textToScreenCoordinates(row, col);
   const editorRect = editorEl.getBoundingClientRect();
 
-  // Only show first line of ghost text inline
   const firstLine = text.split("\n")[0];
   ghostEl.textContent = firstLine;
-  ghostEl.style.left = `${charPos.pageX - editorRect.left}px`;
-  ghostEl.style.top = `${charPos.pageY - editorRect.top}px`;
+  ghostEl.style.left = `${coords.pageX - editorRect.left}px`;
+  ghostEl.style.top = `${coords.pageY - editorRect.top}px`;
   ghostEl.style.height = `${renderer.lineHeight}px`;
   ghostEl.style.fontSize = `${activeEditor.getFontSize()}px`;
 
   editorEl.appendChild(ghostEl);
 }
 
-function clearGhostText() {
+function clearGhost() {
   ghostText = "";
-  const existing = document.getElementById("ai-ghost-overlay");
-  if (existing) existing.remove();
+  if (ghostEl) {
+    ghostEl.remove();
+    ghostEl = null;
+  }
 }
 
-// ── Prompt ──
+// ── Prompt & API ──
 
 function buildPrompt(prefix: string, suffix: string, fileName: string): string {
   const lang = fileName.split(".").pop() || "code";
@@ -159,12 +208,8 @@ Code to insert at cursor:`;
 }
 
 function extractContent(data: any, provider: string): string {
-  if (provider === "anthropic") {
-    return data.content?.[0]?.text || "";
-  }
-  if (provider === "google") {
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  }
+  if (provider === "anthropic") return data.content?.[0]?.text || "";
+  if (provider === "google") return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const msg = data.choices?.[0]?.message;
   if (!msg) return "";
   if (msg.content && msg.content.trim()) return msg.content;
@@ -174,12 +219,10 @@ function extractContent(data: any, provider: string): string {
 async function fetchCompletion(prefix: string, suffix: string, fileName: string): Promise<string> {
   const settings = getAISettings();
   if (!settings.apiKey || !settings.provider) return "";
-
   const prompt = buildPrompt(prefix, suffix, fileName);
 
   try {
     let data: any;
-
     switch (settings.provider) {
       case "openai": {
         const model = settings.model || "gpt-4o";
@@ -239,7 +282,6 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
       default:
         return "";
     }
-
     let result = extractContent(data, settings.provider);
     result = result.replace(/^```[\w]*\n?/, "").replace(/\n?```$/, "").replace(/^\s*\n/, "").trimEnd();
     if (!result.trim()) return "";
@@ -249,10 +291,8 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
   }
 }
 
-// Remove the old Ace completer export - we no longer use it
+// Keep this for backward compat with Ace completer registration (does nothing)
 export const aiCompleter = {
   identifierRegexps: [/[a-zA-Z_0-9\.$\-\u00A2-\uFFFF]/],
-  getCompletions(_e: any, _s: any, _p: any, _pr: any, cb: any) {
-    cb(null, []);
-  },
+  getCompletions(_e: any, _s: any, _p: any, _pr: any, cb: any) { cb(null, []); },
 };

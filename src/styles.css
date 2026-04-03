@@ -768,6 +768,37 @@ body {
   display: none;
 }
 
+/* ── AI Suggest Button ── */
+.ai-suggest-btn {
+  position: absolute;
+  z-index: 10;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background 0.1s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.ai-suggest-btn:hover {
+  background: var(--bg-active);
+  color: var(--accent-hover);
+}
+
+.ai-suggest-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.ai-suggest-btn.hidden {
+  display: none;
+}
+
 /* ── AI Ghost Text ── */
 .ai-ghost-text {
   position: absolute;
