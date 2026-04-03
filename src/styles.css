@@ -84,9 +84,10 @@ body {
 }
 
 .brand-logo {
-  width: 48px;
-  height: 48px;
+  width: 100px;
+  height: 32px;
   object-fit: contain;
+  filter: invert(1);
 }
 
 .brand-name {
@@ -364,9 +365,10 @@ body {
 }
 
 .titlebar-logo {
-  width: 20px;
-  height: 20px;
+  width: 40px;
+  height: 16px;
   object-fit: contain;
+  filter: invert(1);
 }
 
 .workspace-title {
