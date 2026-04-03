@@ -223,6 +223,87 @@ fn collect_files(
     }
 }
 
+// ── Git commands ──
+
+#[derive(Debug, Serialize, Clone)]
+pub struct GitStatus {
+    pub branch: String,
+    pub ahead: i32,
+    pub behind: i32,
+    pub is_repo: bool,
+}
+
+fn run_git(dir: &str, args: &[&str]) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
+fn git_status(path: String) -> GitStatus {
+    // Check if it's a git repo
+    if run_git(&path, &["rev-parse", "--is-inside-work-tree"]).is_err() {
+        return GitStatus {
+            branch: String::new(),
+            ahead: 0,
+            behind: 0,
+            is_repo: false,
+        };
+    }
+
+    let branch = run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+
+    // Get ahead/behind counts
+    let mut ahead = 0;
+    let mut behind = 0;
+    if let Ok(upstream) = run_git(&path, &["rev-parse", "--abbrev-ref", "@{u}"]) {
+        if !upstream.is_empty() {
+            if let Ok(count) = run_git(
+                &path,
+                &["rev-list", "--left-right", "--count", &format!("HEAD...{}", upstream)],
+            ) {
+                let parts: Vec<&str> = count.split('\t').collect();
+                if parts.len() == 2 {
+                    ahead = parts[0].parse().unwrap_or(0);
+                    behind = parts[1].parse().unwrap_or(0);
+                }
+            }
+        }
+    }
+
+    GitStatus {
+        branch,
+        ahead,
+        behind,
+        is_repo: true,
+    }
+}
+
+#[tauri::command]
+fn git_sync(path: String) -> Result<String, String> {
+    // Pull then push
+    run_git(&path, &["pull", "--rebase"])?;
+    run_git(&path, &["push"])?;
+    Ok("Synced successfully".to_string())
+}
+
+#[tauri::command]
+fn git_pull(path: String) -> Result<String, String> {
+    run_git(&path, &["pull"])
+}
+
+#[tauri::command]
+fn git_push(path: String) -> Result<String, String> {
+    run_git(&path, &["push"])
+}
+
 // ── Settings ──
 
 #[tauri::command]
@@ -258,6 +339,10 @@ pub fn run() {
             read_file,
             write_file,
             search_files,
+            git_status,
+            git_sync,
+            git_pull,
+            git_push,
             load_settings,
             save_settings,
         ])

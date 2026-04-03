@@ -5,6 +5,7 @@ import { Editor } from "./modules/editor";
 import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
 import { QuickOpen } from "./modules/quick-open";
+import { GitStatusBar } from "./modules/git-status";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -12,6 +13,7 @@ let editor!: Editor;
 let fileExplorer!: FileExplorer;
 let settingsUI!: SettingsUI;
 let quickOpen!: QuickOpen;
+let gitStatus!: GitStatusBar;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -98,6 +100,7 @@ async function openProject(path: string) {
 
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
+  gitStatus.setProject(project.path);
 }
 
 async function handleOpenFolder() {
@@ -200,6 +203,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init chatbot
   new Chatbot("chat-messages", "chat-input", "btn-send-chat", "chat-sessions", () => appSettings.ai);
+
+  // Init git status bar
+  gitStatus = new GitStatusBar();
 
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
