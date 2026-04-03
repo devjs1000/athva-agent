@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getFolderIcon, getFileIcon } from "./file-icons";
 
 export interface FileEntry {
   name: string;
@@ -43,14 +44,34 @@ export class FileExplorer {
       item.style.setProperty("--depth", String(depth));
 
       const icon = document.createElement("span");
-      icon.className = `tree-item-icon ${entry.is_dir ? "folder" : "file"}`;
-      icon.textContent = entry.is_dir ? "\u25B6" : "\u25CB";
+      icon.className = "tree-item-icon";
+
+      if (entry.is_dir) {
+        // Chevron arrow for expand/collapse
+        const chevron = document.createElement("span");
+        chevron.className = "tree-chevron";
+        chevron.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 3.5L10.5 8 6 12.5V3.5Z"/></svg>`;
+
+        // Folder icon
+        icon.innerHTML = getFolderIcon(entry.name, false);
+
+        item.appendChild(chevron);
+        item.appendChild(icon);
+      } else {
+        // Spacer for alignment with folders (chevron width)
+        const spacer = document.createElement("span");
+        spacer.className = "tree-chevron-spacer";
+        item.appendChild(spacer);
+
+        // File icon
+        icon.innerHTML = getFileIcon(entry.name);
+        item.appendChild(icon);
+      }
 
       const name = document.createElement("span");
       name.className = "tree-item-name";
       name.textContent = entry.name;
 
-      item.appendChild(icon);
       item.appendChild(name);
       parent.appendChild(item);
 
@@ -62,16 +83,20 @@ export class FileExplorer {
         let loaded = false;
         item.addEventListener("click", async () => {
           const isExpanded = children.classList.contains("expanded");
+          const chevron = item.querySelector(".tree-chevron") as HTMLElement;
+
           if (isExpanded) {
             children.classList.remove("expanded");
-            icon.textContent = "\u25B6";
+            chevron.classList.remove("expanded");
+            icon.innerHTML = getFolderIcon(entry.name, false);
           } else {
             if (!loaded) {
               await this.renderDir(children, entry.path, depth + 1);
               loaded = true;
             }
             children.classList.add("expanded");
-            icon.textContent = "\u25BC";
+            chevron.classList.add("expanded");
+            icon.innerHTML = getFolderIcon(entry.name, true);
           }
         });
       } else {

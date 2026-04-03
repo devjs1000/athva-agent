@@ -411,13 +411,14 @@ body {
 .tree-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px 2px calc(8px + var(--depth, 0) * 16px);
+  gap: 3px;
+  padding: 1px 8px 1px calc(4px + var(--depth, 0) * 16px);
   cursor: pointer;
   white-space: nowrap;
   font-size: 13px;
   color: var(--text-primary);
   transition: background 0.05s;
+  height: 22px;
 }
 
 .tree-item:hover {
@@ -428,7 +429,7 @@ body {
   background: var(--bg-active);
 }
 
-.tree-item-icon {
+.tree-chevron {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -436,20 +437,44 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 10px;
+  transition: transform 0.12s ease;
 }
 
-.tree-item-icon.folder {
-  color: #dcb67a;
+.tree-chevron.expanded {
+  transform: rotate(90deg);
 }
 
-.tree-item-icon.file {
-  color: var(--text-muted);
+.tree-chevron svg {
+  opacity: 0.6;
+}
+
+.tree-item:hover .tree-chevron svg {
+  opacity: 1;
+}
+
+.tree-chevron-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.tree-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-item-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .tree-item-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-left: 2px;
 }
 
 .tree-children {
