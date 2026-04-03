@@ -6,6 +6,7 @@ import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
 import { QuickOpen } from "./modules/quick-open";
 import { GitStatusBar } from "./modules/git-status";
+import { TerminalPanel } from "./modules/terminal";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -14,6 +15,7 @@ let fileExplorer!: FileExplorer;
 let settingsUI!: SettingsUI;
 let quickOpen!: QuickOpen;
 let gitStatus!: GitStatusBar;
+let terminal!: TerminalPanel;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -101,6 +103,7 @@ async function openProject(path: string) {
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
   gitStatus.setProject(project.path);
+  terminal.setProject(project.path);
 }
 
 async function handleOpenFolder() {
@@ -207,6 +210,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init git status bar
   gitStatus = new GitStatusBar();
 
+  // Init terminal
+  terminal = new TerminalPanel(() => editor.resize());
+
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
     editor.openFile(path, name);
@@ -242,6 +248,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     settingsUI.updateSettings(appSettings);
     showPage("settings");
   });
+  $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);
   $("btn-close-chat").addEventListener("click", toggleChat);
 
@@ -276,6 +283,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (isWorkspace && editor.hasOpenFile() && !quickOpen.isOpen()) {
         e.preventDefault();
         editor.openReplace();
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + ` → Toggle terminal
+    if (isMod && e.key === "`") {
+      e.preventDefault();
+      if (isWorkspace) {
+        terminal.toggle();
       }
       return;
     }

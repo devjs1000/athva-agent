@@ -8,6 +8,19 @@
     "opener:default",
     "dialog:default",
     "dialog:allow-open",
+    "shell:default",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write",
+    "shell:allow-open",
+    "shell:allow-kill",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "bash", "cmd": "bash", "args": true },
+        { "name": "zsh", "cmd": "zsh", "args": true },
+        { "name": "sh", "cmd": "sh", "args": true }
+      ]
+    },
     "fs:default",
     "fs:allow-read",
     "fs:allow-write",

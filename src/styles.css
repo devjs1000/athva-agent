@@ -513,13 +513,74 @@ body {
   background: var(--accent);
 }
 
-/* ── Editor Area ── */
+.resize-handle-h {
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.resize-handle-h:hover,
+.resize-handle-h.active {
+  background: var(--accent);
+}
+
+/* ── Editor Area (vertical split: editor + terminal) ── */
 .editor-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 200px;
   overflow: hidden;
+}
+
+.editor-top {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100px;
+  overflow: hidden;
+}
+
+/* ── Terminal Panel ── */
+.terminal-panel {
+  height: 200px;
+  min-height: 80px;
+  max-height: 500px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  min-height: 28px;
+}
+
+.terminal-header-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+.terminal-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.xterm-container {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px;
 }
 
 .editor-tabs {
