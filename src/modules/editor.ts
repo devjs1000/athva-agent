@@ -23,6 +23,17 @@ import "ace-builds/src-min-noconflict/theme-github";
 import "ace-builds/src-min-noconflict/theme-chrome";
 import "ace-builds/src-min-noconflict/ext-searchbox";
 import "ace-builds/src-min-noconflict/ext-language_tools";
+import "ace-builds/src-min-noconflict/ext-inline_autocomplete";
+import "ace-builds/src-min-noconflict/snippets/javascript";
+import "ace-builds/src-min-noconflict/snippets/typescript";
+import "ace-builds/src-min-noconflict/snippets/html";
+import "ace-builds/src-min-noconflict/snippets/css";
+import "ace-builds/src-min-noconflict/snippets/json";
+import "ace-builds/src-min-noconflict/snippets/python";
+import "ace-builds/src-min-noconflict/snippets/rust";
+import "ace-builds/src-min-noconflict/snippets/sh";
+import "ace-builds/src-min-noconflict/snippets/yaml";
+import "ace-builds/src-min-noconflict/snippets/markdown";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface EditorSettings {
@@ -88,6 +99,45 @@ export class Editor {
     this.ace = ace.edit(editorId);
     this.ace.setShowPrintMargin(false);
     this.ace.setReadOnly(false);
+
+    // Enable autocompletion
+    this.ace.setOptions({
+      enableBasicAutocompletion: true,
+      enableLiveAutocompletion: true,
+      enableSnippets: true,
+    });
+    // Inline autocomplete (not in type defs but supported at runtime)
+    (this.ace as any).setOption("enableInlineAutocompletion", true);
+
+    // Ctrl+Space / Cmd+Space to trigger autocomplete
+    this.ace.commands.addCommand({
+      name: "triggerAutocomplete",
+      bindKey: { win: "Ctrl-Space", mac: "Cmd-Space|Ctrl-Space" },
+      exec: (editor: ace.Ace.Editor) => {
+        editor.execCommand("startAutocomplete");
+      },
+    });
+
+    // Tab to accept inline completion (when visible), otherwise normal tab
+    this.ace.commands.addCommand({
+      name: "acceptInlineOrTab",
+      bindKey: { win: "Tab", mac: "Tab" },
+      exec: (editor: ace.Ace.Editor) => {
+        // If autocomplete popup is open, accept it
+        if ((editor as any).completer?.popup?.isOpen) {
+          editor.execCommand("insertMatch");
+          return;
+        }
+        // If there's inline autocomplete ghost text, accept it
+        if ((editor as any).completer?.inlineCompleter?.isOpen?.()) {
+          (editor as any).completer.inlineCompleter.accept();
+          return;
+        }
+        // Otherwise normal indent
+        editor.execCommand("indent");
+      },
+    });
+
     this.applySettings(DEFAULT_EDITOR_SETTINGS);
 
     // Auto-save on change (debounced)
