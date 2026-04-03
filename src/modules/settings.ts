@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from "./editor";
+import { getModelsForProvider } from "./model-list";
 
 export interface AISettings {
   provider: string;
@@ -7,20 +8,42 @@ export interface AISettings {
   model: string;
 }
 
+export interface AgentAccess {
+  fileRead: boolean;
+  fileWrite: boolean;
+  terminal: boolean;
+  network: boolean;
+  env: boolean;
+  git: boolean;
+  packageInstall: boolean;
+}
+
 export interface AppSettings {
   editor: EditorSettings;
   ai: AISettings;
+  agentAccess: AgentAccess;
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
   provider: "openai",
   apiKey: "",
-  model: "",
+  model: "gpt-4o",
+};
+
+export const DEFAULT_AGENT_ACCESS: AgentAccess = {
+  fileRead: true,
+  fileWrite: false,
+  terminal: false,
+  network: false,
+  env: false,
+  git: false,
+  packageInstall: false,
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
   editor: { ...DEFAULT_EDITOR_SETTINGS },
   ai: { ...DEFAULT_AI_SETTINGS },
+  agentAccess: { ...DEFAULT_AGENT_ACCESS },
 };
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -30,6 +53,7 @@ export async function loadSettings(): Promise<AppSettings> {
     return {
       editor: { ...DEFAULT_EDITOR_SETTINGS, ...parsed.editor },
       ai: { ...DEFAULT_AI_SETTINGS, ...parsed.ai },
+      agentAccess: { ...DEFAULT_AGENT_ACCESS, ...parsed.agentAccess },
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -43,9 +67,9 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 
 export class SettingsUI {
   private settings: AppSettings;
-  private onChange: (settings: AppSettings) => void;
+  private onApply: (settings: AppSettings) => void;
 
-  // Editor setting elements
+  // Editor elements
   private themeEl: HTMLSelectElement;
   private fontSizeEl: HTMLInputElement;
   private tabSizeEl: HTMLInputElement;
@@ -53,14 +77,26 @@ export class SettingsUI {
   private showGutterEl: HTMLInputElement;
   private minimapEl: HTMLInputElement;
 
-  // AI setting elements
+  // AI elements
   private providerEl: HTMLSelectElement;
   private apiKeyEl: HTMLInputElement;
-  private modelEl: HTMLInputElement;
+  private modelEl: HTMLSelectElement;
 
-  constructor(settings: AppSettings, onChange: (s: AppSettings) => void) {
+  // Agent access elements
+  private accessFileReadEl: HTMLInputElement;
+  private accessFileWriteEl: HTMLInputElement;
+  private accessTerminalEl: HTMLInputElement;
+  private accessNetworkEl: HTMLInputElement;
+  private accessEnvEl: HTMLInputElement;
+  private accessGitEl: HTMLInputElement;
+  private accessInstallEl: HTMLInputElement;
+
+  // Save button
+  private saveBtnEl: HTMLElement;
+
+  constructor(settings: AppSettings, onApply: (s: AppSettings) => void) {
     this.settings = settings;
-    this.onChange = onChange;
+    this.onApply = onApply;
 
     this.themeEl = document.getElementById("setting-theme") as HTMLSelectElement;
     this.fontSizeEl = document.getElementById("setting-font-size") as HTMLInputElement;
@@ -71,7 +107,17 @@ export class SettingsUI {
 
     this.providerEl = document.getElementById("setting-ai-provider") as HTMLSelectElement;
     this.apiKeyEl = document.getElementById("setting-ai-api-key") as HTMLInputElement;
-    this.modelEl = document.getElementById("setting-ai-model") as HTMLInputElement;
+    this.modelEl = document.getElementById("setting-ai-model") as HTMLSelectElement;
+
+    this.accessFileReadEl = document.getElementById("setting-access-file-read") as HTMLInputElement;
+    this.accessFileWriteEl = document.getElementById("setting-access-file-write") as HTMLInputElement;
+    this.accessTerminalEl = document.getElementById("setting-access-terminal") as HTMLInputElement;
+    this.accessNetworkEl = document.getElementById("setting-access-network") as HTMLInputElement;
+    this.accessEnvEl = document.getElementById("setting-access-env") as HTMLInputElement;
+    this.accessGitEl = document.getElementById("setting-access-git") as HTMLInputElement;
+    this.accessInstallEl = document.getElementById("setting-access-install") as HTMLInputElement;
+
+    this.saveBtnEl = document.getElementById("btn-save-settings")!;
 
     this.populateFromSettings();
     this.bindEvents();
@@ -87,6 +133,7 @@ export class SettingsUI {
   }
 
   private populateFromSettings() {
+    // Editor
     this.themeEl.value = this.settings.editor.theme;
     this.fontSizeEl.value = String(this.settings.editor.fontSize);
     this.tabSizeEl.value = String(this.settings.editor.tabSize);
@@ -94,49 +141,80 @@ export class SettingsUI {
     this.showGutterEl.checked = this.settings.editor.showGutter;
     this.minimapEl.checked = this.settings.editor.showMinimap;
 
+    // AI
     this.providerEl.value = this.settings.ai.provider;
     this.apiKeyEl.value = this.settings.ai.apiKey;
-    this.modelEl.value = this.settings.ai.model;
+    this.populateModelDropdown(this.settings.ai.provider, this.settings.ai.model);
+
+    // Agent Access
+    this.accessFileReadEl.checked = this.settings.agentAccess.fileRead;
+    this.accessFileWriteEl.checked = this.settings.agentAccess.fileWrite;
+    this.accessTerminalEl.checked = this.settings.agentAccess.terminal;
+    this.accessNetworkEl.checked = this.settings.agentAccess.network;
+    this.accessEnvEl.checked = this.settings.agentAccess.env;
+    this.accessGitEl.checked = this.settings.agentAccess.git;
+    this.accessInstallEl.checked = this.settings.agentAccess.packageInstall;
+  }
+
+  private populateModelDropdown(provider: string, selectedModel: string) {
+    const models = getModelsForProvider(provider);
+    this.modelEl.innerHTML = models
+      .map((m) => `<option value="${m.id}"${m.id === selectedModel ? " selected" : ""}>${m.label}</option>`)
+      .join("");
+
+    // If no match, select the first
+    if (selectedModel && !models.find((m) => m.id === selectedModel)) {
+      this.modelEl.selectedIndex = 0;
+    }
   }
 
   private showSavedToast() {
     const toast = document.getElementById("settings-saved-toast");
     if (!toast) return;
     toast.classList.remove("hidden");
-    setTimeout(() => toast.classList.add("hidden"), 1500);
+    setTimeout(() => toast.classList.add("hidden"), 2000);
+  }
+
+  private collectFromUI(): AppSettings {
+    return {
+      editor: {
+        theme: this.themeEl.value,
+        fontSize: parseInt(this.fontSizeEl.value) || 14,
+        tabSize: parseInt(this.tabSizeEl.value) || 2,
+        wordWrap: this.wordWrapEl.checked,
+        showGutter: this.showGutterEl.checked,
+        showMinimap: this.minimapEl.checked,
+      },
+      ai: {
+        provider: this.providerEl.value,
+        apiKey: this.apiKeyEl.value,
+        model: this.modelEl.value,
+      },
+      agentAccess: {
+        fileRead: this.accessFileReadEl.checked,
+        fileWrite: this.accessFileWriteEl.checked,
+        terminal: this.accessTerminalEl.checked,
+        network: this.accessNetworkEl.checked,
+        env: this.accessEnvEl.checked,
+        git: this.accessGitEl.checked,
+        packageInstall: this.accessInstallEl.checked,
+      },
+    };
   }
 
   private bindEvents() {
-    const save = () => {
-      this.settings.editor.theme = this.themeEl.value;
-      this.settings.editor.fontSize = parseInt(this.fontSizeEl.value) || 14;
-      this.settings.editor.tabSize = parseInt(this.tabSizeEl.value) || 2;
-      this.settings.editor.wordWrap = this.wordWrapEl.checked;
-      this.settings.editor.showGutter = this.showGutterEl.checked;
-      this.settings.editor.showMinimap = this.minimapEl.checked;
+    // When provider changes, repopulate model dropdown
+    this.providerEl.addEventListener("change", () => {
+      const provider = this.providerEl.value;
+      this.populateModelDropdown(provider, "");
+    });
 
-      this.settings.ai.provider = this.providerEl.value;
-      this.settings.ai.apiKey = this.apiKeyEl.value;
-      this.settings.ai.model = this.modelEl.value;
-
-      this.onChange({ ...this.settings });
-      saveSettings(this.settings).then(() => this.showSavedToast());
-    };
-
-    // Bind all inputs - change for selects/checkboxes/number, input for text fields
-    [this.themeEl, this.fontSizeEl, this.tabSizeEl, this.providerEl].forEach(
-      (el) => el.addEventListener("change", save)
-    );
-    [this.wordWrapEl, this.showGutterEl, this.minimapEl].forEach((el) =>
-      el.addEventListener("change", save)
-    );
-    // Debounce text inputs so they don't fire on every keystroke
-    let debounce: ReturnType<typeof setTimeout>;
-    [this.apiKeyEl, this.modelEl].forEach((el) =>
-      el.addEventListener("input", () => {
-        clearTimeout(debounce);
-        debounce = setTimeout(save, 500);
-      })
-    );
+    // Save button
+    this.saveBtnEl.addEventListener("click", async () => {
+      this.settings = this.collectFromUI();
+      this.onApply({ ...this.settings });
+      await saveSettings(this.settings);
+      this.showSavedToast();
+    });
   }
 }

@@ -203,8 +203,77 @@
 
               <div class="setting-row">
                 <label for="setting-ai-model">Model</label>
-                <input id="setting-ai-model" type="text" placeholder="e.g. gpt-4o, mimo-v2-pro, mistral-large-latest" />
+                <select id="setting-ai-model">
+                  <!-- Populated dynamically based on provider -->
+                </select>
               </div>
+            </div>
+
+            <!-- Agent Access Permissions -->
+            <div class="settings-section">
+              <h3 class="settings-section-title">Agent Access</h3>
+              <p class="setting-description">Control what the AI agent is allowed to do in your project.</p>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-file-read">File Read</label>
+                  <span class="setting-hint">Allow agent to read files in the project</span>
+                </div>
+                <input id="setting-access-file-read" type="checkbox" checked />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-file-write">File Write</label>
+                  <span class="setting-hint">Allow agent to create and modify files</span>
+                </div>
+                <input id="setting-access-file-write" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-terminal">Terminal Access</label>
+                  <span class="setting-hint">Allow agent to execute shell commands</span>
+                </div>
+                <input id="setting-access-terminal" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-network">Network Access</label>
+                  <span class="setting-hint">Allow agent to make HTTP requests and access URLs</span>
+                </div>
+                <input id="setting-access-network" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-env">Environment Variables</label>
+                  <span class="setting-hint">Allow agent to read environment variables and .env files</span>
+                </div>
+                <input id="setting-access-env" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-git">Git Operations</label>
+                  <span class="setting-hint">Allow agent to run git commands (commit, push, branch)</span>
+                </div>
+                <input id="setting-access-git" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-install">Package Install</label>
+                  <span class="setting-hint">Allow agent to install dependencies (npm, pip, cargo)</span>
+                </div>
+                <input id="setting-access-install" type="checkbox" />
+              </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="settings-actions">
+              <button id="btn-save-settings" class="btn-primary">Save Settings</button>
             </div>
           </div>
         </div>
