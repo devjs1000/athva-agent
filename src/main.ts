@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { getProjects, addProject, removeProject } from "./store/projects";
 import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
@@ -14,6 +15,7 @@ import { TerminalPanel } from "./modules/terminal";
 import { ScriptRunner } from "./modules/script-runner";
 import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { setOnSendToChat } from "./modules/ai-completer";
+import { showConfirmDialog } from "./modules/dialogs";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -27,6 +29,12 @@ let terminal!: TerminalPanel;
 let scriptRunner!: ScriptRunner;
 let sourceControl!: SourceControl;
 let currentProjectPath: string = "";
+
+interface GitFileChange {
+  path: string;
+  status: string;
+  staged: boolean;
+}
 
 // ── DOM Helpers ──
 function $(id: string): HTMLElement {
@@ -164,6 +172,61 @@ function toggleChat() {
   setTimeout(() => editor.resize(), 0);
 }
 
+function ensureChatOpen() {
+  const panel = $("chat-panel");
+  if (panel.classList.contains("hidden")) {
+    toggleChat();
+  }
+}
+
+function createTitlebarMenu(buttonId: string, items: Array<{ id: string; label: string; onClick: () => void | Promise<void> }>) {
+  const button = $(buttonId);
+  const menu = document.createElement("div");
+  menu.className = "context-menu hidden";
+
+  items.forEach((item) => {
+    const el = document.createElement("div");
+    el.className = "context-menu-item";
+    el.textContent = item.label;
+    el.dataset.menuAction = item.id;
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      menu.classList.add("hidden");
+      await item.onClick();
+    });
+    menu.appendChild(el);
+  });
+
+  document.body.appendChild(menu);
+
+  const closeMenu = () => menu.classList.add("hidden");
+
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const rect = button.getBoundingClientRect();
+    const isHidden = menu.classList.contains("hidden");
+
+    document.querySelectorAll(".context-menu").forEach((el) => {
+      if (el !== menu) el.classList.add("hidden");
+    });
+
+    if (!isHidden) {
+      closeMenu();
+      return;
+    }
+
+    menu.style.left = `${Math.max(8, rect.right - 200)}px`;
+    menu.style.top = `${rect.bottom + 6}px`;
+    menu.classList.remove("hidden");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!menu.contains(e.target as Node) && e.target !== button) {
+      closeMenu();
+    }
+  });
+}
+
 // ── Sidebar Resize ──
 function setupResizeHandle(handleId: string, target: HTMLElement, side: "left" | "right") {
   const handle = $(handleId);
@@ -267,6 +330,96 @@ window.addEventListener("DOMContentLoaded", async () => {
   );
   chatbot.setMemory(agentMemory, () => appSettings);
 
+  const runAIReview = async (target: "file" | "changes") => {
+    if (target === "file") {
+      if (!editor.hasOpenFile()) {
+        await showConfirmDialog("AI Review", "Open a file first to review it.", "OK");
+        return;
+      }
+
+      const filePath = editor.getActiveFilePath();
+      const fileContent = editor.getActiveFileContent();
+      if (!filePath || !fileContent.trim()) {
+        await showConfirmDialog("AI Review", "The current file is empty or unavailable.", "OK");
+        return;
+      }
+
+      const prompt =
+        `Review the current file like a senior engineer.\n` +
+        `Findings first, ordered by severity.\n` +
+        `Focus on bugs, risky behavior, regressions, and missing tests.\n` +
+        `If there are no findings, say "No findings" and mention residual risks or testing gaps.\n` +
+        `Keep it concise.\n\n` +
+        `File: ${filePath}\n\n` +
+        `\`\`\`\n${fileContent}\n\`\`\``;
+
+      ensureChatOpen();
+      await chatbot.sendExternal(prompt, "chat");
+      return;
+    }
+
+    if (!currentProjectPath) {
+      await showConfirmDialog("AI Review", "Open a project first to review changes.", "OK");
+      return;
+    }
+
+    try {
+      const files = await invoke<GitFileChange[]>("git_changed_files", { path: currentProjectPath });
+      if (files.length === 0) {
+        await showConfirmDialog("AI Review", "There are no git changes to review.", "OK");
+        return;
+      }
+
+      let diffStat = "";
+      try {
+        diffStat = await invoke<string>("git_diff_stat", { path: currentProjectPath });
+      } catch {}
+
+      const summary = files
+        .map((file) => `${file.staged ? "[staged]" : "[unstaged]"} ${file.status} ${file.path}`)
+        .join("\n");
+
+      const diffSections: string[] = [];
+      let remaining = 14000;
+
+      for (const file of files) {
+        if (remaining <= 0) break;
+        const rawDiff = await invoke<string>("git_diff_file", {
+          path: currentProjectPath,
+          file: file.path,
+          staged: file.staged,
+        });
+
+        if (!rawDiff.trim()) continue;
+
+        const clippedDiff = rawDiff.length > remaining
+          ? `${rawDiff.slice(0, remaining)}\n... [diff truncated]`
+          : rawDiff;
+
+        diffSections.push(
+          `File: ${file.path} (${file.staged ? "staged" : "unstaged"}, ${file.status})\n\`\`\`diff\n${clippedDiff}\n\`\`\``
+        );
+        remaining -= clippedDiff.length;
+      }
+
+      const prompt =
+        `Review the current git changes like a senior engineer.\n` +
+        `Findings first, ordered by severity with file references.\n` +
+        `Focus on bugs, risky behavior, regressions, and missing tests.\n` +
+        `If there are no findings, say "No findings" and mention residual risks or testing gaps.\n` +
+        `Keep it concise.\n\n` +
+        `Changed files:\n${summary}\n\n` +
+        `${diffStat ? `Diff stat:\n${diffStat}\n\n` : ""}` +
+        `Diffs${remaining <= 0 ? " (truncated)" : ""}:\n${diffSections.join("\n\n")}`;
+
+      ensureChatOpen();
+      await chatbot.sendExternal(prompt, "chat");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await showConfirmDialog("AI Review", `Could not load git changes.\n\n${message}`, "OK");
+    }
+  };
+
   // Refresh file explorer when agent writes/creates files
   chatbot.setOnFileChanged((_path: string) => {
     if (currentProjectPath) {
@@ -352,6 +505,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
+  createTitlebarMenu("btn-ai-review", [
+    {
+      id: "file",
+      label: `Review Current File`,
+      onClick: () => runAIReview("file"),
+    },
+    {
+      id: "changes",
+      label: `Review Changes`,
+      onClick: () => runAIReview("changes"),
+    },
+  ]);
   $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
   function setActiveTab(tab: "explorer" | "search") {
     $("sidebar-tab-explorer").classList.toggle("active", tab === "explorer");

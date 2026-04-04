@@ -474,6 +474,29 @@ export class Chatbot {
 
   // ── Send ──
 
+  async sendExternal(text: string, mode: ChatMode = "chat") {
+    const trimmed = text.trim();
+    if (!trimmed || this.isStreaming) return;
+
+    if (mode !== this.session.mode) {
+      if (this.session.messages.length > 0) {
+        await saveSession(this.session);
+        this.session = createSession(mode);
+        this.sessions.unshift(this.session);
+      } else {
+        this.session.mode = mode;
+      }
+
+      this.renderSessionList();
+      this.renderMessages();
+      this.updateModeUI();
+      this.updatePlaceholder();
+    }
+
+    this.inputEl.value = trimmed;
+    await this.send();
+  }
+
   private async send() {
     const text = this.inputEl.value.trim();
     if (!text || this.isStreaming) return;

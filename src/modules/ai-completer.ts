@@ -22,6 +22,8 @@ const DEBOUNCE_MS = 2500;
 const SELECTION_ACTIONS = [
   { label: "🔧 Fix", action: "fix", prompt: "Fix any bugs, errors, or issues in the following code. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
   { label: "💡 Explain", action: "explain", prompt: "Explain the following code concisely. Be brief and clear." },
+  { label: "🔍 Review", action: "review", prompt: "Review the following code like a senior engineer. Findings first, ordered by severity. Focus on bugs, risks, regressions, and missing tests. If there are no findings, say \"No findings\" and mention any residual risks or testing gaps. Be concise." },
+  { label: "🐞 Debug", action: "debug", prompt: "Debug the following code. Identify the most likely failure points, edge cases, and root causes. Suggest the smallest effective fixes and what to inspect next. Do not rewrite the code unless a tiny code example is necessary. Be concise." },
   { label: "✨ Enhance", action: "enhance", prompt: "Improve and enhance the following code - better naming, cleaner logic, modern patterns. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
   { label: "♻️ Apply DRY", action: "dry", prompt: "Refactor the following code to remove repetition (Don't Repeat Yourself principle). Extract shared logic into functions/variables. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
   { label: "📝 Add Docs", action: "docs", prompt: "Add JSDoc/TSDoc comments and inline comments to the following code. Add documentation for functions, parameters, return types, and any complex logic. Return ONLY the documented raw code, no explanation, no markdown fences, no backticks." },
@@ -244,7 +246,7 @@ async function onActionClick(action: string, systemPrompt: string) {
   const fileName = activeEditor._athvaFileName || "file.ts";
   const lang = fileName.split(".").pop() || "code";
 
-  const isReplace = action !== "explain";
+  const isReplace = !["explain", "review", "debug"].includes(action);
 
   const prompt = `${systemPrompt}\n\nLanguage: ${lang}\n\n\`\`\`${lang}\n${selectedText}\n\`\`\``;
 

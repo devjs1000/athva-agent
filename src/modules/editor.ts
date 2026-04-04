@@ -325,6 +325,15 @@ export class Editor {
     return this.activeTab;
   }
 
+  getActiveFileContent(): string {
+    const tab = this.tabs.find((t) => t.path === this.activeTab);
+    if (!tab) return "";
+    if (tab.path === this.activeTab) {
+      return this.ace.getValue();
+    }
+    return tab.content;
+  }
+
   private switchToTab(path: string) {
     this.activeTab = path;
     const tab = this.tabs.find((t) => t.path === path);
