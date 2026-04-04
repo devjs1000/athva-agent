@@ -872,26 +872,18 @@ export class Chatbot {
     for (const line of block.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed || !trimmed.startsWith("{")) continue;
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed.tool && parsed.args) {
-          results.push(parsed);
-        }
-      } catch {
-        // Not a single-line JSON, skip
+      const parsed = this.parseToolJsonCandidate(trimmed);
+      if (parsed) {
+        results.push(parsed);
       }
     }
 
     if (results.length > 0) return results;
 
     // Strategy 2: Try the entire block as one JSON object
-    try {
-      const parsed = JSON.parse(block);
-      if (parsed.tool && parsed.args) {
-        return [parsed];
-      }
-    } catch {
-      // Not a single JSON
+    const wholeBlock = this.parseToolJsonCandidate(block);
+    if (wholeBlock) {
+      return [wholeBlock];
     }
 
     // Strategy 3: Find JSON objects by brace matching
@@ -905,13 +897,9 @@ export class Chatbot {
         depth--;
         if (depth === 0 && start !== -1) {
           const candidate = block.substring(start, i + 1);
-          try {
-            const parsed = JSON.parse(candidate);
-            if (parsed.tool && parsed.args) {
-              results.push(parsed);
-            }
-          } catch {
-            // Skip
+          const parsed = this.parseToolJsonCandidate(candidate);
+          if (parsed) {
+            results.push(parsed);
           }
           start = -1;
         }
@@ -921,10 +909,38 @@ export class Chatbot {
     return results;
   }
 
+  private parseToolJsonCandidate(candidate: string): { tool: string; args: Record<string, string> } | null {
+    const attempts = [candidate, this.normalizeJsonLikeToolCall(candidate)];
+    for (const attempt of attempts) {
+      try {
+        const parsed = JSON.parse(attempt);
+        if (parsed.tool && parsed.args) {
+          return parsed;
+        }
+      } catch {
+        // Try the next normalization
+      }
+    }
+    return null;
+  }
+
+  private normalizeJsonLikeToolCall(text: string): string {
+    return text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_match, hex) => {
+      const codePoint = Number.parseInt(hex, 16);
+      if (!Number.isFinite(codePoint)) return _match;
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return _match;
+      }
+    });
+  }
+
   // ── Tool Approval Flow ──
 
   private requestApproval(tc: ToolCall, toolEl: HTMLElement): Promise<boolean> {
     return new Promise((resolve) => {
+      const access = this.getAgentAccess();
       const approveBtn = toolEl.querySelector(`.btn-approve[data-tool-id="${tc.id}"]`);
       const denyBtn = toolEl.querySelector(`.btn-deny[data-tool-id="${tc.id}"]`);
 
@@ -952,6 +968,10 @@ export class Chatbot {
 
       approveBtn.addEventListener("click", onApprove);
       denyBtn.addEventListener("click", onDeny);
+
+      if (access.autoApprove) {
+        onApprove();
+      }
     });
   }
 

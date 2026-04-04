@@ -2,7 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getProjects, addProject, removeProject } from "./store/projects";
 import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
-import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
+import { SettingsUI, loadSettings, saveSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
 import { AgentMemory } from "./modules/agent-memory";
 import { MemorySettingsUI } from "./modules/memory-settings-ui";
@@ -196,6 +196,13 @@ function setupResizeHandle(handleId: string, target: HTMLElement, side: "left" |
 function onSettingsChange(settings: AppSettings) {
   appSettings = settings;
   editor.applySettings(settings.editor);
+  syncChatAutoApproveToggle();
+}
+
+function syncChatAutoApproveToggle() {
+  const toggle = document.getElementById("chat-auto-approve") as HTMLInputElement | null;
+  if (!toggle) return;
+  toggle.checked = appSettings.agentAccess.autoApprove;
 }
 
 // ── Init ──
@@ -216,6 +223,20 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init settings UI
   settingsUI = new SettingsUI(appSettings, onSettingsChange);
+
+  const chatAutoApproveToggle = $("chat-auto-approve") as HTMLInputElement;
+  syncChatAutoApproveToggle();
+  chatAutoApproveToggle.addEventListener("change", async () => {
+    appSettings = {
+      ...appSettings,
+      agentAccess: {
+        ...appSettings.agentAccess,
+        autoApprove: chatAutoApproveToggle.checked,
+      },
+    };
+    settingsUI.updateSettings(appSettings);
+    await saveSettings(appSettings);
+  });
 
   // Init agent memory
   const agentMemory = new AgentMemory(

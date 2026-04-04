@@ -176,10 +176,6 @@ fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let name = entry.file_name().to_string_lossy().to_string();
-            // Skip hidden files/dirs
-            if name.starts_with('.') {
-                return None;
-            }
             let path = entry.path().to_string_lossy().to_string();
             let is_dir = entry.file_type().ok()?.is_dir();
             Some(FileEntry { name, path, is_dir })

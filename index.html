@@ -291,6 +291,10 @@
             <div class="chat-header">
               <span class="chat-header-title">AI Chat</span>
               <div class="chat-header-actions">
+                <label class="chat-auto-approve-toggle" title="Auto approve agent tools">
+                  <span>Auto</span>
+                  <input id="chat-auto-approve" type="checkbox" />
+                </label>
                 <!-- Mode Toggle -->
                 <div id="chat-mode-toggle" class="chat-mode-toggle" title="Switch mode (Chat / Agent)">
                   <button class="mode-btn active" data-mode="chat">
@@ -505,6 +509,14 @@
                   <span class="setting-hint">Allow agent to install dependencies (npm, pip, cargo)</span>
                 </div>
                 <input id="setting-access-install" type="checkbox" />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-access-auto-approve">Auto Approve Tools</label>
+                  <span class="setting-hint">Skip per-tool approval prompts and run allowed agent actions immediately</span>
+                </div>
+                <input id="setting-access-auto-approve" type="checkbox" />
               </div>
             </div>
 

@@ -16,6 +16,7 @@ export interface AgentAccess {
   env: boolean;
   git: boolean;
   packageInstall: boolean;
+  autoApprove: boolean;
 }
 
 export interface MemorySettings {
@@ -44,6 +45,7 @@ export const DEFAULT_AGENT_ACCESS: AgentAccess = {
   env: false,
   git: false,
   packageInstall: false,
+  autoApprove: false,
 };
 
 export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
@@ -104,6 +106,7 @@ export class SettingsUI {
   private accessEnvEl: HTMLInputElement;
   private accessGitEl: HTMLInputElement;
   private accessInstallEl: HTMLInputElement;
+  private accessAutoApproveEl: HTMLInputElement;
 
   // Memory elements
   private memoryGlobalEl: HTMLInputElement;
@@ -135,6 +138,7 @@ export class SettingsUI {
     this.accessEnvEl = document.getElementById("setting-access-env") as HTMLInputElement;
     this.accessGitEl = document.getElementById("setting-access-git") as HTMLInputElement;
     this.accessInstallEl = document.getElementById("setting-access-install") as HTMLInputElement;
+    this.accessAutoApproveEl = document.getElementById("setting-access-auto-approve") as HTMLInputElement;
 
     this.memoryGlobalEl = document.getElementById("setting-memory-global") as HTMLInputElement;
     this.memoryProjectEl = document.getElementById("setting-memory-project") as HTMLInputElement;
@@ -177,6 +181,7 @@ export class SettingsUI {
     this.accessEnvEl.checked = this.settings.agentAccess.env;
     this.accessGitEl.checked = this.settings.agentAccess.git;
     this.accessInstallEl.checked = this.settings.agentAccess.packageInstall;
+    this.accessAutoApproveEl.checked = this.settings.agentAccess.autoApprove;
 
     // Memory
     this.memoryGlobalEl.checked = this.settings.memory.globalEnabled;
@@ -226,6 +231,7 @@ export class SettingsUI {
         env: this.accessEnvEl.checked,
         git: this.accessGitEl.checked,
         packageInstall: this.accessInstallEl.checked,
+        autoApprove: this.accessAutoApproveEl.checked,
       },
       memory: {
         globalEnabled: this.memoryGlobalEl.checked,
