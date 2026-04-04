@@ -29,6 +29,22 @@ export class FileExplorer {
         this.setActiveFile(path);
       }
     );
+
+    this.container.addEventListener("contextmenu", (e) => {
+      if (!this.rootPath) return;
+      if ((e.target as HTMLElement).closest(".tree-item")) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rootName = this.rootPath.split("/").filter(Boolean).pop() || this.rootPath;
+      this.contextMenu.show(e.clientX, e.clientY, {
+        path: this.rootPath,
+        name: rootName,
+        isDir: true,
+        parentDir: this.rootPath,
+      });
+    });
   }
 
   async loadRoot(rootPath: string) {

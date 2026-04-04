@@ -69,8 +69,9 @@ export class ContextMenu {
 
   private buildMenu(target: ContextMenuTarget): MenuItem[] {
     const dir = target.isDir ? target.path : target.parentDir;
+    const isProjectRoot = target.path === this.projectRoot;
 
-    return [
+    const items: MenuItem[] = [
       {
         label: "New File",
         action: () => this.promptNewFile(dir),
@@ -79,23 +80,33 @@ export class ContextMenu {
         label: "New Folder",
         action: () => this.promptNewFolder(dir),
       },
-      { separator: true, label: "" },
-      {
-        label: "Rename",
-        action: () => this.promptRename(target),
-      },
-      {
-        label: "Delete",
-        action: () => this.confirmDelete(target),
-      },
+    ];
+
+    if (!isProjectRoot) {
+      items.push(
+        { separator: true, label: "" },
+        {
+          label: "Rename",
+          action: () => this.promptRename(target),
+        },
+        {
+          label: "Delete",
+          action: () => this.confirmDelete(target),
+        }
+      );
+    }
+
+    items.push(
       { separator: true, label: "" },
       {
         label: "Copy Path",
         submenu: [
-          {
-            label: "Relative Path",
-            action: () => this.copyRelativePath(target.path),
-          },
+          ...(!isProjectRoot
+            ? [{
+                label: "Relative Path",
+                action: () => this.copyRelativePath(target.path),
+              }]
+            : []),
           {
             label: "Absolute Path",
             action: () => this.copyToClipboard(target.path),
@@ -111,7 +122,9 @@ export class ContextMenu {
         label: "Reveal in Finder",
         action: () => this.revealInExplorer(target.path),
       },
-    ];
+    );
+
+    return items;
   }
 
   private renderMenu(items: MenuItem[]) {
@@ -235,7 +248,9 @@ export class ContextMenu {
   }
 
   private copyRelativePath(fullPath: string) {
-    if (this.projectRoot && fullPath.startsWith(this.projectRoot)) {
+    if (this.projectRoot && fullPath === this.projectRoot) {
+      this.copyToClipboard(".");
+    } else if (this.projectRoot && fullPath.startsWith(this.projectRoot)) {
       let rel = fullPath.substring(this.projectRoot.length);
       if (rel.startsWith("/")) rel = rel.substring(1);
       this.copyToClipboard(rel);

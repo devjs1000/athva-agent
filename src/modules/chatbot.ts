@@ -40,6 +40,15 @@ const AGENT_TOOLS = [
     description: "Search for files matching a query in the project",
     parameters: { query: "string — search query (matched against file paths)" },
   },
+  {
+    name: "make_plan",
+    description: "Create a concise execution plan before doing non-trivial work",
+    parameters: {
+      title: "string — short plan title",
+      steps: "string — newline-separated plan steps",
+      notes: "string — optional constraints, assumptions, or risks",
+    },
+  },
 ];
 
 // ── System prompts ──
@@ -51,6 +60,7 @@ function buildAgentSystemPrompt(projectPath: string, access: AgentAccess): strin
     if (t.name === "read_file" || t.name === "list_dir" || t.name === "search_files") return access.fileRead;
     if (t.name === "write_file") return access.fileWrite;
     if (t.name === "run_command") return access.terminal;
+    if (t.name === "make_plan") return true;
     return false;
   });
 
@@ -81,8 +91,10 @@ CRITICAL RULES:
 
 ## Guidelines
 - ALWAYS ask the user about their preferences before starting a task. For example: which package manager (npm, pnpm, bun, yarn), which framework version, which features, etc. Do NOT assume defaults — ask first.
+- For non-trivial tasks with multiple steps, dependencies, or edits across files, use make_plan first so the user can review the plan before execution.
 - Prefer run_command over write_file when a CLI tool can generate files. For example use "npm init -y", "pnpm init", "npx create-react-app", etc. instead of manually writing package.json.
 - Always read a file before modifying it.
+- If a file you read is empty or whitespace-only and the user has not already defined what should go into it, ask a concise clarifying question before writing anything. Ask for the file's purpose, expected behavior/features, and any framework or interface requirements you need.
 - Explain what you're about to do before calling a tool.
 - After a tool result, analyze the output and decide the next step.
 - If a tool call is denied by the user, respect that and find an alternative approach.
@@ -990,6 +1002,9 @@ export class Chatbot {
         if (!access.fileRead) throw new Error("File read permission denied");
         if (this.isBlockedPath(tc.args.path)) throw new Error(`Blocked: reading "${tc.args.path}" is not allowed (heavy, sensitive, or binary file)`);
         const content = await invoke<string>("read_file", { path: tc.args.path });
+        if (content.trim().length === 0) {
+          return "(empty or whitespace-only file)";
+        }
         // Truncate very large files to avoid blowing up context
         if (content.length > 50000) {
           return content.substring(0, 50000) + "\n\n... (truncated — file too large, showing first 50k chars)";
@@ -1036,6 +1051,28 @@ export class Chatbot {
         });
         if (files.length === 0) return "No files found.";
         return files.map((f) => f.path).join("\n");
+      }
+
+      case "make_plan": {
+        const title = (tc.args.title || "").trim();
+        const notes = (tc.args.notes || "").trim();
+        const steps = (tc.args.steps || "")
+          .split("\n")
+          .map((step) => step.trim())
+          .filter(Boolean);
+
+        if (!title) throw new Error("Plan title is required");
+        if (steps.length === 0) throw new Error("At least one plan step is required");
+
+        const lines = [`Plan: ${title}`];
+        for (let i = 0; i < steps.length; i++) {
+          lines.push(`${i + 1}. ${steps[i]}`);
+        }
+        if (notes) {
+          lines.push("");
+          lines.push(`Notes: ${notes}`);
+        }
+        return lines.join("\n");
       }
 
       default:
