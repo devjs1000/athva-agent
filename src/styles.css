@@ -1180,6 +1180,309 @@ body {
   accent-color: var(--accent);
 }
 
+/* ── Source Control Panel ── */
+.scm-panel {
+  width: 300px;
+  min-width: 240px;
+  max-width: 500px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.scm-header-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+.scm-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+/* Commit area */
+.scm-commit-area {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scm-commit-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  resize: vertical;
+  min-height: 40px;
+  max-height: 120px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.scm-commit-input:focus {
+  border-color: var(--accent);
+}
+
+.scm-commit-input::placeholder {
+  color: var(--text-muted);
+}
+
+.scm-commit-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  width: 100%;
+}
+
+/* Sections */
+.scm-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.scm-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  min-height: 26px;
+}
+
+.scm-section-header:hover {
+  background: var(--bg-hover);
+}
+
+.scm-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.scm-section-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-active);
+  border-radius: 8px;
+  padding: 0 6px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 18px;
+}
+
+.scm-section-action {
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.scm-section-header:hover .scm-section-action {
+  opacity: 1;
+}
+
+.scm-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  transition: transform 0.12s ease;
+  transform: rotate(90deg);
+  color: var(--text-muted);
+}
+
+.scm-chevron.collapsed {
+  transform: rotate(0deg);
+}
+
+/* File list */
+.scm-file-list {
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+.scm-file-list.collapsed {
+  display: none;
+}
+
+.scm-empty {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.scm-file-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 24px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  height: 24px;
+  transition: background 0.05s;
+}
+
+.scm-file-item:hover {
+  background: var(--bg-hover);
+}
+
+.scm-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-file-dir {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.scm-file-actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.scm-file-item:hover .scm-file-actions {
+  opacity: 1;
+}
+
+.scm-file-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  transition: background 0.1s, color 0.1s;
+}
+
+.scm-file-action:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.scm-file-badge {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Diff view */
+.scm-diff-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  min-height: 0;
+}
+
+.scm-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  min-height: 26px;
+}
+
+.scm-diff-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scm-diff-content {
+  flex: 1;
+  overflow: auto;
+  padding: 4px;
+  font-family: "SF Mono", Menlo, Monaco, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-primary);
+}
+
+.diff-line {
+  white-space: pre;
+  padding: 0 4px;
+}
+
+.diff-add {
+  background: rgba(115, 201, 145, 0.15);
+  color: #73c991;
+}
+
+.diff-del {
+  background: rgba(199, 78, 57, 0.15);
+  color: #c74e39;
+}
+
+.diff-hunk {
+  color: var(--accent);
+  font-style: italic;
+}
+
+/* Nav badge */
+.btn-icon-badge {
+  position: relative;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 7px;
+  padding: 0 3px;
+  pointer-events: none;
+}
+
 /* ── Status Bar (dark theme) ── */
 .status-bar {
   display: flex;

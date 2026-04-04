@@ -19,6 +19,14 @@ commands.allow = [
   "git_sync",
   "git_pull",
   "git_push",
+  "git_changed_files",
+  "git_stage",
+  "git_unstage",
+  "git_stage_all",
+  "git_unstage_all",
+  "git_discard_file",
+  "git_commit",
+  "git_diff_file",
   "load_settings",
   "save_settings"
 ]

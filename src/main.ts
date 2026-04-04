@@ -6,6 +6,7 @@ import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
 import { QuickOpen } from "./modules/quick-open";
 import { GitStatusBar } from "./modules/git-status";
+import { SourceControl } from "./modules/source-control";
 import { TerminalPanel } from "./modules/terminal";
 import { ScriptRunner } from "./modules/script-runner";
 import { setOnSendToChat } from "./modules/ai-completer";
@@ -19,6 +20,7 @@ let quickOpen!: QuickOpen;
 let gitStatus!: GitStatusBar;
 let terminal!: TerminalPanel;
 let scriptRunner!: ScriptRunner;
+let sourceControl!: SourceControl;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -106,6 +108,7 @@ async function openProject(path: string) {
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
   gitStatus.setProject(project.path);
+  sourceControl.setProject(project.path);
   terminal.setProject(project.path);
   scriptRunner.setProject(project.path);
 }
@@ -236,6 +239,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init script runner
   scriptRunner = new ScriptRunner(terminal);
 
+  // Init source control
+  sourceControl = new SourceControl(() => editor.resize());
+
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
     editor.openFile(path, name);
@@ -244,6 +250,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Setup resize handles
   setupResizeHandle("sidebar-resize", $("sidebar"), "left");
+  setupResizeHandle("source-control-resize", $("source-control-panel"), "right");
   setupResizeHandle("chat-resize", $("chat-panel"), "right");
 
   // ── Welcome page buttons ──
@@ -274,6 +281,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
   $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
+  $("btn-toggle-scm").addEventListener("click", () => sourceControl.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);
   $("btn-close-chat").addEventListener("click", toggleChat);
 
@@ -317,6 +325,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (isWorkspace && editor.hasOpenFile() && !quickOpen.isOpen()) {
         e.preventDefault();
         editor.openReplace();
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + Shift + G → Toggle Source Control
+    if (isMod && e.shiftKey && e.key === "G") {
+      e.preventDefault();
+      if (isWorkspace) {
+        sourceControl.toggle();
       }
       return;
     }

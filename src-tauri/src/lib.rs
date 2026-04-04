@@ -370,6 +370,105 @@ fn git_push(path: String) -> Result<String, String> {
     run_git(&path, &["push"])
 }
 
+// ── Source Control: detailed file status ──
+
+#[derive(Debug, Serialize, Clone)]
+pub struct GitFileChange {
+    pub path: String,
+    pub status: String,       // "M", "A", "D", "R", "?", "U"
+    pub staged: bool,
+}
+
+#[tauri::command]
+fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
+    let output = run_git(&path, &["status", "--porcelain=v1", "-uall"])?;
+    let mut files: Vec<GitFileChange> = Vec::new();
+
+    for line in output.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let file_path = line[3..].to_string();
+        // Handle renames: "R  old -> new"
+        let display_path = if file_path.contains(" -> ") {
+            file_path.split(" -> ").last().unwrap_or(&file_path).to_string()
+        } else {
+            file_path.clone()
+        };
+
+        // Staged change
+        if index_status != ' ' && index_status != '?' {
+            files.push(GitFileChange {
+                path: display_path.clone(),
+                status: index_status.to_string(),
+                staged: true,
+            });
+        }
+
+        // Unstaged change (working tree)
+        if worktree_status != ' ' {
+            let st = if index_status == '?' { "?".to_string() } else { worktree_status.to_string() };
+            files.push(GitFileChange {
+                path: display_path.clone(),
+                status: st,
+                staged: false,
+            });
+        }
+    }
+
+    Ok(files)
+}
+
+#[tauri::command]
+fn git_stage(path: String, file: String) -> Result<String, String> {
+    run_git(&path, &["add", "--", &file])
+}
+
+#[tauri::command]
+fn git_unstage(path: String, file: String) -> Result<String, String> {
+    run_git(&path, &["reset", "HEAD", "--", &file])
+}
+
+#[tauri::command]
+fn git_stage_all(path: String) -> Result<String, String> {
+    run_git(&path, &["add", "-A"])
+}
+
+#[tauri::command]
+fn git_unstage_all(path: String) -> Result<String, String> {
+    run_git(&path, &["reset", "HEAD"])
+}
+
+#[tauri::command]
+fn git_discard_file(path: String, file: String) -> Result<String, String> {
+    // Check if the file is untracked
+    let status = run_git(&path, &["status", "--porcelain", "--", &file])?;
+    if status.starts_with("??") {
+        // Untracked file — remove it
+        let full = std::path::Path::new(&path).join(&file);
+        fs::remove_file(&full).map_err(|e| e.to_string())?;
+        Ok("Removed untracked file".to_string())
+    } else {
+        run_git(&path, &["checkout", "--", &file])
+    }
+}
+
+#[tauri::command]
+fn git_commit(path: String, message: String) -> Result<String, String> {
+    run_git(&path, &["commit", "-m", &message])
+}
+
+#[tauri::command]
+fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, String> {
+    if staged {
+        run_git(&path, &["diff", "--cached", "--", &file])
+    } else {
+        run_git(&path, &["diff", "--", &file])
+    }
+}
+
 // ── Settings ──
 
 #[tauri::command]
@@ -415,6 +514,14 @@ pub fn run() {
             git_sync,
             git_pull,
             git_push,
+            git_changed_files,
+            git_stage,
+            git_unstage,
+            git_stage_all,
+            git_unstage_all,
+            git_discard_file,
+            git_commit,
+            git_diff_file,
             load_settings,
             save_settings,
         ])
