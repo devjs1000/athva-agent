@@ -12,6 +12,7 @@ import { GitStatusBar } from "./modules/git-status";
 import { SourceControl } from "./modules/source-control";
 import { TerminalPanel } from "./modules/terminal";
 import { ScriptRunner } from "./modules/script-runner";
+import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { setOnSendToChat } from "./modules/ai-completer";
 
 // ── State ──
@@ -220,6 +221,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     editor.openFile(path, name);
     fileExplorer.setActiveFile(path);
   });
+
+  // Init sidebar time widget
+  new SidebarTimeWidget("sidebar-time-widget");
 
   // Init settings UI
   settingsUI = new SettingsUI(appSettings, onSettingsChange);

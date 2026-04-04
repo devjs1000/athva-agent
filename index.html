@@ -170,6 +170,26 @@
               </div>
               <div id="gs-results" class="gs-results"></div>
             </div>
+
+            <div id="sidebar-time-widget" class="sidebar-time-widget">
+              <div class="sidebar-time-modes">
+                <button class="sidebar-time-mode active" data-mode="clock" type="button">Clock</button>
+                <button class="sidebar-time-mode" data-mode="stopwatch" type="button">Stopwatch</button>
+                <button class="sidebar-time-mode" data-mode="timer" type="button">Timer</button>
+              </div>
+              <div id="sidebar-time-display" class="sidebar-time-display">00:00:00</div>
+              <div id="sidebar-time-subtext" class="sidebar-time-subtext">--</div>
+              <div id="sidebar-timer-controls" class="sidebar-timer-controls hidden">
+                <input id="sidebar-timer-minutes" type="number" min="0" max="999" value="5" />
+                <span>min</span>
+                <input id="sidebar-timer-seconds" type="number" min="0" max="59" value="00" />
+                <span>sec</span>
+              </div>
+              <div class="sidebar-time-actions">
+                <button id="sidebar-time-start" class="sidebar-time-btn" type="button">Start</button>
+                <button id="sidebar-time-reset" class="sidebar-time-btn" type="button">Reset</button>
+              </div>
+            </div>
           </div>
 
           <!-- Sidebar resize handle -->

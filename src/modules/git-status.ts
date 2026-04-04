@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { showConfirmDialog } from "./dialogs";
 
 interface GitStatusResult {
   branch: string;
@@ -183,6 +184,7 @@ export class GitStatusBar {
       });
     } catch (e) {
       console.error("Failed to list branches:", e);
+      await showConfirmDialog("Git Error", this.formatErrorMessage(e), "OK");
     }
   }
 
@@ -197,6 +199,7 @@ export class GitStatusBar {
       await invoke("git_switch_branch", { path: this.projectPath, branch });
     } catch (e) {
       console.error("Git branch switch failed:", e);
+      await showConfirmDialog("Git Branch Switch Failed", this.formatErrorMessage(e), "OK");
     } finally {
       this.setBusy(false);
       await this.refresh();
@@ -207,5 +210,10 @@ export class GitStatusBar {
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  private formatErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) return error.message;
+    return String(error);
   }
 }
