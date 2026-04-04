@@ -90,16 +90,32 @@ CRITICAL RULES:
 - You can include a brief explanation before the tool block, but keep it short.
 
 ## Guidelines
-- ALWAYS ask the user about their preferences before starting a task. For example: which package manager (npm, pnpm, bun, yarn), which framework version, which features, etc. Do NOT assume defaults — ask first.
+- Default to acting, not asking. If enough context exists to make a reasonable implementation decision, continue with tool calls instead of pausing for clarification.
+- Ask the user about preferences only when the decision materially affects the implementation and cannot be inferred from the request or existing codebase. If the codebase already implies the right choice, follow it and continue.
 - For non-trivial tasks with multiple steps, dependencies, or edits across files, use make_plan first so the user can review the plan before execution.
+- First connect the request to the existing codebase. Reuse existing patterns, modules, naming, and architecture before creating new files.
+- First try to find missing pieces through inspection and brief brainstorming. Ask concise clarifying questions only when those missing pieces block a correct implementation and cannot be resolved from the codebase, prior messages, or a reasonable assumption.
+- Ask the user whether they want unit tests only when tests are actually relevant to the task and the answer is not already known. If they explicitly do not want tests, skip them. Do not pause the main implementation only to ask about tests if the core implementation can proceed safely.
+- Before coding, decide what units are actually required. Do not force all layers by default.
+- The preferred build order is from small unit to large unit: utils, atoms, hooks, molecules, organisms, templates, pages, routes, app.
+- Before coding, produce a compact inventory of required units, one JSON object per line, for example:
+  {"type":"util","name":"email_validator","description":"email validator","testing_method":"test by unit test"}
+  {"type":"atom","name":"Button","description":"Button component","testing_method":"test by unit test"}
+- Only include valid or required layers. If a layer is unnecessary, skip it.
 - Prefer run_command over write_file when a CLI tool can generate files. For example use "npm init -y", "pnpm init", "npx create-react-app", etc. instead of manually writing package.json.
+- Prefer search, pattern matching, regex, and simple algorithms to detect existing behavior or structure before manual inspection. Use search_files first when possible, and use run_command for fast codebase search when terminal access is available.
 - Always read a file before modifying it.
 - If a file you read is empty or whitespace-only and the user has not already defined what should go into it, ask a concise clarifying question before writing anything. Ask for the file's purpose, expected behavior/features, and any framework or interface requirements you need.
+- Coding should move from the smallest reusable units to the largest integrating units.
 - Explain what you're about to do before calling a tool.
 - After a tool result, analyze the output and decide the next step.
+- Do not stop after planning, inventory, search, or read steps if the task is still incomplete. Continue making tool calls until the task is finished or a blocking clarification is required.
+- Do not ask questions merely to confirm ordinary implementation choices, naming, file placement, or structure when the existing codebase already suggests the answer.
+- If the user asks for implementation, the default assumption is that they want code changes completed end-to-end in the current turn unless they explicitly ask only for analysis or planning.
 - If a tool call is denied by the user, respect that and find an alternative approach.
 - NEVER read files like .gitignore, .env, lock files (package-lock.json, pnpm-lock.yaml, yarn.lock), or anything inside node_modules, dist, build, .git directories. These are heavy or sensitive.
 - Be concise. Focus on taking action, not lengthy explanations.
+- Before finishing, validate the result. Check for integration gaps, missing imports, obvious runtime issues, and whether the implementation matches the request.
 - When done with a task, summarize what you did.`;
 }
 
@@ -122,6 +138,8 @@ export class Chatbot {
   private isStreaming = false;
   private agentAborted = false;
   private abortController: AbortController | null = null;
+  private activeCommandProcess: { pid: number; kill: () => Promise<void> } | null = null;
+  private activeCommandStopped = false;
 
   constructor(
     messagesId: string,
@@ -187,6 +205,12 @@ export class Chatbot {
     if (this.isStreaming) {
       this.agentAborted = true;
       this.abortController?.abort();
+      if (this.activeCommandProcess) {
+        this.activeCommandStopped = true;
+        void invoke("kill_process_tree", { pid: this.activeCommandProcess.pid }).catch(() =>
+          this.activeCommandProcess?.kill().catch(() => {})
+        );
+      }
     }
   }
 
@@ -1085,13 +1109,64 @@ export class Chatbot {
       const { Command } = await import("@tauri-apps/plugin-shell");
       // Use a login shell so the full user PATH is loaded (pnpm, npm, node, etc.)
       const cmd = Command.create("zsh", ["-l", "-c", command], { cwd });
-      const output = await cmd.execute();
-      const stdout = output.stdout?.trim() || "";
-      const stderr = output.stderr?.trim() || "";
-      if (output.code !== 0) {
-        return `Exit code ${output.code}\n${stderr || stdout}`;
-      }
-      return stdout || "(no output)";
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+
+      cmd.stdout.on("data", (data: string) => {
+        stdoutChunks.push(data);
+      });
+      cmd.stderr.on("data", (data: string) => {
+        stderrChunks.push(data);
+      });
+
+      return await new Promise<string>(async (resolve, reject) => {
+        cmd.on("close", (payload: { code: number | null }) => {
+          const stdout = stdoutChunks.join("").trim();
+          const stderr = stderrChunks.join("").trim();
+          const wasStopped = this.activeCommandStopped;
+
+          this.activeCommandProcess = null;
+          this.activeCommandStopped = false;
+
+          if (wasStopped || this.agentAborted) {
+            reject(new Error("Command stopped by user."));
+            return;
+          }
+
+          if (payload.code !== 0 && payload.code !== null) {
+            resolve(`Exit code ${payload.code}\n${stderr || stdout}`);
+            return;
+          }
+
+          resolve(stdout || stderr || "(no output)");
+        });
+
+        cmd.on("error", (err: string) => {
+          this.activeCommandProcess = null;
+          const wasStopped = this.activeCommandStopped;
+          this.activeCommandStopped = false;
+          if (wasStopped || this.agentAborted) {
+            reject(new Error("Command stopped by user."));
+            return;
+          }
+          reject(new Error(err));
+        });
+
+        try {
+          const child = await cmd.spawn();
+          this.activeCommandStopped = false;
+          this.activeCommandProcess = child;
+
+          if (this.agentAborted) {
+            this.activeCommandStopped = true;
+            await invoke("kill_process_tree", { pid: child.pid }).catch(() => child.kill());
+          }
+        } catch (e: unknown) {
+          this.activeCommandProcess = null;
+          this.activeCommandStopped = false;
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
     } catch (e: unknown) {
       throw new Error(`Shell execution failed: ${e instanceof Error ? e.message : String(e)}`);
     }
