@@ -252,10 +252,11 @@ export class Editor {
     this.ace.renderer.updateFull(true);
   }
 
-  async openFile(path: string, name: string) {
+  async openFile(path: string, name: string, line?: number) {
     const existing = this.tabs.find((t) => t.path === path);
     if (existing) {
       this.switchToTab(path);
+      if (line !== undefined) this.gotoLine(line);
       return;
     }
 
@@ -270,6 +271,32 @@ export class Editor {
     const tab: OpenTab = { path, name, content, modified: false, pinned: false };
     this.tabs.push(tab);
     this.switchToTab(path);
+    if (line !== undefined) this.gotoLine(line);
+  }
+
+  gotoLine(line: number) {
+    // Ace gotoLine is 1-based
+    this.ace.gotoLine(line, 0, true);
+    this.ace.focus();
+  }
+
+  async reloadFile(path: string) {
+    const tab = this.tabs.find((t) => t.path === path);
+    if (!tab) return;
+    try {
+      const content = await invoke<string>("read_file", { path });
+      tab.content = content;
+      tab.modified = false;
+      if (this.activeTab === path) {
+        const cursor = this.ace.getCursorPosition();
+        this.ace.setValue(content, -1);
+        this.ace.moveCursorToPosition(cursor);
+        this.ace.clearSelection();
+      }
+      this.renderTabs();
+    } catch (e) {
+      console.error("Failed to reload file:", e);
+    }
   }
 
   closeTab(path: string) {

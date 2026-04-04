@@ -7,6 +7,7 @@ import { Chatbot } from "./modules/chatbot";
 import { AgentMemory } from "./modules/agent-memory";
 import { MemorySettingsUI } from "./modules/memory-settings-ui";
 import { QuickOpen } from "./modules/quick-open";
+import { GlobalSearch } from "./modules/global-search";
 import { GitStatusBar } from "./modules/git-status";
 import { SourceControl } from "./modules/source-control";
 import { TerminalPanel } from "./modules/terminal";
@@ -19,6 +20,7 @@ let editor!: Editor;
 let fileExplorer!: FileExplorer;
 let settingsUI!: SettingsUI;
 let quickOpen!: QuickOpen;
+let globalSearch!: GlobalSearch;
 let gitStatus!: GitStatusBar;
 let terminal!: TerminalPanel;
 let scriptRunner!: ScriptRunner;
@@ -109,6 +111,7 @@ async function openProject(path: string) {
 
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
+  globalSearch.setProjectRoot(project.path);
   gitStatus.setProject(project.path);
   sourceControl.setProject(project.path);
   terminal.setProject(project.path);
@@ -279,6 +282,18 @@ window.addEventListener("DOMContentLoaded", async () => {
     fileExplorer.setActiveFile(path);
   });
 
+  // Init global search
+  globalSearch = new GlobalSearch(
+    (path, name, line) => {
+      editor.openFile(path, name, line);
+      fileExplorer.setActiveFile(path);
+    },
+    (paths) => {
+      paths.forEach((p) => editor.reloadFile(p));
+      if (currentProjectPath) fileExplorer.loadRoot(currentProjectPath);
+    }
+  );
+
   // Setup resize handles
   setupResizeHandle("sidebar-resize", $("sidebar"), "left");
   setupResizeHandle("source-control-resize", $("source-control-panel"), "right");
@@ -313,6 +328,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
   $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
+  function setActiveTab(tab: "explorer" | "search") {
+    $("sidebar-tab-explorer").classList.toggle("active", tab === "explorer");
+    $("sidebar-tab-search").classList.toggle("active", tab === "search");
+  }
+
+  $("sidebar-tab-explorer").addEventListener("click", () => {
+    globalSearch.close();
+    setActiveTab("explorer");
+  });
+
+  $("sidebar-tab-search").addEventListener("click", () => {
+    if (currentProjectPath) {
+      globalSearch.open();
+      setActiveTab("search");
+    }
+  });
+
   $("btn-toggle-scm").addEventListener("click", () => sourceControl.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);
   $("btn-close-chat").addEventListener("click", toggleChat);
@@ -324,6 +356,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", (e) => {
     const isMod = e.metaKey || e.ctrlKey;
     const isWorkspace = !$("workspace-page").classList.contains("hidden");
+
+    // Ctrl/Cmd + Shift + F → Global Search
+    if (isMod && e.shiftKey && e.key === "F") {
+      e.preventDefault();
+      if (isWorkspace && currentProjectPath) {
+        if (globalSearch.isOpen()) {
+          globalSearch.close();
+          setActiveTab("explorer");
+        } else {
+          globalSearch.open();
+          setActiveTab("search");
+        }
+      }
+      return;
+    }
 
     // Ctrl/Cmd + P → Quick Open
     if (isMod && e.key === "p") {

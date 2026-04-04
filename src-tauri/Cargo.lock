@@ -194,6 +194,7 @@ dependencies = [
 name = "athva-agent"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

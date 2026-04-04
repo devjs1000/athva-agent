@@ -1,3 +1,4 @@
+use regex::RegexBuilder;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -288,6 +289,148 @@ fn collect_files(
             }
         }
     }
+}
+
+// ── Global search (search/replace in files) ──
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SearchMatch {
+    pub path: String,
+    pub line: usize,
+    pub col: usize,
+    pub line_content: String,
+    pub match_start: usize,
+    pub match_end: usize,
+}
+
+#[tauri::command]
+fn search_in_files(
+    root: String,
+    query: String,
+    case_sensitive: bool,
+    use_regex: bool,
+    max_results: usize,
+) -> Result<Vec<SearchMatch>, String> {
+    if query.is_empty() {
+        return Ok(vec![]);
+    }
+    let max = if max_results == 0 { 500 } else { max_results };
+    let pat = if use_regex {
+        query.clone()
+    } else {
+        regex::escape(&query)
+    };
+    let re = RegexBuilder::new(&pat)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    grep_dir(&PathBuf::from(&root), &re, max, &mut results);
+    Ok(results)
+}
+
+fn grep_dir(dir: &PathBuf, re: &regex::Regex, max: usize, results: &mut Vec<SearchMatch>) {
+    if results.len() >= max {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let mut entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    entries_vec.sort_by_key(|e| e.file_name());
+    for entry in entries_vec {
+        if results.len() >= max {
+            break;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if matches!(
+            name.as_str(),
+            "node_modules" | "target" | "dist" | "build" | ".git" | "__pycache__"
+        ) {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            grep_dir(&path, re, max, results);
+        } else {
+            grep_file(&path, re, max, results);
+        }
+    }
+}
+
+fn grep_file(path: &PathBuf, re: &regex::Regex, max: usize, results: &mut Vec<SearchMatch>) {
+    let bytes = match fs::read(path) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    // Skip binary files
+    if bytes[..bytes.len().min(512)].contains(&0u8) {
+        return;
+    }
+    let content = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let path_str = path.to_string_lossy().to_string();
+    for (line_idx, line) in content.lines().enumerate() {
+        if results.len() >= max {
+            break;
+        }
+        if let Some(m) = re.find(line) {
+            results.push(SearchMatch {
+                path: path_str.clone(),
+                line: line_idx + 1,
+                col: m.start(),
+                line_content: line.to_string(),
+                match_start: m.start(),
+                match_end: m.end(),
+            });
+        }
+    }
+}
+
+#[tauri::command]
+fn replace_in_files(
+    paths: Vec<String>,
+    query: String,
+    replacement: String,
+    case_sensitive: bool,
+    use_regex: bool,
+) -> Result<usize, String> {
+    if query.is_empty() {
+        return Ok(0);
+    }
+    let pat = if use_regex {
+        query.clone()
+    } else {
+        regex::escape(&query)
+    };
+    let re = RegexBuilder::new(&pat)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut total = 0usize;
+    for path_str in &paths {
+        let path = PathBuf::from(path_str);
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let count = re.find_iter(&content).count();
+        if count == 0 {
+            continue;
+        }
+        let new_content = re.replace_all(&content, regex::NoExpand(replacement.as_str()));
+        fs::write(&path, new_content.as_bytes()).map_err(|e| e.to_string())?;
+        total += count;
+    }
+    Ok(total)
 }
 
 // ── Git commands ──
@@ -787,6 +930,8 @@ pub fn run() {
             delete_path,
             reveal_in_explorer,
             search_files,
+            search_in_files,
+            replace_in_files,
             git_status,
             git_sync,
             git_pull,
