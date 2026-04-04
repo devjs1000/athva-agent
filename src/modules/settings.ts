@@ -83,6 +83,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 export class SettingsUI {
   private settings: AppSettings;
   private onApply: (settings: AppSettings) => void;
+  private activeTab = "all";
 
   // Editor elements
   private themeEl: HTMLSelectElement;
@@ -111,6 +112,11 @@ export class SettingsUI {
   // Memory elements
   private memoryGlobalEl: HTMLInputElement;
   private memoryProjectEl: HTMLInputElement;
+
+  // Settings navigation / filtering
+  private searchEl: HTMLInputElement;
+  private tabEls: HTMLElement[];
+  private sectionEls: HTMLElement[];
 
   // Save button
   private saveBtnEl: HTMLElement;
@@ -143,15 +149,21 @@ export class SettingsUI {
     this.memoryGlobalEl = document.getElementById("setting-memory-global") as HTMLInputElement;
     this.memoryProjectEl = document.getElementById("setting-memory-project") as HTMLInputElement;
 
+    this.searchEl = document.getElementById("settings-search-input") as HTMLInputElement;
+    this.tabEls = Array.from(document.querySelectorAll<HTMLElement>(".settings-tab-btn"));
+    this.sectionEls = Array.from(document.querySelectorAll<HTMLElement>(".settings-section"));
+
     this.saveBtnEl = document.getElementById("btn-save-settings")!;
 
     this.populateFromSettings();
     this.bindEvents();
+    this.applyFilters();
   }
 
   updateSettings(settings: AppSettings) {
     this.settings = settings;
     this.populateFromSettings();
+    this.applyFilters();
   }
 
   getSettings(): AppSettings {
@@ -247,6 +259,31 @@ export class SettingsUI {
       this.populateModelDropdown(provider, "");
     });
 
+    this.searchEl.addEventListener("input", () => this.applyFilters());
+
+    this.tabEls.forEach((tabEl) => {
+      tabEl.addEventListener("click", () => {
+        this.activeTab = tabEl.dataset.settingsTab || "all";
+        this.tabEls.forEach((el) => {
+          el.classList.toggle("active", el === tabEl);
+        });
+        this.applyFilters();
+      });
+    });
+
+    this.sectionEls.forEach((sectionEl) => {
+      const header = sectionEl.querySelector<HTMLElement>(".settings-section-header");
+      if (!header) return;
+      header.addEventListener("click", () => {
+        if (!sectionEl.classList.contains("expanded")) {
+          sectionEl.classList.add("expanded");
+          return;
+        }
+        if (this.searchEl.value.trim()) return;
+        sectionEl.classList.remove("expanded");
+      });
+    });
+
     // Save button
     this.saveBtnEl.addEventListener("click", async () => {
       this.settings = this.collectFromUI();
@@ -254,5 +291,36 @@ export class SettingsUI {
       await saveSettings(this.settings);
       this.showSavedToast();
     });
+  }
+
+  private applyFilters() {
+    const query = this.searchEl.value.trim().toLowerCase();
+
+    this.sectionEls.forEach((sectionEl) => {
+      const category = sectionEl.dataset.settingsCategory || "all";
+      const categoryMatch = this.activeTab === "all" || this.activeTab === category;
+      const sectionText = this.normalizeSearchText(sectionEl.querySelector(".settings-section-heading")?.textContent || "");
+      const rows = Array.from(sectionEl.querySelectorAll<HTMLElement>(".setting-row"));
+
+      let visibleRows = 0;
+      const sectionMatch = query.length > 0 && sectionText.includes(query);
+
+      rows.forEach((row) => {
+        const rowMatch = sectionMatch || query.length === 0 || this.normalizeSearchText(row.textContent || "").includes(query);
+        row.classList.toggle("hidden-by-filter", !rowMatch);
+        if (rowMatch) visibleRows++;
+      });
+
+      const shouldShow = categoryMatch && (query.length === 0 || sectionMatch || visibleRows > 0);
+      sectionEl.classList.toggle("hidden-by-filter", !shouldShow);
+
+      if (shouldShow && query.length > 0) {
+        sectionEl.classList.add("expanded");
+      }
+    });
+  }
+
+  private normalizeSearchText(text: string): string {
+    return text.replace(/\s+/g, " ").trim().toLowerCase();
   }
 }

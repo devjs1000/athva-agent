@@ -368,183 +368,232 @@
           <div class="settings-body">
             <div id="settings-saved-toast" class="settings-saved-toast hidden">Settings saved</div>
 
-            <!-- Editor Settings -->
-            <div class="settings-section">
-              <h3 class="settings-section-title">Editor</h3>
-
-              <div class="setting-row">
-                <label for="setting-theme">Theme</label>
-                <select id="setting-theme">
-                  <option value="monokai">Monokai</option>
-                  <option value="github_dark">GitHub Dark</option>
-                  <option value="tomorrow_night">Tomorrow Night</option>
-                  <option value="dracula">Dracula</option>
-                  <option value="one_dark">One Dark</option>
-                  <option value="solarized_dark">Solarized Dark</option>
-                  <option value="twilight">Twilight</option>
-                  <option value="cobalt">Cobalt</option>
-                  <option value="github">GitHub (Light)</option>
-                  <option value="chrome">Chrome (Light)</option>
-                </select>
-              </div>
-
-              <div class="setting-row">
-                <label for="setting-font-size">Font Size</label>
-                <input id="setting-font-size" type="number" value="14" min="8" max="32" />
-              </div>
-
-              <div class="setting-row">
-                <label for="setting-tab-size">Tab Size</label>
-                <input id="setting-tab-size" type="number" value="2" min="1" max="8" />
-              </div>
-
-              <div class="setting-row">
-                <label for="setting-word-wrap">Word Wrap</label>
-                <input id="setting-word-wrap" type="checkbox" />
-              </div>
-
-              <div class="setting-row">
-                <label for="setting-show-gutter">Show Line Numbers</label>
-                <input id="setting-show-gutter" type="checkbox" checked />
-              </div>
-
-              <div class="setting-row">
-                <label for="setting-minimap">Show Minimap</label>
-                <input id="setting-minimap" type="checkbox" />
-              </div>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-ai-inline">AI Inline Suggestions</label>
-                  <span class="setting-hint">Copilot-like completions using your configured AI provider</span>
-                </div>
-                <input id="setting-ai-inline" type="checkbox" />
+            <div class="settings-toolbar">
+              <input id="settings-search-input" class="settings-search-input" type="text" placeholder="Search settings..." autocomplete="off" spellcheck="false" />
+              <div class="settings-tabs">
+                <button class="settings-tab-btn active" data-settings-tab="all">All</button>
+                <button class="settings-tab-btn" data-settings-tab="workspace">Workspace</button>
+                <button class="settings-tab-btn" data-settings-tab="ai">AI</button>
+                <button class="settings-tab-btn" data-settings-tab="access">Access</button>
+                <button class="settings-tab-btn" data-settings-tab="memory">Memory</button>
               </div>
             </div>
 
-            <!-- AI Agent Settings -->
-            <div class="settings-section">
-              <h3 class="settings-section-title">AI Agent</h3>
+            <div class="settings-sections">
+              <!-- Editor Settings -->
+              <section class="settings-section expanded" data-settings-category="workspace">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">Editor</h3>
+                    <p class="setting-description">Appearance, editing behavior, and inline coding assistance.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <div class="setting-row">
+                    <label for="setting-theme">Theme</label>
+                    <select id="setting-theme">
+                      <option value="monokai">Monokai</option>
+                      <option value="github_dark">GitHub Dark</option>
+                      <option value="tomorrow_night">Tomorrow Night</option>
+                      <option value="dracula">Dracula</option>
+                      <option value="one_dark">One Dark</option>
+                      <option value="solarized_dark">Solarized Dark</option>
+                      <option value="twilight">Twilight</option>
+                      <option value="cobalt">Cobalt</option>
+                      <option value="github">GitHub (Light)</option>
+                      <option value="chrome">Chrome (Light)</option>
+                    </select>
+                  </div>
 
-              <div class="setting-row">
-                <label for="setting-ai-provider">Provider</label>
-                <select id="setting-ai-provider">
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="google">Google Gemini</option>
-                  <option value="mimo">Xiaomi MiMo</option>
-                  <option value="mistral">Mistral AI</option>
-                </select>
-              </div>
+                  <div class="setting-row">
+                    <label for="setting-font-size">Font Size</label>
+                    <input id="setting-font-size" type="number" value="14" min="8" max="32" />
+                  </div>
 
-              <div class="setting-row">
-                <label for="setting-ai-api-key">API Key</label>
-                <input id="setting-ai-api-key" type="password" placeholder="Enter your API key" />
-              </div>
+                  <div class="setting-row">
+                    <label for="setting-tab-size">Tab Size</label>
+                    <input id="setting-tab-size" type="number" value="2" min="1" max="8" />
+                  </div>
 
-              <div class="setting-row">
-                <label for="setting-ai-model">Model</label>
-                <select id="setting-ai-model">
-                  <!-- Populated dynamically based on provider -->
-                </select>
-              </div>
-            </div>
+                  <div class="setting-row">
+                    <label for="setting-word-wrap">Word Wrap</label>
+                    <input id="setting-word-wrap" type="checkbox" />
+                  </div>
 
-            <!-- Agent Access Permissions -->
-            <div class="settings-section">
-              <h3 class="settings-section-title">Agent Access</h3>
-              <p class="setting-description">Control what the AI agent is allowed to do in your project.</p>
+                  <div class="setting-row">
+                    <label for="setting-show-gutter">Show Line Numbers</label>
+                    <input id="setting-show-gutter" type="checkbox" checked />
+                  </div>
 
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-file-read">File Read</label>
-                  <span class="setting-hint">Allow agent to read files in the project</span>
+                  <div class="setting-row">
+                    <label for="setting-minimap">Show Minimap</label>
+                    <input id="setting-minimap" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-ai-inline">AI Inline Suggestions</label>
+                      <span class="setting-hint">Copilot-like completions using your configured AI provider</span>
+                    </div>
+                    <input id="setting-ai-inline" type="checkbox" />
+                  </div>
                 </div>
-                <input id="setting-access-file-read" type="checkbox" checked />
-              </div>
+              </section>
 
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-file-write">File Write</label>
-                  <span class="setting-hint">Allow agent to create and modify files</span>
+              <!-- AI Agent Settings -->
+              <section class="settings-section expanded" data-settings-category="ai">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">AI Agent</h3>
+                    <p class="setting-description">Provider, model, and credentials used by chat and agent features.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <div class="setting-row">
+                    <label for="setting-ai-provider">Provider</label>
+                    <select id="setting-ai-provider">
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
+                      <option value="google">Google Gemini</option>
+                      <option value="mimo">Xiaomi MiMo</option>
+                      <option value="mistral">Mistral AI</option>
+                    </select>
+                  </div>
+
+                  <div class="setting-row">
+                    <label for="setting-ai-api-key">API Key</label>
+                    <input id="setting-ai-api-key" type="password" placeholder="Enter your API key" />
+                  </div>
+
+                  <div class="setting-row">
+                    <label for="setting-ai-model">Model</label>
+                    <select id="setting-ai-model">
+                      <!-- Populated dynamically based on provider -->
+                    </select>
+                  </div>
                 </div>
-                <input id="setting-access-file-write" type="checkbox" />
-              </div>
+              </section>
 
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-terminal">Terminal Access</label>
-                  <span class="setting-hint">Allow agent to execute shell commands</span>
+              <!-- Agent Access Permissions -->
+              <section class="settings-section expanded" data-settings-category="access">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">Agent Access</h3>
+                    <p class="setting-description">Permissions that control what the AI agent can do in your project.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-file-read">File Read</label>
+                      <span class="setting-hint">Allow agent to read files in the project</span>
+                    </div>
+                    <input id="setting-access-file-read" type="checkbox" checked />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-file-write">File Write</label>
+                      <span class="setting-hint">Allow agent to create and modify files</span>
+                    </div>
+                    <input id="setting-access-file-write" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-terminal">Terminal Access</label>
+                      <span class="setting-hint">Allow agent to execute shell commands</span>
+                    </div>
+                    <input id="setting-access-terminal" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-network">Network Access</label>
+                      <span class="setting-hint">Allow agent to make HTTP requests and access URLs</span>
+                    </div>
+                    <input id="setting-access-network" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-env">Environment Variables</label>
+                      <span class="setting-hint">Allow agent to read environment variables and .env files</span>
+                    </div>
+                    <input id="setting-access-env" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-git">Git Operations</label>
+                      <span class="setting-hint">Allow agent to run git commands (commit, push, branch)</span>
+                    </div>
+                    <input id="setting-access-git" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-install">Package Install</label>
+                      <span class="setting-hint">Allow agent to install dependencies (npm, pip, cargo)</span>
+                    </div>
+                    <input id="setting-access-install" type="checkbox" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-access-auto-approve">Auto Approve Tools</label>
+                      <span class="setting-hint">Skip per-tool approval prompts and run allowed agent actions immediately</span>
+                    </div>
+                    <input id="setting-access-auto-approve" type="checkbox" />
+                  </div>
                 </div>
-                <input id="setting-access-terminal" type="checkbox" />
-              </div>
+              </section>
 
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-network">Network Access</label>
-                  <span class="setting-hint">Allow agent to make HTTP requests and access URLs</span>
+              <!-- Agent Memory -->
+              <section class="settings-section expanded" id="memory-settings-section" data-settings-category="memory">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">Agent Memory</h3>
+                    <p class="setting-description">Facts and project-specific context stored across chat sessions.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <p class="setting-description">
+                    The agent stores facts and decisions to recall in future sessions.
+                    Global memory applies across all projects; project memory is scoped to the current project.
+                  </p>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-memory-global">Global Memory</label>
+                      <span class="setting-hint">Facts learned across all projects</span>
+                    </div>
+                    <input id="setting-memory-global" type="checkbox" checked />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-memory-project">Project Memory</label>
+                      <span class="setting-hint">Facts specific to the current project</span>
+                    </div>
+                    <input id="setting-memory-project" type="checkbox" checked />
+                  </div>
+
+                  <div id="memory-settings-container"></div>
                 </div>
-                <input id="setting-access-network" type="checkbox" />
-              </div>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-env">Environment Variables</label>
-                  <span class="setting-hint">Allow agent to read environment variables and .env files</span>
-                </div>
-                <input id="setting-access-env" type="checkbox" />
-              </div>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-git">Git Operations</label>
-                  <span class="setting-hint">Allow agent to run git commands (commit, push, branch)</span>
-                </div>
-                <input id="setting-access-git" type="checkbox" />
-              </div>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-install">Package Install</label>
-                  <span class="setting-hint">Allow agent to install dependencies (npm, pip, cargo)</span>
-                </div>
-                <input id="setting-access-install" type="checkbox" />
-              </div>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-access-auto-approve">Auto Approve Tools</label>
-                  <span class="setting-hint">Skip per-tool approval prompts and run allowed agent actions immediately</span>
-                </div>
-                <input id="setting-access-auto-approve" type="checkbox" />
-              </div>
-            </div>
-
-            <!-- Agent Memory -->
-            <div class="settings-section" id="memory-settings-section">
-              <h3 class="settings-section-title">Agent Memory</h3>
-              <p class="setting-description">
-                The agent stores facts and decisions to recall in future sessions.
-                Global memory applies across all projects; project memory is scoped to the current project.
-              </p>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-memory-global">Global Memory</label>
-                  <span class="setting-hint">Facts learned across all projects</span>
-                </div>
-                <input id="setting-memory-global" type="checkbox" checked />
-              </div>
-
-              <div class="setting-row">
-                <div class="setting-label-group">
-                  <label for="setting-memory-project">Project Memory</label>
-                  <span class="setting-hint">Facts specific to the current project</span>
-                </div>
-                <input id="setting-memory-project" type="checkbox" checked />
-              </div>
-
-              <div id="memory-settings-container"></div>
+              </section>
             </div>
 
             <!-- Save Button -->
