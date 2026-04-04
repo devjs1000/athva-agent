@@ -155,12 +155,13 @@ export class SourceControl {
 
     container.innerHTML = files
       .map((f) => {
-        const fileName = f.path.split("/").pop() || f.path;
-        const dir = f.path.includes("/") ? f.path.substring(0, f.path.lastIndexOf("/")) : "";
+        const cleanPath = f.path.trim();
+        const fileName = cleanPath.split("/").pop()?.trim() || cleanPath;
+        const dir = cleanPath.includes("/") ? cleanPath.substring(0, cleanPath.lastIndexOf("/")) : "";
         const color = STATUS_COLORS[f.status] || "#ccc";
         const label = STATUS_LABELS[f.status] || f.status;
 
-        return `<div class="scm-file-item" data-path="${this.escHtml(f.path)}" data-staged="${isStaged}" title="${this.escHtml(f.path)} - ${label}">
+        return `<div class="scm-file-item" data-path="${this.escHtml(cleanPath)}" data-staged="${isStaged}" title="${this.escHtml(cleanPath)} - ${label}">
           <span class="scm-file-name">${this.escHtml(fileName)}${dir ? `<span class="scm-file-dir"> ${this.escHtml(dir)}</span>` : ""}</span>
           <div class="scm-file-actions">
             ${

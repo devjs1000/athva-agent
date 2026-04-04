@@ -390,16 +390,27 @@ fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
         }
         let index_status = line.chars().nth(0).unwrap_or(' ');
         let worktree_status = line.chars().nth(1).unwrap_or(' ');
+
+        // Skip ignored files (!!)
+        if index_status == '!' && worktree_status == '!' {
+            continue;
+        }
+
         let file_path = line[3..].to_string();
-        // Handle renames: "R  old -> new"
-        let display_path = if file_path.contains(" -> ") {
+        // Handle renames: "old -> new" — take the new name
+        let raw_path = if file_path.contains(" -> ") {
             file_path.split(" -> ").last().unwrap_or(&file_path).to_string()
         } else {
             file_path.clone()
         };
+        // Trim stray whitespace / control chars that can shift display
+        let display_path = raw_path.trim().to_string();
+        if display_path.is_empty() {
+            continue;
+        }
 
-        // Staged change
-        if index_status != ' ' && index_status != '?' {
+        // Staged change: index has a real modification (not untracked, not ignored, not unmerged)
+        if index_status != ' ' && index_status != '?' && index_status != '!' && index_status != 'U' {
             files.push(GitFileChange {
                 path: display_path.clone(),
                 status: index_status.to_string(),
@@ -407,14 +418,23 @@ fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
             });
         }
 
-        // Unstaged change (working tree)
-        if worktree_status != ' ' {
-            let st = if index_status == '?' { "?".to_string() } else { worktree_status.to_string() };
+        // Unstaged / worktree change
+        if worktree_status != ' ' && worktree_status != '!' {
+            let st = match index_status {
+                '?' => "?".to_string(),
+                'U' => "U".to_string(), // conflict
+                _ => worktree_status.to_string(),
+            };
             files.push(GitFileChange {
                 path: display_path.clone(),
                 status: st,
                 staged: false,
             });
+        }
+
+        // Unmerged conflict (both sides modified — UU, AA, DD, etc.)
+        if index_status == 'U' || worktree_status == 'U' {
+            // Already handled above as unstaged; ensure it doesn't slip into staged
         }
     }
 

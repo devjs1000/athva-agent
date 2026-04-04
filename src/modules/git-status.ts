@@ -11,23 +11,19 @@ export class GitStatusBar {
   private statusEl: HTMLElement;
   private branchEl: HTMLElement;
   private aheadBehindEl: HTMLElement;
-  private pullBtn: HTMLElement;
-  private pushBtn: HTMLElement;
   private syncBtn: HTMLElement;
   private projectPath: string = "";
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private isBusy = false;
+  private ahead = 0;
+  private behind = 0;
 
   constructor() {
     this.statusEl = document.getElementById("git-status")!;
     this.branchEl = document.getElementById("git-branch")!;
     this.aheadBehindEl = document.getElementById("git-ahead-behind")!;
-    this.pullBtn = document.getElementById("btn-git-pull")!;
-    this.pushBtn = document.getElementById("btn-git-push")!;
     this.syncBtn = document.getElementById("btn-git-sync")!;
 
-    this.pullBtn.addEventListener("click", () => this.pull());
-    this.pushBtn.addEventListener("click", () => this.push());
     this.syncBtn.addEventListener("click", () => this.sync());
   }
 
@@ -40,8 +36,6 @@ export class GitStatusBar {
 
   hide() {
     this.statusEl.classList.add("hidden");
-    this.pullBtn.classList.add("hidden");
-    this.pushBtn.classList.add("hidden");
     this.syncBtn.classList.add("hidden");
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
@@ -51,8 +45,6 @@ export class GitStatusBar {
 
   private show() {
     this.statusEl.classList.remove("hidden");
-    this.pullBtn.classList.remove("hidden");
-    this.pushBtn.classList.remove("hidden");
     this.syncBtn.classList.remove("hidden");
   }
 
@@ -68,41 +60,30 @@ export class GitStatusBar {
       }
 
       this.show();
+      this.ahead = status.ahead;
+      this.behind = status.behind;
       this.branchEl.textContent = status.branch || "HEAD";
 
-      // Show ahead/behind in sync button like VS Code: ↓1 ↑2
       const parts: string[] = [];
       if (status.behind > 0) parts.push(`\u2193${status.behind}`);
       if (status.ahead > 0) parts.push(`\u2191${status.ahead}`);
       this.aheadBehindEl.textContent = parts.join(" ");
+
+      this.updateSyncTooltip();
     } catch {
       this.hide();
     }
   }
 
-  private async pull() {
-    if (this.isBusy || !this.projectPath) return;
-    this.setBusy(true);
-    try {
-      await invoke("git_pull", { path: this.projectPath });
-    } catch (e) {
-      console.error("Git pull failed:", e);
-    } finally {
-      this.setBusy(false);
-      await this.refresh();
-    }
-  }
-
-  private async push() {
-    if (this.isBusy || !this.projectPath) return;
-    this.setBusy(true);
-    try {
-      await invoke("git_push", { path: this.projectPath });
-    } catch (e) {
-      console.error("Git push failed:", e);
-    } finally {
-      this.setBusy(false);
-      await this.refresh();
+  private updateSyncTooltip() {
+    if (this.ahead > 0 && this.behind > 0) {
+      this.syncBtn.title = "Pull then Push";
+    } else if (this.ahead > 0) {
+      this.syncBtn.title = "Push";
+    } else if (this.behind > 0) {
+      this.syncBtn.title = "Pull";
+    } else {
+      this.syncBtn.title = "Sync";
     }
   }
 
@@ -110,7 +91,16 @@ export class GitStatusBar {
     if (this.isBusy || !this.projectPath) return;
     this.setBusy(true);
     try {
-      await invoke("git_sync", { path: this.projectPath });
+      if (this.ahead > 0 && this.behind > 0) {
+        // Both: pull first, then push
+        await invoke("git_sync", { path: this.projectPath });
+      } else if (this.ahead > 0) {
+        // Only commits to push
+        await invoke("git_push", { path: this.projectPath });
+      } else if (this.behind > 0) {
+        // Only remote commits to pull
+        await invoke("git_pull", { path: this.projectPath });
+      }
     } catch (e) {
       console.error("Git sync failed:", e);
     } finally {
@@ -121,12 +111,11 @@ export class GitStatusBar {
 
   private setBusy(busy: boolean) {
     this.isBusy = busy;
-    const btns = [this.pullBtn, this.pushBtn, this.syncBtn];
     if (busy) {
-      btns.forEach((b) => b.setAttribute("disabled", "true"));
+      this.syncBtn.setAttribute("disabled", "true");
       this.syncBtn.classList.add("syncing");
     } else {
-      btns.forEach((b) => b.removeAttribute("disabled"));
+      this.syncBtn.removeAttribute("disabled");
       this.syncBtn.classList.remove("syncing");
     }
   }
