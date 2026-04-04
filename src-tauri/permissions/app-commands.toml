@@ -6,6 +6,7 @@ commands.allow = [
   "add_project",
   "remove_project",
   "check_path_exists",
+  "kill_process_tree",
   "read_dir",
   "read_file",
   "write_file",

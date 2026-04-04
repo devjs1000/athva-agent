@@ -3,6 +3,9 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
+use std::thread;
+use std::time::Duration;
 use tauri::Manager;
 
 // ── Project management ──
@@ -99,6 +102,57 @@ fn remove_project(app: tauri::AppHandle, path: String) {
 #[tauri::command]
 fn check_path_exists(path: String) -> bool {
     PathBuf::from(&path).exists()
+}
+
+#[tauri::command]
+fn kill_process_tree(pid: u32) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut pids = collect_child_pids(pid)?;
+        pids.push(pid);
+
+        let pid_args: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
+        if !pid_args.is_empty() {
+            let _ = Command::new("kill").arg("-TERM").args(&pid_args).status();
+            thread::sleep(Duration::from_millis(250));
+            let _ = Command::new("kill").arg("-KILL").args(&pid_args).status();
+        }
+
+        return Ok(());
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn collect_child_pids(pid: u32) -> Result<Vec<u32>, String> {
+    let output = Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut pids = Vec::new();
+    for line in stdout.lines() {
+        let child_pid = match line.trim().parse::<u32>() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        pids.push(child_pid);
+        pids.extend(collect_child_pids(child_pid)?);
+    }
+    Ok(pids)
 }
 
 // ── File system commands ──
@@ -921,6 +975,7 @@ pub fn run() {
             add_project,
             remove_project,
             check_path_exists,
+            kill_process_tree,
             read_dir,
             read_file,
             write_file,

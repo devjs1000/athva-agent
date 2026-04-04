@@ -31,8 +31,15 @@ export class TerminalPanel {
     this.container = document.getElementById("xterm-container")!;
     this.onResize = onEditorResize;
 
-    document.getElementById("btn-close-terminal")?.addEventListener("click", () => this.hide());
-    document.getElementById("btn-new-terminal")?.addEventListener("click", () => this.restart());
+    document.getElementById("btn-close-terminal")?.addEventListener("click", () => {
+      void this.hide();
+    });
+    document.getElementById("btn-new-terminal")?.addEventListener("click", () => {
+      void this.restart();
+    });
+    document.getElementById("btn-stop-terminal")?.addEventListener("click", () => {
+      void this.stopRunningCommand();
+    });
 
     this.setupResize();
   }
@@ -70,11 +77,8 @@ export class TerminalPanel {
     }, 0);
   }
 
-  hide() {
-    if (this.currentProcess) {
-      this.currentProcess.kill();
-      this.currentProcess = null;
-    }
+  async hide() {
+    await this.stopRunningCommand();
     this.panel.classList.add("hidden");
     this.resizeHandle.classList.add("hidden");
     this.isVisible = false;
@@ -99,6 +103,7 @@ export class TerminalPanel {
     this.cwd = this.projectPath || "/";
     this.inputBuffer = "";
     this.isRunning = false;
+    this.updateStopButton();
 
     this.term = new Terminal({
       cursorBlink: true,
@@ -165,11 +170,7 @@ export class TerminalPanel {
     if (this.isRunning && this.currentProcess) {
       // Ctrl+C to kill
       if (data === "\x03") {
-        this.currentProcess.kill();
-        this.currentProcess = null;
-        this.isRunning = false;
-        this.term.writeln("^C");
-        this.printPrompt();
+        void this.stopRunningCommand(true);
         return;
       }
       this.currentProcess.write(data);
@@ -280,6 +281,7 @@ export class TerminalPanel {
     }
 
     this.isRunning = true;
+    this.updateStopButton();
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
@@ -301,6 +303,7 @@ export class TerminalPanel {
       cmd.on("close", (payload: { code: number | null }) => {
         this.isRunning = false;
         this.currentProcess = null;
+        this.updateStopButton();
         if (payload.code !== 0 && payload.code !== null) {
           this.term?.writeln(`\x1b[90m[exit ${payload.code}]\x1b[0m`);
         }
@@ -310,6 +313,7 @@ export class TerminalPanel {
       cmd.on("error", (err: string) => {
         this.isRunning = false;
         this.currentProcess = null;
+        this.updateStopButton();
         this.term?.writeln(`\x1b[31m${err}\x1b[0m`);
         this.printPrompt();
       });
@@ -317,6 +321,7 @@ export class TerminalPanel {
       this.currentProcess = await cmd.spawn();
     } catch (e) {
       this.isRunning = false;
+      this.updateStopButton();
       this.term.writeln(`\x1b[31mError: ${e}\x1b[0m`);
       this.printPrompt();
     }
@@ -353,11 +358,8 @@ export class TerminalPanel {
     this.printPrompt();
   }
 
-  private restart() {
-    if (this.currentProcess) {
-      this.currentProcess.kill();
-      this.currentProcess = null;
-    }
+  private async restart() {
+    await this.stopRunningCommand();
     if (this.term) {
       this.term.dispose();
       this.term = null;
@@ -367,6 +369,42 @@ export class TerminalPanel {
     this.history = [];
     this.historyIndex = -1;
     this.createTerminal();
+  }
+
+  private updateStopButton() {
+    const stopBtn = document.getElementById("btn-stop-terminal");
+    if (!stopBtn) return;
+    stopBtn.classList.toggle("hidden", !this.isRunning);
+  }
+
+  private async stopRunningCommand(fromKeyboard = false) {
+    if (!this.currentProcess) return;
+
+    const process = this.currentProcess;
+    const pid = typeof process.pid === "number" ? process.pid : null;
+
+    this.currentProcess = null;
+    this.isRunning = false;
+    this.updateStopButton();
+
+    try {
+      if (pid !== null) {
+        await invoke("kill_process_tree", { pid });
+      } else {
+        await process.kill();
+      }
+    } catch {
+      try {
+        await process.kill();
+      } catch {
+        // ignore secondary kill failure
+      }
+    }
+
+    if (fromKeyboard) {
+      this.term?.writeln("^C");
+      this.printPrompt();
+    }
   }
 
   private setupResize() {
