@@ -22,6 +22,8 @@ commands.allow = [
   "git_sync",
   "git_pull",
   "git_push",
+  "git_list_branches",
+  "git_switch_branch",
   "git_changed_files",
   "git_stage",
   "git_unstage",

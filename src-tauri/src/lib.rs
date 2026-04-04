@@ -546,6 +546,12 @@ fn git_status(path: String) -> GitStatus {
     }
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct GitBranch {
+    pub name: String,
+    pub current: bool,
+}
+
 #[tauri::command]
 fn git_sync(path: String) -> Result<String, String> {
     // Pull then push
@@ -562,6 +568,29 @@ fn git_pull(path: String) -> Result<String, String> {
 #[tauri::command]
 fn git_push(path: String) -> Result<String, String> {
     run_git(&path, &["push"])
+}
+
+#[tauri::command]
+fn git_list_branches(path: String) -> Result<Vec<GitBranch>, String> {
+    let current = run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+    let output = run_git(&path, &["branch", "--sort=-committerdate", "--format=%(refname:short)"])?;
+
+    let branches = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|name| GitBranch {
+            name: name.to_string(),
+            current: name == current,
+        })
+        .collect();
+
+    Ok(branches)
+}
+
+#[tauri::command]
+fn git_switch_branch(path: String, branch: String) -> Result<String, String> {
+    run_git(&path, &["checkout", &branch])
 }
 
 // ── Source Control: detailed file status ──
@@ -987,6 +1016,8 @@ pub fn run() {
             git_sync,
             git_pull,
             git_push,
+            git_list_branches,
+            git_switch_branch,
             git_changed_files,
             git_stage,
             git_unstage,

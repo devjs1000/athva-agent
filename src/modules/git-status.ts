@@ -7,11 +7,17 @@ interface GitStatusResult {
   is_repo: boolean;
 }
 
+interface GitBranchResult {
+  name: string;
+  current: boolean;
+}
+
 export class GitStatusBar {
   private statusEl: HTMLElement;
   private branchEl: HTMLElement;
   private aheadBehindEl: HTMLElement;
   private syncBtn: HTMLElement;
+  private branchMenuEl: HTMLElement;
   private projectPath: string = "";
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private isBusy = false;
@@ -23,8 +29,21 @@ export class GitStatusBar {
     this.branchEl = document.getElementById("git-branch")!;
     this.aheadBehindEl = document.getElementById("git-ahead-behind")!;
     this.syncBtn = document.getElementById("btn-git-sync")!;
+    this.branchMenuEl = document.createElement("div");
+    this.branchMenuEl.className = "context-menu hidden git-branch-menu";
+    document.body.appendChild(this.branchMenuEl);
 
     this.syncBtn.addEventListener("click", () => this.sync());
+    this.statusEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.openBranchMenu();
+    });
+    document.addEventListener("click", () => this.closeBranchMenu());
+    document.addEventListener("contextmenu", (e) => {
+      if (!this.branchMenuEl.contains(e.target as Node)) {
+        this.closeBranchMenu();
+      }
+    });
   }
 
   async setProject(path: string) {
@@ -37,6 +56,7 @@ export class GitStatusBar {
   hide() {
     this.statusEl.classList.add("hidden");
     this.syncBtn.classList.add("hidden");
+    this.closeBranchMenu();
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
@@ -113,10 +133,79 @@ export class GitStatusBar {
     this.isBusy = busy;
     if (busy) {
       this.syncBtn.setAttribute("disabled", "true");
+      this.statusEl.setAttribute("disabled", "true");
       this.syncBtn.classList.add("syncing");
     } else {
       this.syncBtn.removeAttribute("disabled");
+      this.statusEl.removeAttribute("disabled");
       this.syncBtn.classList.remove("syncing");
     }
+  }
+
+  private async openBranchMenu() {
+    if (this.isBusy || !this.projectPath) return;
+
+    try {
+      const branches = await invoke<GitBranchResult[]>("git_list_branches", { path: this.projectPath });
+      if (branches.length === 0) return;
+
+      this.branchMenuEl.innerHTML = "";
+      for (const branch of branches) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `context-menu-item git-branch-menu-item${branch.current ? " current" : ""}`;
+        item.innerHTML = `
+          <span class="git-branch-menu-check">${branch.current ? "\u2713" : ""}</span>
+          <span>${this.escapeHtml(branch.name)}</span>
+        `;
+        item.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          this.closeBranchMenu();
+          if (branch.current) return;
+          await this.switchBranch(branch.name);
+        });
+        this.branchMenuEl.appendChild(item);
+      }
+
+      const rect = this.statusEl.getBoundingClientRect();
+      this.branchMenuEl.classList.remove("hidden");
+      this.branchMenuEl.style.left = `${rect.left}px`;
+      this.branchMenuEl.style.top = `${rect.top - this.branchMenuEl.offsetHeight - 4}px`;
+
+      requestAnimationFrame(() => {
+        const menuRect = this.branchMenuEl.getBoundingClientRect();
+        if (menuRect.right > window.innerWidth) {
+          this.branchMenuEl.style.left = `${window.innerWidth - menuRect.width - 4}px`;
+        }
+        if (menuRect.top < 0) {
+          this.branchMenuEl.style.top = `${rect.bottom + 4}px`;
+        }
+      });
+    } catch (e) {
+      console.error("Failed to list branches:", e);
+    }
+  }
+
+  private closeBranchMenu() {
+    this.branchMenuEl.classList.add("hidden");
+  }
+
+  private async switchBranch(branch: string) {
+    if (this.isBusy || !this.projectPath) return;
+    this.setBusy(true);
+    try {
+      await invoke("git_switch_branch", { path: this.projectPath, branch });
+    } catch (e) {
+      console.error("Git branch switch failed:", e);
+    } finally {
+      this.setBusy(false);
+      await this.refresh();
+    }
+  }
+
+  private escapeHtml(str: string): string {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
   }
 }
