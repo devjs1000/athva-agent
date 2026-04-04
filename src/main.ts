@@ -221,7 +221,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   );
   await agentMemory.init().catch(() => {});
 
-  // Init memory settings UI
   const memorySettingsUI = new MemorySettingsUI(
     agentMemory,
     () => appSettings,
@@ -229,8 +228,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   );
 
   // Init chatbot
-  const chatbot = new Chatbot("chat-messages", "chat-input", "btn-send-chat", "chat-sessions", () => appSettings.ai);
+  const chatbot = new Chatbot(
+    "chat-messages",
+    "chat-input",
+    "btn-send-chat",
+    "chat-sessions",
+    () => appSettings.ai,
+    () => appSettings.agentAccess,
+    () => currentProjectPath
+  );
   chatbot.setMemory(agentMemory, () => appSettings);
+
+  // Refresh file explorer when agent writes/creates files
+  chatbot.setOnFileChanged((_path: string) => {
+    if (currentProjectPath) {
+      fileExplorer.loadRoot(currentProjectPath);
+    }
+  });
 
   // Wire "Send to Chat" from editor selection actions
   setOnSendToChat((text: string) => {

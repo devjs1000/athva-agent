@@ -22,8 +22,9 @@
   --chat-width: 320px;
   --titlebar-height: 36px;
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    Cantarell, sans-serif;
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-primary);
@@ -199,7 +200,9 @@ body {
   padding: 4px;
   border-radius: 3px;
   flex-shrink: 0;
-  transition: opacity 0.1s, color 0.1s;
+  transition:
+    opacity 0.1s,
+    color 0.1s;
 }
 
 .recent-item:hover .recent-item-remove {
@@ -372,7 +375,9 @@ body {
   border-radius: 4px;
   display: flex;
   align-items: center;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .btn-icon:hover {
@@ -423,6 +428,7 @@ body {
 
 .workspace-main {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
 }
@@ -727,7 +733,9 @@ body {
   font-size: 14px;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.1s, background 0.1s;
+  transition:
+    opacity 0.1s,
+    background 0.1s;
 }
 
 .editor-tab:hover .editor-tab-close {
@@ -783,7 +791,9 @@ body {
   border-radius: 4px;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: background 0.1s, opacity 0.15s;
+  transition:
+    background 0.1s,
+    opacity 0.15s;
   white-space: nowrap;
 }
 
@@ -905,6 +915,10 @@ body {
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  /* Ensure panel is bounded by parent flex row height */
+  align-self: stretch;
+  position: relative;
 }
 
 .chat-header {
@@ -913,6 +927,7 @@ body {
   justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .chat-header-title {
@@ -937,6 +952,7 @@ body {
   overflow-y: hidden;
   min-height: 28px;
   background: var(--bg-tertiary);
+  flex-shrink: 0;
 }
 
 .chat-sessions:empty {
@@ -1000,13 +1016,20 @@ body {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 .chat-messages {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -1050,6 +1073,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: flex-end;
+  flex-shrink: 0;
 }
 
 .chat-input {
@@ -1073,6 +1097,271 @@ body {
 .btn-send {
   padding: 6px 12px;
   flex-shrink: 0;
+}
+
+/* ── Chat Mode Toggle ── */
+.chat-mode-toggle {
+  display: flex;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-right: 4px;
+}
+
+.chat-mode-toggle .mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  white-space: nowrap;
+}
+
+.chat-mode-toggle .mode-btn:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.chat-mode-toggle .mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.chat-mode-toggle .mode-btn.active svg {
+  fill: #fff;
+}
+
+/* ── Agent Mode Banner ── */
+.chat-agent-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #1a3a2a;
+  border-bottom: 1px solid #2a5a3a;
+  font-size: 11px;
+  color: #6dce8a;
+  flex-shrink: 0;
+}
+
+.chat-agent-banner.hidden {
+  display: none;
+}
+
+.chat-agent-banner-close {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #6dce8a;
+  padding: 2px;
+  border-radius: 3px;
+  opacity: 0.7;
+  line-height: 1;
+}
+
+.chat-agent-banner-close:hover {
+  opacity: 1;
+  background: rgba(109, 206, 138, 0.15);
+}
+
+/* ── Tool Call Display ── */
+.chat-tool-call {
+  align-self: flex-start;
+  max-width: 95%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.chat-tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 120, 212, 0.08);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.chat-tool-call-header svg {
+  flex-shrink: 0;
+}
+
+.chat-tool-call-body {
+  padding: 8px 10px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.chat-tool-call-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-tool-call-actions button {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-approve {
+  background: #1a3a2a;
+  color: #6dce8a;
+  border-color: #2a5a3a !important;
+}
+
+.btn-approve:hover {
+  background: #2a5a3a;
+}
+
+.btn-deny {
+  background: #3a1d1d;
+  color: var(--danger);
+  border-color: #5a2a2a !important;
+}
+
+.btn-deny:hover {
+  background: #4a2a2a;
+}
+
+/* Tool call status indicators */
+.tool-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.tool-status.running {
+  background: rgba(0, 120, 212, 0.15);
+  color: var(--accent);
+}
+
+.tool-status.done {
+  background: rgba(109, 206, 138, 0.15);
+  color: #6dce8a;
+}
+
+.tool-status.error {
+  background: rgba(241, 76, 76, 0.15);
+  color: var(--danger);
+}
+
+.tool-status.denied {
+  background: rgba(241, 76, 76, 0.1);
+  color: var(--text-muted);
+}
+
+.chat-tool-result {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: #6dce8a;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+  background: rgba(26, 58, 42, 0.3);
+}
+
+.chat-tool-result.error {
+  color: var(--danger);
+  background: rgba(58, 29, 29, 0.3);
+}
+
+/* Spinner for running tools */
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tool-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: tool-spin 0.6s linear infinite;
+}
+
+/* Agent thinking indicator */
+.chat-msg.agent-thinking {
+  align-self: flex-start;
+  background: transparent;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
+/* ── Stop Agent Button ── */
+.btn-stop-agent {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #3a1d1d;
+  color: var(--danger);
+  border: 1px solid #5a2a2a;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.btn-stop-agent:hover {
+  background: #4a2a2a;
+}
+
+.btn-stop-agent.hidden {
+  display: none;
+}
+
+.chat-msg.agent-thinking::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--text-muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: tool-spin 0.8s linear infinite;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 /* ── Settings Page ── */
@@ -1375,6 +1664,7 @@ body {
 
 .scm-file-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1409,7 +1699,9 @@ body {
   cursor: pointer;
   border-radius: 3px;
   padding: 0;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .scm-file-action:hover {
@@ -1538,7 +1830,9 @@ body {
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
   white-space: nowrap;
 }
 
@@ -1633,8 +1927,12 @@ body {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Quick Open Palette (Ctrl+P) ── */
