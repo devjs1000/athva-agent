@@ -920,8 +920,8 @@ export class Chatbot {
   private async runShellCommand(command: string, cwd: string): Promise<string> {
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const parts = command.split(" ");
-      const cmd = Command.create(parts[0], parts.slice(1), { cwd });
+      // Use a login shell so the full user PATH is loaded (pnpm, npm, node, etc.)
+      const cmd = Command.create("zsh", ["-l", "-c", command], { cwd });
       const output = await cmd.execute();
       const stdout = output.stdout?.trim() || "";
       const stderr = output.stderr?.trim() || "";
@@ -930,7 +930,6 @@ export class Chatbot {
       }
       return stdout || "(no output)";
     } catch (e: unknown) {
-      // Fallback: try using a Tauri command if shell plugin not available
       throw new Error(`Shell execution failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
