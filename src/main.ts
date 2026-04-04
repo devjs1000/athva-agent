@@ -4,6 +4,8 @@ import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
 import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
+import { AgentMemory } from "./modules/agent-memory";
+import { MemorySettingsUI } from "./modules/memory-settings-ui";
 import { QuickOpen } from "./modules/quick-open";
 import { GitStatusBar } from "./modules/git-status";
 import { SourceControl } from "./modules/source-control";
@@ -212,8 +214,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init settings UI
   settingsUI = new SettingsUI(appSettings, onSettingsChange);
 
+  // Init agent memory
+  const agentMemory = new AgentMemory(
+    () => appSettings.ai,
+    () => currentProjectPath
+  );
+  await agentMemory.init().catch(() => {});
+
+  // Init memory settings UI
+  const memorySettingsUI = new MemorySettingsUI(
+    agentMemory,
+    () => appSettings,
+    async () => {}
+  );
+
   // Init chatbot
-  new Chatbot("chat-messages", "chat-input", "btn-send-chat", "chat-sessions", () => appSettings.ai);
+  const chatbot = new Chatbot("chat-messages", "chat-input", "btn-send-chat", "chat-sessions", () => appSettings.ai);
+  chatbot.setMemory(agentMemory, () => appSettings);
 
   // Wire "Send to Chat" from editor selection actions
   setOnSendToChat((text: string) => {
@@ -277,6 +294,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-settings").addEventListener("click", () => {
     settingsUI.updateSettings(appSettings);
     showPage("settings");
+    void memorySettingsUI.refresh();
   });
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());

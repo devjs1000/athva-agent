@@ -1,3 +1,4 @@
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -507,6 +508,242 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
 
 // ── App entry ──
 
+// ── Agent Memory ──
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MemoryEntry {
+    pub id: i64,
+    pub content: String,
+    pub memory_type: String,
+    pub project_path: Option<String>,
+    pub tags: String,
+    pub created_at: i64,
+    pub score: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MemoryStats {
+    pub global_count: i64,
+    pub project_count: i64,
+}
+
+fn memories_db_path() -> Result<PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let dir = PathBuf::from(home).join(".athva");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("memories.db"))
+}
+
+fn get_conn() -> Result<Connection, String> {
+    let path = memories_db_path()?;
+    Connection::open(path).map_err(|e| e.to_string())
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+    dot / (norm_a * norm_b)
+}
+
+fn blob_to_f32(blob: &[u8]) -> Vec<f32> {
+    blob.chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+fn f32_to_blob(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|f| f.to_le_bytes()).collect()
+}
+
+#[tauri::command]
+fn memory_init() -> Result<(), String> {
+    let conn = get_conn()?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS memories (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            content      TEXT    NOT NULL,
+            embedding    BLOB    NOT NULL,
+            memory_type  TEXT    NOT NULL,
+            project_path TEXT,
+            tags         TEXT    DEFAULT '',
+            created_at   INTEGER NOT NULL,
+            updated_at   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_type_proj ON memories(memory_type, project_path);",
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn memory_add(
+    content: String,
+    embedding: Vec<f32>,
+    memory_type: String,
+    project_path: Option<String>,
+    tags: String,
+) -> Result<i64, String> {
+    let conn = get_conn()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs() as i64;
+    let blob = f32_to_blob(&embedding);
+    conn.execute(
+        "INSERT INTO memories (content, embedding, memory_type, project_path, tags, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![content, blob, memory_type, project_path, tags, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+fn memory_search(
+    query_embedding: Vec<f32>,
+    memory_type: String,
+    project_path: Option<String>,
+    limit: usize,
+) -> Result<Vec<MemoryEntry>, String> {
+    let conn = get_conn()?;
+    let rows = if memory_type == "all" {
+        // search both global and project
+        let mut stmt = conn
+            .prepare("SELECT id, content, embedding, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = 'global' OR (memory_type = 'project' AND project_path = ?1)")
+            .map_err(|e| e.to_string())?;
+        let proj = project_path.as_deref().unwrap_or("");
+        stmt.query_map(params![proj], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>()
+    } else {
+        let mut stmt = conn
+            .prepare("SELECT id, content, embedding, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = ?1 AND (?2 IS NULL OR project_path = ?2)")
+            .map_err(|e| e.to_string())?;
+        stmt.query_map(params![memory_type, project_path], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>()
+    };
+
+    let mut scored: Vec<(f32, MemoryEntry)> = rows
+        .into_iter()
+        .map(|(id, content, blob, mtype, proj, tags, created_at)| {
+            let emb = blob_to_f32(&blob);
+            let score = cosine_similarity(&query_embedding, &emb);
+            (
+                score,
+                MemoryEntry {
+                    id,
+                    content,
+                    memory_type: mtype,
+                    project_path: proj,
+                    tags,
+                    created_at,
+                    score,
+                },
+            )
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(scored.into_iter().take(limit).map(|(_, e)| e).collect())
+}
+
+#[tauri::command]
+fn memory_list(
+    memory_type: String,
+    project_path: Option<String>,
+) -> Result<Vec<MemoryEntry>, String> {
+    let conn = get_conn()?;
+    let mut stmt = conn
+        .prepare("SELECT id, content, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = ?1 AND (?2 IS NULL OR project_path = ?2) ORDER BY created_at DESC")
+        .map_err(|e| e.to_string())?;
+    let entries = stmt
+        .query_map(params![memory_type, project_path], |row| {
+            Ok(MemoryEntry {
+                id: row.get(0)?,
+                content: row.get(1)?,
+                memory_type: row.get(2)?,
+                project_path: row.get(3)?,
+                tags: row.get(4)?,
+                created_at: row.get(5)?,
+                score: 0.0,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(entries)
+}
+
+#[tauri::command]
+fn memory_delete(id: i64) -> Result<(), String> {
+    let conn = get_conn()?;
+    conn.execute("DELETE FROM memories WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn memory_clear(memory_type: String, project_path: Option<String>) -> Result<(), String> {
+    let conn = get_conn()?;
+    conn.execute(
+        "DELETE FROM memories WHERE memory_type = ?1 AND (?2 IS NULL OR project_path = ?2)",
+        params![memory_type, project_path],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn memory_stats(project_path: Option<String>) -> Result<MemoryStats, String> {
+    let conn = get_conn()?;
+    let global_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE memory_type = 'global'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let project_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memories WHERE memory_type = 'project' AND (?1 IS NULL OR project_path = ?1)",
+            params![project_path],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(MemoryStats {
+        global_count,
+        project_count,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -543,6 +780,13 @@ pub fn run() {
             git_diff_file,
             load_settings,
             save_settings,
+            memory_init,
+            memory_add,
+            memory_search,
+            memory_list,
+            memory_delete,
+            memory_clear,
+            memory_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

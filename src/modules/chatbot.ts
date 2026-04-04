@@ -1,4 +1,5 @@
-import type { AISettings } from "./settings";
+import type { AISettings, AppSettings } from "./settings";
+import type { AgentMemory } from "./agent-memory";
 import {
   type ChatSession,
   createSession,
@@ -17,6 +18,8 @@ export class Chatbot {
   private session: ChatSession;
   private sessions: ChatSession[] = [];
   private isStreaming = false;
+  private memory: AgentMemory | null = null;
+  private getAppSettings: (() => AppSettings) | null = null;
 
   constructor(
     messagesId: string,
@@ -52,6 +55,11 @@ export class Chatbot {
     }
     this.renderSessionList();
     this.renderMessages();
+  }
+
+  setMemory(memory: AgentMemory, getAppSettings: () => AppSettings) {
+    this.memory = memory;
+    this.getAppSettings = getAppSettings;
   }
 
   // ── Sessions ──
@@ -174,6 +182,27 @@ export class Chatbot {
       return;
     }
 
+    // Inject relevant memories into system context
+    let memoryContext = "";
+    const appSettings = this.getAppSettings?.();
+    if (this.memory && appSettings) {
+      try {
+        if (appSettings.memory.globalEnabled || appSettings.memory.projectEnabled) {
+          const memories = await this.memory.search(text, 5);
+          const relevant = memories.filter((m) => {
+            if (m.memory_type === "global" && !appSettings.memory.globalEnabled) return false;
+            if (m.memory_type === "project" && !appSettings.memory.projectEnabled) return false;
+            return m.score > 0.5;
+          });
+          if (relevant.length > 0) {
+            memoryContext = relevant.map((m) => `- ${m.content}`).join("\n");
+          }
+        }
+      } catch {
+        // Memory search failure is non-fatal
+      }
+    }
+
     // Create streaming message element
     const streamEl = this.addDOMMessage("assistant", "");
     streamEl.classList.add("streaming");
@@ -183,9 +212,13 @@ export class Chatbot {
     this.sendBtn.textContent = "...";
 
     try {
-      const fullResponse = await this.streamAI(settings, streamEl);
+      const fullResponse = await this.streamAI(settings, streamEl, memoryContext);
       this.session.messages.push({ role: "assistant", content: fullResponse });
       streamEl.classList.remove("streaming");
+      // Extract and save memories from the response
+      if (this.memory && appSettings && fullResponse) {
+        void this.extractAndSaveMemories(settings, appSettings, text, fullResponse);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       streamEl.className = "chat-msg error";
@@ -202,23 +235,117 @@ export class Chatbot {
 
   // ── Streaming API calls ──
 
-  private async streamAI(settings: AISettings, el: HTMLElement): Promise<string> {
+  private async streamAI(settings: AISettings, el: HTMLElement, memoryContext = ""): Promise<string> {
     const history = this.session.messages
       .map((m) => ({ role: m.role, content: m.content }));
 
+    const systemMsg = memoryContext
+      ? `You are a helpful AI assistant.\n\n[Relevant memories from past sessions]\n${memoryContext}`
+      : "";
+
     switch (settings.provider) {
       case "openai":
-        return this.streamOpenAI(settings, history, el);
+        return this.streamOpenAI(settings, history, el, systemMsg);
       case "anthropic":
-        return this.streamAnthropic(settings, history, el);
+        return this.streamAnthropic(settings, history, el, systemMsg);
       case "google":
-        return this.callGoogleNonStream(settings, history, el);
+        return this.callGoogleNonStream(settings, history, el, systemMsg);
       case "mimo":
-        return this.streamMiMo(settings, history, el);
+        return this.streamMiMo(settings, history, el, systemMsg);
       case "mistral":
-        return this.streamMistral(settings, history, el);
+        return this.streamMistral(settings, history, el, systemMsg);
       default:
         throw new Error(`Unknown provider: ${settings.provider}`);
+    }
+  }
+
+  private async extractAndSaveMemories(
+    settings: AISettings,
+    appSettings: AppSettings,
+    userMsg: string,
+    response: string
+  ): Promise<void> {
+    if (!this.memory) return;
+    try {
+      const prompt =
+        `Extract 0-3 short factual statements worth remembering from this conversation exchange.\n` +
+        `Only extract genuinely useful facts (user preferences, project decisions, key info).\n` +
+        `Output ONLY valid JSON: { "global": string[], "project": string[] }\n` +
+        `Use "global" for cross-project facts, "project" for project-specific ones.\n` +
+        `If nothing noteworthy, output: { "global": [], "project": [] }\n\n` +
+        `User: ${userMsg}\nAssistant: ${response.substring(0, 800)}`;
+
+      const raw = await this.callAIOnce(settings, prompt);
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return;
+      const parsed = JSON.parse(jsonMatch[0]) as { global: string[]; project: string[] };
+
+      if (appSettings.memory.globalEnabled) {
+        for (const fact of (parsed.global || [])) {
+          if (fact.trim()) await this.memory.add(fact.trim(), "global");
+        }
+      }
+      if (appSettings.memory.projectEnabled) {
+        for (const fact of (parsed.project || [])) {
+          if (fact.trim()) await this.memory.add(fact.trim(), "project");
+        }
+      }
+    } catch {
+      // Non-fatal — don't surface to user
+    }
+  }
+
+  private async callAIOnce(settings: AISettings, prompt: string): Promise<string> {
+    const messages = [{ role: "user", content: prompt }];
+    switch (settings.provider) {
+      case "openai":
+      case "mimo":
+      case "mistral": {
+        const urls: Record<string, string> = {
+          openai: "https://api.openai.com/v1/chat/completions",
+          mimo: "https://api.xiaomimimo.com/v1/chat/completions",
+          mistral: "https://api.mistral.ai/v1/chat/completions",
+        };
+        const res = await fetch(urls[settings.provider], {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+          body: JSON.stringify({ model: settings.model, messages, max_tokens: 256 }),
+        });
+        if (!res.ok) return "";
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || "";
+      }
+      case "anthropic": {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": settings.apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({ model: settings.model, max_tokens: 256, messages }),
+        });
+        if (!res.ok) return "";
+        const data = await res.json();
+        return data.content?.[0]?.text || "";
+      }
+      case "google": {
+        const model = settings.model || "gemini-2.0-flash";
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } }),
+          }
+        );
+        if (!res.ok) return "";
+        const data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      }
+      default:
+        return "";
     }
   }
 
@@ -226,16 +353,20 @@ export class Chatbot {
   private async streamOpenAI(
     settings: AISettings,
     messages: { role: string; content: string }[],
-    el: HTMLElement
+    el: HTMLElement,
+    systemMsg = ""
   ): Promise<string> {
     const model = settings.model || "gpt-4o";
+    const payload = systemMsg
+      ? [{ role: "system", content: systemMsg }, ...messages]
+      : messages;
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${settings.apiKey}`,
       },
-      body: JSON.stringify({ model, messages, stream: true }),
+      body: JSON.stringify({ model, messages: payload, stream: true }),
     });
 
     if (!res.ok) {
@@ -252,9 +383,12 @@ export class Chatbot {
   private async streamAnthropic(
     settings: AISettings,
     messages: { role: string; content: string }[],
-    el: HTMLElement
+    el: HTMLElement,
+    systemMsg = ""
   ): Promise<string> {
     const model = settings.model || "claude-sonnet-4-20250514";
+    const body: Record<string, unknown> = { model, max_tokens: 4096, messages, stream: true };
+    if (systemMsg) body.system = systemMsg;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -263,7 +397,7 @@ export class Chatbot {
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true",
       },
-      body: JSON.stringify({ model, max_tokens: 4096, messages, stream: true }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -283,9 +417,13 @@ export class Chatbot {
   private async streamMiMo(
     settings: AISettings,
     messages: { role: string; content: string }[],
-    el: HTMLElement
+    el: HTMLElement,
+    systemMsg = ""
   ): Promise<string> {
     const model = settings.model || "mimo-v2-flash";
+    const payload = systemMsg
+      ? [{ role: "system", content: systemMsg }, ...messages]
+      : messages;
     const res = await fetch("https://api.xiaomimimo.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -294,7 +432,7 @@ export class Chatbot {
       },
       body: JSON.stringify({
         model,
-        messages,
+        messages: payload,
         stream: true,
         temperature: 1.0,
         top_p: 0.95,
@@ -316,16 +454,20 @@ export class Chatbot {
   private async streamMistral(
     settings: AISettings,
     messages: { role: string; content: string }[],
-    el: HTMLElement
+    el: HTMLElement,
+    systemMsg = ""
   ): Promise<string> {
     const model = settings.model || "mistral-small-latest";
+    const payload = systemMsg
+      ? [{ role: "system", content: systemMsg }, ...messages]
+      : messages;
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${settings.apiKey}`,
       },
-      body: JSON.stringify({ model, messages, max_tokens: 4096, stream: true }),
+      body: JSON.stringify({ model, messages: payload, max_tokens: 4096, stream: true }),
     });
 
     if (!res.ok) {
@@ -342,20 +484,23 @@ export class Chatbot {
   private async callGoogleNonStream(
     settings: AISettings,
     history: { role: string; content: string }[],
-    el: HTMLElement
+    el: HTMLElement,
+    systemMsg = ""
   ): Promise<string> {
     const model = settings.model || "gemini-2.0-flash";
     const contents = history.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
+    const body: Record<string, unknown> = { contents };
+    if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg }] };
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents }),
+        body: JSON.stringify(body),
       }
     );
 
