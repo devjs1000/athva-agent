@@ -26,6 +26,7 @@ commands.allow = [
   "git_unstage_all",
   "git_discard_file",
   "git_commit",
+  "git_diff_stat",
   "git_diff_file",
   "load_settings",
   "save_settings"

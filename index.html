@@ -199,7 +199,12 @@
 
             <!-- Commit input -->
             <div class="scm-commit-area">
-              <textarea id="scm-commit-input" class="scm-commit-input" placeholder="Commit message (Ctrl+Enter to commit)" rows="3" spellcheck="true"></textarea>
+              <div class="scm-commit-input-row">
+                <textarea id="scm-commit-input" class="scm-commit-input" placeholder="Commit message (Ctrl+Enter to commit)" rows="3" spellcheck="true"></textarea>
+                <button id="btn-scm-ai-msg" class="btn-icon btn-icon-sm scm-ai-btn" title="Generate commit message with AI">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936zM3.794 1.148a.217.217 0 0 1 .412 0l.387 1.162c.173.518.58.926 1.097 1.098l1.163.387a.217.217 0 0 1 0 .412l-1.163.387A1.734 1.734 0 0 0 4.593 5.69l-.387 1.162a.217.217 0 0 1-.412 0L3.407 5.69a1.734 1.734 0 0 0-1.097-1.098L1.147 4.207a.217.217 0 0 1 0-.412l1.163-.387a1.734 1.734 0 0 0 1.097-1.098l.387-1.162z"/></svg>
+                </button>
+              </div>
               <button id="btn-scm-commit" class="btn-primary scm-commit-btn">Commit</button>
             </div>
 

@@ -1222,8 +1222,14 @@ body {
   gap: 6px;
 }
 
+.scm-commit-input-row {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
 .scm-commit-input {
-  width: 100%;
+  flex: 1;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1236,6 +1242,22 @@ body {
   max-height: 120px;
   outline: none;
   transition: border-color 0.15s;
+}
+
+.scm-ai-btn {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.scm-ai-btn:hover {
+  color: var(--accent-hover);
+  background: var(--bg-hover);
+}
+
+.scm-ai-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .scm-commit-input:focus {

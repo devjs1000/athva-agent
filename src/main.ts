@@ -240,7 +240,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   scriptRunner = new ScriptRunner(terminal);
 
   // Init source control
-  sourceControl = new SourceControl(() => editor.resize());
+  sourceControl = new SourceControl(() => editor.resize(), () => appSettings.ai);
 
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {

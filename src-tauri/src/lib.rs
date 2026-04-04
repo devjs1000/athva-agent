@@ -461,6 +461,24 @@ fn git_commit(path: String, message: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn git_diff_stat(path: String) -> Result<String, String> {
+    // Compact summary: staged + unstaged stat
+    let staged = run_git(&path, &["diff", "--cached", "--stat"]).unwrap_or_default();
+    let unstaged = run_git(&path, &["diff", "--stat"]).unwrap_or_default();
+    let mut result = String::new();
+    if !staged.is_empty() {
+        result.push_str("Staged:\n");
+        result.push_str(&staged);
+        result.push('\n');
+    }
+    if !unstaged.is_empty() {
+        result.push_str("Unstaged:\n");
+        result.push_str(&unstaged);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
 fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, String> {
     if staged {
         run_git(&path, &["diff", "--cached", "--", &file])
@@ -521,6 +539,7 @@ pub fn run() {
             git_unstage_all,
             git_discard_file,
             git_commit,
+            git_diff_stat,
             git_diff_file,
             load_settings,
             save_settings,

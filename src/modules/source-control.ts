@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { AISettings } from "./settings";
 
 interface GitFileChange {
   path: string;
@@ -36,9 +37,11 @@ export class SourceControl {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private isBusy = false;
   private onResize: () => void;
+  private getAISettings: () => AISettings;
 
-  constructor(onResize: () => void) {
+  constructor(onResize: () => void, getAISettings: () => AISettings) {
     this.onResize = onResize;
+    this.getAISettings = getAISettings;
     this.panelEl = document.getElementById("source-control-panel")!;
     this.resizeEl = document.getElementById("source-control-resize")!;
     this.commitInput = document.getElementById("scm-commit-input") as HTMLTextAreaElement;
@@ -61,6 +64,9 @@ export class SourceControl {
     // Stage all / unstage all
     document.getElementById("btn-scm-stage-all")!.addEventListener("click", () => this.stageAll());
     document.getElementById("btn-scm-unstage-all")!.addEventListener("click", () => this.unstageAll());
+
+    // AI generate commit message
+    document.getElementById("btn-scm-ai-msg")!.addEventListener("click", () => this.generateCommitMessage());
 
     // Refresh
     document.getElementById("btn-scm-refresh")!.addEventListener("click", () => this.refresh());
@@ -160,7 +166,7 @@ export class SourceControl {
             ${
               isStaged
                 ? `<button class="scm-file-action" data-action="unstage" title="Unstage">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.418A6 6 0 1 0 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z"/></svg>
                   </button>`
                 : `<button class="scm-file-action" data-action="discard" title="Discard Changes">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854z"/></svg>
@@ -259,6 +265,119 @@ export class SourceControl {
       console.error("Git commit failed:", e);
     } finally {
       this.isBusy = false;
+    }
+  }
+
+  private async generateCommitMessage() {
+    if (this.isBusy || !this.projectPath) return;
+
+    const settings = this.getAISettings();
+    if (!settings.apiKey) {
+      this.commitInput.value = "Error: No API key configured. Go to Settings.";
+      return;
+    }
+
+    const aiBtn = document.getElementById("btn-scm-ai-msg")!;
+    aiBtn.setAttribute("disabled", "true");
+    this.commitInput.value = "Generating...";
+
+    try {
+      // Get only a compact summary — no full file contents
+      const files = await invoke<GitFileChange[]>("git_changed_files", { path: this.projectPath });
+      const diffStat = await invoke<string>("git_diff_stat", { path: this.projectPath });
+
+      const summary = files
+        .map((f) => `${f.staged ? "[staged]" : "[unstaged]"} ${f.status} ${f.path}`)
+        .join("\n");
+
+      const prompt =
+        `Generate a concise conventional commit message (one line, max 72 chars) for these changes.\n` +
+        `Only return the commit message, nothing else.\n\n` +
+        `Changed files:\n${summary}\n\nDiff stat:\n${diffStat}`;
+
+      const message = await this.callAI(settings, prompt);
+      this.commitInput.value = message.trim().replace(/^["']|["']$/g, "");
+    } catch (e) {
+      console.error("AI commit message failed:", e);
+      this.commitInput.value = "";
+    } finally {
+      aiBtn.removeAttribute("disabled");
+      this.commitInput.focus();
+    }
+  }
+
+  private async callAI(settings: AISettings, prompt: string): Promise<string> {
+    const messages = [{ role: "user", content: prompt }];
+
+    switch (settings.provider) {
+      case "openai":
+      case "mimo":
+      case "mistral": {
+        const urls: Record<string, string> = {
+          openai: "https://api.openai.com/v1/chat/completions",
+          mimo: "https://api.xiaomimimo.com/v1/chat/completions",
+          mistral: "https://api.mistral.ai/v1/chat/completions",
+        };
+        const res = await fetch(urls[settings.provider], {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: settings.model || "gpt-4o-mini",
+            messages,
+            max_tokens: 512,
+          }),
+        });
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const data = await res.json();
+        const msg = data.choices?.[0]?.message;
+        // Some reasoning models (MiMo) put the answer in content and reasoning in reasoning_content.
+        // If content is empty, the model may have exhausted tokens on reasoning — use reasoning_content as fallback.
+        return msg?.content || msg?.reasoning_content || "";
+      }
+
+      case "anthropic": {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": settings.apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: settings.model || "claude-sonnet-4-20250514",
+            max_tokens: 256,
+            messages,
+          }),
+        });
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const data = await res.json();
+        return data.content?.[0]?.text || "";
+      }
+
+      case "google": {
+        const model = settings.model || "gemini-2.0-flash";
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 256 },
+            }),
+          }
+        );
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      }
+
+      default:
+        throw new Error(`Unknown provider: ${settings.provider}`);
     }
   }
 
