@@ -18,10 +18,16 @@ export interface AgentAccess {
   packageInstall: boolean;
 }
 
+export interface MemorySettings {
+  globalEnabled: boolean;
+  projectEnabled: boolean;
+}
+
 export interface AppSettings {
   editor: EditorSettings;
   ai: AISettings;
   agentAccess: AgentAccess;
+  memory: MemorySettings;
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
@@ -40,10 +46,16 @@ export const DEFAULT_AGENT_ACCESS: AgentAccess = {
   packageInstall: false,
 };
 
+export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
+  globalEnabled: true,
+  projectEnabled: true,
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   editor: { ...DEFAULT_EDITOR_SETTINGS },
   ai: { ...DEFAULT_AI_SETTINGS },
   agentAccess: { ...DEFAULT_AGENT_ACCESS },
+  memory: { ...DEFAULT_MEMORY_SETTINGS },
 };
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -54,6 +66,7 @@ export async function loadSettings(): Promise<AppSettings> {
       editor: { ...DEFAULT_EDITOR_SETTINGS, ...parsed.editor },
       ai: { ...DEFAULT_AI_SETTINGS, ...parsed.ai },
       agentAccess: { ...DEFAULT_AGENT_ACCESS, ...parsed.agentAccess },
+      memory: { ...DEFAULT_MEMORY_SETTINGS, ...parsed.memory },
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -92,6 +105,10 @@ export class SettingsUI {
   private accessGitEl: HTMLInputElement;
   private accessInstallEl: HTMLInputElement;
 
+  // Memory elements
+  private memoryGlobalEl: HTMLInputElement;
+  private memoryProjectEl: HTMLInputElement;
+
   // Save button
   private saveBtnEl: HTMLElement;
 
@@ -118,6 +135,9 @@ export class SettingsUI {
     this.accessEnvEl = document.getElementById("setting-access-env") as HTMLInputElement;
     this.accessGitEl = document.getElementById("setting-access-git") as HTMLInputElement;
     this.accessInstallEl = document.getElementById("setting-access-install") as HTMLInputElement;
+
+    this.memoryGlobalEl = document.getElementById("setting-memory-global") as HTMLInputElement;
+    this.memoryProjectEl = document.getElementById("setting-memory-project") as HTMLInputElement;
 
     this.saveBtnEl = document.getElementById("btn-save-settings")!;
 
@@ -157,6 +177,10 @@ export class SettingsUI {
     this.accessEnvEl.checked = this.settings.agentAccess.env;
     this.accessGitEl.checked = this.settings.agentAccess.git;
     this.accessInstallEl.checked = this.settings.agentAccess.packageInstall;
+
+    // Memory
+    this.memoryGlobalEl.checked = this.settings.memory.globalEnabled;
+    this.memoryProjectEl.checked = this.settings.memory.projectEnabled;
   }
 
   private populateModelDropdown(provider: string, selectedModel: string) {
@@ -202,6 +226,10 @@ export class SettingsUI {
         env: this.accessEnvEl.checked,
         git: this.accessGitEl.checked,
         packageInstall: this.accessInstallEl.checked,
+      },
+      memory: {
+        globalEnabled: this.memoryGlobalEl.checked,
+        projectEnabled: this.memoryProjectEl.checked,
       },
     };
   }

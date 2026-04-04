@@ -475,6 +475,33 @@
               </div>
             </div>
 
+            <!-- Agent Memory -->
+            <div class="settings-section" id="memory-settings-section">
+              <h3 class="settings-section-title">Agent Memory</h3>
+              <p class="setting-description">
+                The agent stores facts and decisions to recall in future sessions.
+                Global memory applies across all projects; project memory is scoped to the current project.
+              </p>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-memory-global">Global Memory</label>
+                  <span class="setting-hint">Facts learned across all projects</span>
+                </div>
+                <input id="setting-memory-global" type="checkbox" checked />
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label-group">
+                  <label for="setting-memory-project">Project Memory</label>
+                  <span class="setting-hint">Facts specific to the current project</span>
+                </div>
+                <input id="setting-memory-project" type="checkbox" checked />
+              </div>
+
+              <div id="memory-settings-container"></div>
+            </div>
+
             <!-- Save Button -->
             <div class="settings-actions">
               <button id="btn-save-settings" class="btn-primary">Save Settings</button>

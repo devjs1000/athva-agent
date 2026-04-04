@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AISettings } from "./settings";
-import type { AgentAccess } from "./settings";
+import type { AISettings, AgentAccess, AppSettings } from "./settings";
+import type { AgentMemory } from "./agent-memory";
 import {
   type ChatSession,
   type ChatMessage,
@@ -102,6 +102,8 @@ export class Chatbot {
   private getAgentAccess: () => AgentAccess;
   private getProjectPath: () => string;
   private onFileChangedCb: ((path: string) => void) | null = null;
+  private memory: AgentMemory | null = null;
+  private getAppSettings: (() => AppSettings) | null = null;
 
   private session: ChatSession;
   private sessions: ChatSession[] = [];
@@ -149,6 +151,12 @@ export class Chatbot {
   /** Register callback when agent creates/modifies a file (to refresh file explorer) */
   setOnFileChanged(cb: (path: string) => void) {
     this.onFileChangedCb = cb;
+  }
+
+  /** Wire up agent memory for context injection and fact extraction */
+  setMemory(memory: AgentMemory, getAppSettings: () => AppSettings) {
+    this.memory = memory;
+    this.getAppSettings = getAppSettings;
   }
 
   private onFileChanged(path: string) {
@@ -460,6 +468,10 @@ export class Chatbot {
   // ── Chat Mode (simple streaming response) ──
 
   private async runChatResponse(settings: AISettings) {
+    // Fetch relevant memories for system context injection
+    const lastUserMsg = [...this.session.messages].reverse().find((m) => m.role === "user")?.content || "";
+    const memoryContext = await this.fetchMemoryContext(lastUserMsg);
+
     const streamEl = this.addDOMMessage("assistant", "");
     streamEl.classList.add("streaming");
 
@@ -468,9 +480,13 @@ export class Chatbot {
     this.sendBtn.textContent = "...";
 
     try {
-      const fullResponse = await this.streamAI(settings, this.buildChatHistory(), streamEl);
+      const fullResponse = await this.streamAI(settings, this.buildChatHistory(memoryContext), streamEl);
       this.session.messages.push({ role: "assistant", content: fullResponse });
       streamEl.classList.remove("streaming");
+      // Background: extract and save memorable facts
+      if (fullResponse && lastUserMsg) {
+        void this.extractAndSaveMemories(settings, lastUserMsg, fullResponse);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       streamEl.className = "chat-msg error";
@@ -485,8 +501,118 @@ export class Chatbot {
     }
   }
 
-  private buildChatHistory(): { role: string; content: string }[] {
-    const systemMsg = { role: "system", content: CHAT_SYSTEM_PROMPT };
+  private async fetchMemoryContext(query: string): Promise<string> {
+    if (!this.memory || !this.getAppSettings || !query) return "";
+    const appSettings = this.getAppSettings();
+    if (!appSettings.memory.globalEnabled && !appSettings.memory.projectEnabled) return "";
+    try {
+      const entries = await this.memory.search(query, 5);
+      const relevant = entries.filter((m) => {
+        if (m.memory_type === "global" && !appSettings.memory.globalEnabled) return false;
+        if (m.memory_type === "project" && !appSettings.memory.projectEnabled) return false;
+        return m.score > 0.5;
+      });
+      if (relevant.length === 0) return "";
+      return relevant.map((m) => `- ${m.content}`).join("\n");
+    } catch {
+      return "";
+    }
+  }
+
+  private async extractAndSaveMemories(settings: AISettings, userMsg: string, response: string): Promise<void> {
+    if (!this.memory || !this.getAppSettings) return;
+    const appSettings = this.getAppSettings();
+    if (!appSettings.memory.globalEnabled && !appSettings.memory.projectEnabled) return;
+    try {
+      const prompt =
+        `Extract 0-3 short factual statements worth remembering from this conversation exchange.\n` +
+        `Only extract genuinely useful facts (user preferences, project decisions, key info).\n` +
+        `Output ONLY valid JSON: { "global": string[], "project": string[] }\n` +
+        `Use "global" for cross-project facts, "project" for project-specific ones.\n` +
+        `If nothing noteworthy, output: { "global": [], "project": [] }\n\n` +
+        `User: ${userMsg}\nAssistant: ${response.substring(0, 800)}`;
+      const raw = await this.callAIOnce(settings, prompt);
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return;
+      const parsed = JSON.parse(jsonMatch[0]) as { global: string[]; project: string[] };
+      if (appSettings.memory.globalEnabled) {
+        for (const fact of (parsed.global || [])) {
+          if (fact.trim()) await this.memory.add(fact.trim(), "global");
+        }
+      }
+      if (appSettings.memory.projectEnabled) {
+        for (const fact of (parsed.project || [])) {
+          if (fact.trim()) await this.memory.add(fact.trim(), "project");
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  private async callAIOnce(settings: AISettings, prompt: string): Promise<string> {
+    const messages = [{ role: "user", content: prompt }];
+    try {
+      switch (settings.provider) {
+        case "openai":
+        case "mimo":
+        case "mistral": {
+          const urls: Record<string, string> = {
+            openai: "https://api.openai.com/v1/chat/completions",
+            mimo: "https://api.xiaomimimo.com/v1/chat/completions",
+            mistral: "https://api.mistral.ai/v1/chat/completions",
+          };
+          const res = await fetch(urls[settings.provider], {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+            body: JSON.stringify({ model: settings.model, messages, max_tokens: 256 }),
+          });
+          if (!res.ok) return "";
+          const data = await res.json();
+          return data.choices?.[0]?.message?.content || "";
+        }
+        case "anthropic": {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": settings.apiKey,
+              "anthropic-version": "2023-06-01",
+              "anthropic-dangerous-direct-browser-access": "true",
+            },
+            body: JSON.stringify({ model: settings.model, max_tokens: 256, messages }),
+          });
+          if (!res.ok) return "";
+          const data = await res.json();
+          return data.content?.[0]?.text || "";
+        }
+        case "google": {
+          const model = settings.model || "gemini-2.0-flash";
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } }),
+            }
+          );
+          if (!res.ok) return "";
+          const data = await res.json();
+          return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        }
+        default:
+          return "";
+      }
+    } catch {
+      return "";
+    }
+  }
+
+  private buildChatHistory(memoryContext = ""): { role: string; content: string }[] {
+    const systemContent = memoryContext
+      ? `${CHAT_SYSTEM_PROMPT}\n\n[Relevant memories from past sessions]\n${memoryContext}`
+      : CHAT_SYSTEM_PROMPT;
+    const systemMsg = { role: "system", content: systemContent };
     const msgs = this.session.messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: m.content }));

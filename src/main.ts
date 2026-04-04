@@ -4,6 +4,8 @@ import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
 import { SettingsUI, loadSettings, type AppSettings } from "./modules/settings";
 import { Chatbot } from "./modules/chatbot";
+import { AgentMemory } from "./modules/agent-memory";
+import { MemorySettingsUI } from "./modules/memory-settings-ui";
 import { QuickOpen } from "./modules/quick-open";
 import { GitStatusBar } from "./modules/git-status";
 import { SourceControl } from "./modules/source-control";
@@ -212,6 +214,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init settings UI
   settingsUI = new SettingsUI(appSettings, onSettingsChange);
 
+  // Init agent memory
+  const agentMemory = new AgentMemory(
+    () => appSettings.ai,
+    () => currentProjectPath
+  );
+  await agentMemory.init().catch(() => {});
+
+  const memorySettingsUI = new MemorySettingsUI(
+    agentMemory,
+    () => appSettings,
+    async () => {}
+  );
+
   // Init chatbot
   const chatbot = new Chatbot(
     "chat-messages",
@@ -222,6 +237,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     () => appSettings.agentAccess,
     () => currentProjectPath
   );
+  chatbot.setMemory(agentMemory, () => appSettings);
 
   // Refresh file explorer when agent writes/creates files
   chatbot.setOnFileChanged((_path: string) => {
@@ -292,6 +308,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-settings").addEventListener("click", () => {
     settingsUI.updateSettings(appSettings);
     showPage("settings");
+    void memorySettingsUI.refresh();
   });
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
