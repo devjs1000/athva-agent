@@ -1,14 +1,26 @@
 // IndexedDB persistence for chat sessions
 
+export type ChatMode = "chat" | "agent";
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, string>;
+  status: "pending" | "approved" | "denied" | "running" | "done" | "error";
+  result?: string;
+}
+
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool";
   content: string;
+  toolCalls?: ToolCall[];
 }
 
 export interface ChatSession {
   id: string;
   title: string;
   messages: ChatMessage[];
+  mode: ChatMode;
   createdAt: number;
   updatedAt: number;
 }
@@ -79,11 +91,12 @@ export async function deleteSession(id: string): Promise<void> {
   });
 }
 
-export function createSession(): ChatSession {
+export function createSession(mode: ChatMode = "chat"): ChatSession {
   return {
     id: crypto.randomUUID(),
     title: "New Chat",
     messages: [],
+    mode,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
