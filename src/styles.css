@@ -747,6 +747,17 @@ body {
   color: var(--text-primary);
 }
 
+.editor-tab.pinned {
+  border-top: 1px solid var(--accent);
+}
+
+.editor-tab-pin {
+  font-size: 9px;
+  opacity: 0.6;
+  color: var(--accent);
+  line-height: 1;
+}
+
 .editor-container {
   flex: 1;
   position: relative;

@@ -96,6 +96,7 @@ interface OpenTab {
   name: string;
   content: string;
   modified: boolean;
+  pinned: boolean;
 }
 
 const EXT_MODE_MAP: Record<string, string> = {
@@ -129,6 +130,7 @@ export class Editor {
   private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
   private lintTimeout: ReturnType<typeof setTimeout> | null = null;
   private minimap: Minimap | null = null;
+  private tabContextMenu: HTMLElement;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -188,6 +190,17 @@ export class Editor {
 
     // Init minimap (inside the editor-container, which is the parent of ace-editor)
     this.minimap = new Minimap(this.editorEl.parentElement!, this.ace);
+
+    // Tab context menu
+    this.tabContextMenu = document.createElement("div");
+    this.tabContextMenu.className = "context-menu hidden";
+    document.body.appendChild(this.tabContextMenu);
+    document.addEventListener("click", () => this.tabContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!this.tabContextMenu.contains(e.target as Node)) {
+        this.tabContextMenu.classList.add("hidden");
+      }
+    });
 
     // Attach AI ghost text completer
     attachAICompleter(this.ace);
@@ -254,7 +267,7 @@ export class Editor {
       return;
     }
 
-    const tab: OpenTab = { path, name, content, modified: false };
+    const tab: OpenTab = { path, name, content, modified: false, pinned: false };
     this.tabs.push(tab);
     this.switchToTab(path);
   }
@@ -320,11 +333,79 @@ export class Editor {
     this.ace.resize();
   }
 
+  pinTab(path: string) {
+    const tab = this.tabs.find((t) => t.path === path);
+    if (!tab) return;
+    tab.pinned = !tab.pinned;
+    // Keep pinned tabs grouped at the front
+    if (tab.pinned) {
+      this.tabs.splice(this.tabs.indexOf(tab), 1);
+      const firstUnpinned = this.tabs.findIndex((t) => !t.pinned);
+      this.tabs.splice(firstUnpinned === -1 ? this.tabs.length : firstUnpinned, 0, tab);
+    }
+    this.renderTabs();
+  }
+
+  closeOtherTabs(path: string) {
+    const toClose = this.tabs.filter((t) => t.path !== path && !t.pinned);
+    toClose.forEach((t) => this.closeTab(t.path));
+  }
+
+  closeAllTabs() {
+    const toClose = [...this.tabs];
+    toClose.forEach((t) => this.closeTab(t.path));
+  }
+
+  private showTabContextMenu(e: MouseEvent, path: string) {
+    const tab = this.tabs.find((t) => t.path === path)!;
+    this.tabContextMenu.innerHTML = "";
+
+    const items: { label?: string; action?: () => void; separator?: boolean }[] = [
+      { label: tab.pinned ? "Unpin Tab" : "Pin Tab", action: () => this.pinTab(path) },
+      { separator: true },
+      { label: "Close Other Tabs", action: () => this.closeOtherTabs(path) },
+      { label: "Close All Tabs", action: () => this.closeAllTabs() },
+    ];
+
+    for (const item of items) {
+      if (item.separator) {
+        const sep = document.createElement("div");
+        sep.className = "context-menu-separator";
+        this.tabContextMenu.appendChild(sep);
+        continue;
+      }
+      const row = document.createElement("div");
+      row.className = "context-menu-item";
+      row.textContent = item.label!;
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.tabContextMenu.classList.add("hidden");
+        item.action?.();
+      });
+      this.tabContextMenu.appendChild(row);
+    }
+
+    this.tabContextMenu.classList.remove("hidden");
+    this.tabContextMenu.style.left = `${e.clientX}px`;
+    this.tabContextMenu.style.top = `${e.clientY}px`;
+
+    requestAnimationFrame(() => {
+      const rect = this.tabContextMenu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        this.tabContextMenu.style.left = `${window.innerWidth - rect.width - 4}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        this.tabContextMenu.style.top = `${window.innerHeight - rect.height - 4}px`;
+      }
+    });
+  }
+
   private renderTabs() {
     this.tabsContainer.innerHTML = this.tabs
       .map(
         (tab) => `
-      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}" data-path="${this.escapeAttr(tab.path)}">
+      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}" data-path="${this.escapeAttr(tab.path)}">
+        ${tab.pinned ? `<span class="editor-tab-pin">&#x2605;</span>` : ""}
         <span>${this.escapeHtml(tab.name)}${tab.modified ? " \u2022" : ""}</span>
         <button class="editor-tab-close" data-close="${this.escapeAttr(tab.path)}">\u00D7</button>
       </div>
@@ -337,6 +418,15 @@ export class Editor {
         if ((e.target as HTMLElement).closest(".editor-tab-close")) return;
         const path = (el as HTMLElement).dataset.path!;
         this.switchToTab(path);
+      });
+      el.addEventListener("mousedown", (e) => {
+        if ((e as MouseEvent).button === 2) e.preventDefault();
+      });
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const path = (el as HTMLElement).dataset.path!;
+        this.showTabContextMenu(e as MouseEvent, path);
       });
     });
 

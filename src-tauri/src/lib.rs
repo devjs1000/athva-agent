@@ -637,7 +637,7 @@ fn memory_search(
             .prepare("SELECT id, content, embedding, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = 'global' OR (memory_type = 'project' AND project_path = ?1)")
             .map_err(|e| e.to_string())?;
         let proj = project_path.as_deref().unwrap_or("");
-        stmt.query_map(params![proj], |row| {
+        let rows = stmt.query_map(params![proj], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
@@ -650,12 +650,13 @@ fn memory_search(
         })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+        rows
     } else {
         let mut stmt = conn
             .prepare("SELECT id, content, embedding, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = ?1 AND (?2 IS NULL OR project_path = ?2)")
             .map_err(|e| e.to_string())?;
-        stmt.query_map(params![memory_type, project_path], |row| {
+        let rows = stmt.query_map(params![memory_type, project_path], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
@@ -668,7 +669,8 @@ fn memory_search(
         })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+        rows
     };
 
     let mut scored: Vec<(f32, MemoryEntry)> = rows
