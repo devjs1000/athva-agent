@@ -15,6 +15,8 @@ commands.allow = [
   "delete_path",
   "reveal_in_explorer",
   "search_files",
+  "search_in_files",
+  "replace_in_files",
   "git_status",
   "git_sync",
   "git_pull",
@@ -29,5 +31,12 @@ commands.allow = [
   "git_diff_stat",
   "git_diff_file",
   "load_settings",
-  "save_settings"
+  "save_settings",
+  "memory_init",
+  "memory_add",
+  "memory_search",
+  "memory_list",
+  "memory_delete",
+  "memory_clear",
+  "memory_stats"
 ]
