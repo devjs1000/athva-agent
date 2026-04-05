@@ -16,6 +16,9 @@ let suggestBtn: HTMLButtonElement | null = null;
 let ghostEl: HTMLElement | null = null;
 let actionMenu: HTMLElement | null = null;
 let isLoading = false;
+let floatingTextareaContainer: HTMLElement | null = null;
+let floatingTextarea: HTMLTextAreaElement | null = null;
+let floatingTextareaBtn: HTMLButtonElement | null = null;
 
 const DEBOUNCE_MS = 2500;
 
@@ -58,12 +61,37 @@ export function attachAICompleter(editor: any) {
   suggestBtn = document.createElement("button");
   suggestBtn.className = "ai-suggest-btn hidden";
   suggestBtn.textContent = "✨ Suggest";
-  suggestBtn.addEventListener("click", (e) => {
+  suggestBtn.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    onSuggestClick();
+    await onSuggestClick();
   });
   (editor.container as HTMLElement).appendChild(suggestBtn);
+
+  //Create floating textarea if the file is empty
+  floatingTextareaContainer = document.createElement("div");
+  floatingTextareaContainer.className = "ai-floating-textarea-container hidden";
+  floatingTextarea = document.createElement("textarea");
+  floatingTextarea.className = "ai-floating-textarea";
+  floatingTextarea.placeholder = "Ask AI to generate code...";
+  floatingTextareaBtn = document.createElement("button");
+  floatingTextareaBtn.className = "ai-floating-textarea-btn";
+  floatingTextareaBtn.textContent = "Generate";
+  floatingTextareaBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const prompt = floatingTextarea?.value;
+    if (!prompt) return;
+    onEmptyGenerateClick(prompt);
+  });
+  floatingTextareaContainer.appendChild(floatingTextarea);
+  floatingTextareaContainer.appendChild(floatingTextareaBtn);
+  (editor.container as HTMLElement).appendChild(floatingTextareaContainer);
+
+  if (editor.getValue().trim() === "") {
+    showFloatingTextarea();
+  }
+
 
   // Create selection action menu
   actionMenu = document.createElement("div");
@@ -85,10 +113,14 @@ export function attachAICompleter(editor: any) {
   // On change: hide button + ghost + action menu, restart debounce
   editor.on("change", () => {
     hideSuggestBtn();
+    hideFloatingTextarea();
     clearGhost();
     hideActionMenu();
     if (!enabled) return;
     scheduleSuggestBtn();
+    if (editor.getValue().trim() === "") {
+      showFloatingTextarea();
+    }
   });
 
   // On selection change: show/hide action menu
@@ -164,6 +196,16 @@ function showSuggestBtn() {
   suggestBtn.classList.remove("hidden");
   suggestBtn.textContent = "✨ Suggest";
   suggestBtn.disabled = false;
+}
+
+function showFloatingTextarea() {
+  if (!floatingTextareaContainer || !activeEditor || isLoading) return;
+  floatingTextareaContainer.classList.remove("hidden");
+}
+
+function hideFloatingTextarea() {
+  if (!floatingTextareaContainer) return;
+  floatingTextareaContainer.classList.add("hidden");
 }
 
 function hideSuggestBtn() {
@@ -419,6 +461,18 @@ async function onSuggestClick() {
   if (newPos.row !== pos.row || newPos.column !== pos.column) return;
 
   showGhost(completion, pos.row, pos.column);
+}
+
+async function onEmptyGenerateClick(prompt: string) {
+  try {
+    const fileName = activeEditor._athvaFileName || "file.ts";
+    const completion = await fetchCompletion(prompt, "", fileName);
+    if (!completion) return;
+    const pos = activeEditor.getCursorPosition();
+    activeEditor.session.insert(pos, completion);
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 // ── Ghost Text ──

@@ -476,7 +476,9 @@ body {
   border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .sidebar-tab-btn:hover {
@@ -510,7 +512,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: linear-gradient(180deg, rgba(45, 45, 45, 0.2) 0%, rgba(37, 37, 38, 0.95) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(45, 45, 45, 0.2) 0%,
+    rgba(37, 37, 38, 0.95) 100%
+  );
 }
 
 .sidebar-time-modes {
@@ -528,7 +534,10 @@ body {
   font-size: 11px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
 }
 
 .sidebar-time-mode:hover {
@@ -595,7 +604,9 @@ body {
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
 }
 
 .sidebar-time-btn:hover {
@@ -729,7 +740,10 @@ body {
   font-size: 11px;
   font-weight: 600;
   padding: 3px 6px;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s,
+    border-color 0.1s;
 }
 
 .gs-toggle:hover {
@@ -1140,6 +1154,57 @@ body {
   display: none;
 }
 
+/* ── AI Floating Textarea ── */
+.ai-floating-textarea-container {
+  position: absolute;
+  z-index: 10;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 50%;
+}
+
+.ai-floating-textarea-container textarea {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  padding: 3px;
+  min-height: 100px;
+}
+
+.ai-floating-textarea-container button {
+  width: 100%;
+  height: 100%;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+
+.ai-floating-textarea-container button:hover {
+  background: var(--bg-active);
+  color: var(--accent-hover);
+}
+
 /* ── AI Action Menu (on selection) ── */
 .ai-action-menu {
   position: absolute;
@@ -1256,7 +1321,11 @@ body {
   min-width: 280px;
   max-width: 620px;
   background:
-    radial-gradient(circle at top right, rgba(0, 120, 212, 0.14), transparent 34%),
+    radial-gradient(
+      circle at top right,
+      rgba(0, 120, 212, 0.14),
+      transparent 34%
+    ),
     linear-gradient(180deg, #26282d 0%, #202226 100%);
   border-left: 1px solid var(--border);
   display: flex;
@@ -1569,12 +1638,20 @@ body {
 
 .review-card-pro {
   border-left: 3px solid #59c77a;
-  background: linear-gradient(135deg, rgba(89, 199, 122, 0.12), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(
+    135deg,
+    rgba(89, 199, 122, 0.12),
+    rgba(255, 255, 255, 0.04)
+  );
 }
 
 .review-card-con {
   border-left: 3px solid #f0a145;
-  background: linear-gradient(135deg, rgba(240, 161, 69, 0.14), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(
+    135deg,
+    rgba(240, 161, 69, 0.14),
+    rgba(255, 255, 255, 0.04)
+  );
 }
 
 .review-card-head {
@@ -2206,7 +2283,12 @@ body {
   top: 0;
   z-index: 2;
   padding-bottom: 12px;
-  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-primary) 88%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    var(--bg-primary) 0%,
+    var(--bg-primary) 88%,
+    transparent 100%
+  );
 }
 
 .settings-search-input {
@@ -3332,17 +3414,37 @@ body {
   margin-top: 1px;
 }
 
-.review-status-idle .review-status-icon { color: var(--text-muted); }
-.review-status-loading .review-status-icon { color: var(--accent); }
-.review-status-success .review-status-icon { color: #4ec969; }
-.review-status-warning .review-status-icon { color: #e8a838; }
-.review-status-error .review-status-icon { color: var(--danger); }
+.review-status-idle .review-status-icon {
+  color: var(--text-muted);
+}
+.review-status-loading .review-status-icon {
+  color: var(--accent);
+}
+.review-status-success .review-status-icon {
+  color: #4ec969;
+}
+.review-status-warning .review-status-icon {
+  color: #e8a838;
+}
+.review-status-error .review-status-icon {
+  color: var(--danger);
+}
 
-.review-status-idle { background: transparent; }
-.review-status-loading { background: rgba(0, 120, 212, 0.06); }
-.review-status-success { background: rgba(78, 201, 105, 0.06); }
-.review-status-warning { background: rgba(232, 168, 56, 0.06); }
-.review-status-error { background: rgba(241, 76, 76, 0.06); }
+.review-status-idle {
+  background: transparent;
+}
+.review-status-loading {
+  background: rgba(0, 120, 212, 0.06);
+}
+.review-status-success {
+  background: rgba(78, 201, 105, 0.06);
+}
+.review-status-warning {
+  background: rgba(232, 168, 56, 0.06);
+}
+.review-status-error {
+  background: rgba(241, 76, 76, 0.06);
+}
 
 /* ── Spinner ── */
 .review-spinner {
@@ -3356,7 +3458,9 @@ body {
 }
 
 @keyframes review-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Loading shimmer on panel ── */
@@ -3549,8 +3653,12 @@ body {
   justify-content: center;
 }
 
-.review-card-pro .review-card-icon { color: #4ec969; }
-.review-card-con .review-card-icon { color: #e8a838; }
+.review-card-pro .review-card-icon {
+  color: #4ec969;
+}
+.review-card-con .review-card-icon {
+  color: #e8a838;
+}
 
 .review-card-title {
   font-size: 12px;
@@ -3642,8 +3750,12 @@ body {
   opacity: 0.5;
 }
 
-.review-empty-list-pro .review-empty-icon { color: #4ec969; }
-.review-empty-list-con .review-empty-icon { color: #e8a838; }
+.review-empty-list-pro .review-empty-icon {
+  color: #4ec969;
+}
+.review-empty-list-con .review-empty-icon {
+  color: #e8a838;
+}
 
 /* ── Review content wrapper ── */
 .review-content {
