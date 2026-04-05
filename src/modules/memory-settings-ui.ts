@@ -6,11 +6,7 @@ export class MemorySettingsUI {
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   private containerEl: HTMLElement | null = null;
 
-  constructor(
-    private memory: AgentMemory,
-    private getSettings: () => AppSettings,
-    private saveSettings: () => Promise<void>
-  ) {}
+  constructor(private memory: AgentMemory, _getSettings: () => AppSettings, _saveSettings: () => Promise<void>) {}
 
   async refresh(): Promise<void> {
     this.containerEl = document.getElementById("memory-settings-container");

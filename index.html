@@ -119,7 +119,7 @@
             <button id="btn-format" class="btn-icon" title="Format Document (Shift+Alt+F)">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2 3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2 3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2 3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5z"/></svg>
             </button>
-            <button id="btn-ai-review" class="btn-icon" title="AI Review">
+            <button id="btn-ai-review" class="btn-icon" title="Code Review">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5a.5.5 0 0 0-1 0v1.293L6.354 3.94a.5.5 0 1 0 .707.707L8 3.707l.939.94a.5.5 0 0 0 .707-.707L8.5 2.793V1.5zM3 5.5A1.5 1.5 0 0 1 4.5 4h7A1.5 1.5 0 0 1 13 5.5v6a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 11.5v-6zm1.5-.5a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-6a.5.5 0 0 0-.5-.5h-7z"/><path d="M5.5 7a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5z"/></svg>
             </button>
             <button id="btn-toggle-scm" class="btn-icon btn-icon-badge" title="Source Control (Ctrl+Shift+G)">
@@ -303,6 +303,47 @@
                 </button>
               </div>
               <div id="scm-diff-content" class="scm-diff-content"></div>
+            </div>
+          </div>
+
+          <!-- Code Review resize handle -->
+          <div id="review-resize" class="resize-handle-v hidden"></div>
+
+          <!-- Code Review Panel -->
+          <div id="review-panel" class="review-panel hidden">
+            <div class="review-header">
+              <div class="review-header-copy">
+                <span class="review-header-title">CODE REVIEWER</span>
+                <span id="review-subtitle" class="review-header-subtitle">Review the active file or current changes</span>
+              </div>
+              <div class="review-header-actions">
+                <button id="btn-review-refresh" class="btn-icon btn-icon-sm" title="Run Review">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                </button>
+                <button id="btn-close-review" class="btn-icon btn-icon-sm" title="Close">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="review-toolbar">
+              <button id="review-target-file" class="review-target-btn active" type="button">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.75A1.75 1.75 0 0 1 5.75 0h2.379c.464 0 .91.184 1.238.513l2.12 2.12c.329.328.513.774.513 1.238v8.379A1.75 1.75 0 0 1 10.25 14h-4.5A1.75 1.75 0 0 1 4 12.25v-10.5zM8.75 1H5.75a.75.75 0 0 0-.75.75v10.5c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75V4H9.75A1.75 1.75 0 0 1 8 2.25V1h.75z"/></svg>
+                Current File
+              </button>
+              <button id="review-target-changes" class="review-target-btn" type="button">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
+                Changes
+              </button>
+            </div>
+
+            <div id="review-status" class="review-status review-status-idle"></div>
+
+            <div class="review-body">
+              <div class="review-panel-title">
+                <span id="review-title">Code Review</span>
+              </div>
+              <div id="review-content" class="review-content"></div>
             </div>
           </div>
 
