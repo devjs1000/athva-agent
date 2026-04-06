@@ -39,3 +39,12 @@ This file records operating lessons and mistake-prevention rules learned while w
 - lesson: Legacy codebases can coexist with stricter future conventions when compatibility is made explicit.
 - prevention_rule:
   - Apply new naming and process rules to future work without rewriting stable code solely for stylistic conformity.
+
+### MINDSET-2026-04-07-001
+
+- author: anand pandit
+- created_at: 2026-04-07T00:00:00Z
+- updated_at: 2026-04-07T00:00:00Z
+- lesson: Deterministic execution requires protocol files (CLAUDE.md, symbol_index.json, dependency.json, patterns.json) to be present and maintained. Without them, operations fall back to exploratory, high-token behavior.
+- prevention_rule:
+  - Validate protocol file presence at session start. Use Plan → Batch → Compress → Execute → Output for every operation. Never execute without a plan.

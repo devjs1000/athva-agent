@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "description": "Reusable execution patterns. Reference before implementing similar operations.",
+    "version": 1
+  },
+  "patterns": {
+    "add_tauri_command": {
+      "steps": [
+        "Add #[tauri::command] fn in src-tauri/src/main.rs",
+        "Register in .invoke_handler(tauri::generate_handler![...])",
+        "Add TS invoke wrapper in relevant module",
+        "Update symbol_index.json"
+      ],
+      "files": ["src-tauri/src/main.rs", "src/modules/<module>.ts", "symbol_index.json"]
+    },
+    "add_ui_module": {
+      "steps": [
+        "Create src/modules/<name>.ts with exported class",
+        "Import and instantiate in src/main.ts",
+        "Add panel/sidebar entry if needed",
+        "Update symbol_index.json and dependency.json"
+      ],
+      "files": ["src/modules/<name>.ts", "src/main.ts", "symbol_index.json", "dependency.json"]
+    },
+    "modify_settings": {
+      "steps": [
+        "Update interface in src/config/settings-schema.ts",
+        "Update defaults in same file",
+        "Update load/save in src/modules/settings.ts",
+        "Update UI if visible setting"
+      ],
+      "files": ["src/config/settings-schema.ts", "src/modules/settings.ts"]
+    },
+    "git_operation": {
+      "steps": [
+        "Ask user for confirmation",
+        "State reason + affected files",
+        "Review diff first",
+        "Stage specific files only",
+        "Execute"
+      ],
+      "rules": ["no git add .", "no force push", "no --no-verify"]
+    },
+    "file_read_strategy": {
+      "under_10kb": "batch read all at once",
+      "10_to_50kb": "chunk into groups",
+      "over_50kb": "partial read — relevant sections only via line ranges"
+    }
+  }
+}

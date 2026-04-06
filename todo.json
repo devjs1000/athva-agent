@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "description": "Task tracking for current session. Update as tasks progress.",
+    "version": 1
+  },
+  "tasks": []
+}

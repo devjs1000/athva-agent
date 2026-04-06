@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "generated_at": "2026-04-07",
+    "version": 1,
+    "description": "Dependency map to avoid rediscovery. Check before exploring imports."
+  },
+  "npm": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/cli": "^2",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "ace-builds": "^1.43.6",
+    "prettier": "^3.8.1",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.3"
+  },
+  "cargo": {
+    "tauri": "2",
+    "tauri-build": "2",
+    "tauri-plugin-opener": "2",
+    "tauri-plugin-dialog": "2.6.0",
+    "tauri-plugin-fs": "2.4.5",
+    "tauri-plugin-shell": "2.3.5",
+    "serde": "1",
+    "serde_json": "1",
+    "rusqlite": "0.32",
+    "regex": "1"
+  },
+  "internal": {
+    "src/main.ts": ["./store/projects", "./modules/file-explorer", "./modules/editor", "./modules/settings", "./modules/chatbot", "./modules/agent-memory", "./modules/memory-settings-ui", "./modules/quick-open", "./modules/global-search", "./modules/git-status", "./modules/source-control", "./modules/terminal", "./modules/script-runner", "./modules/sidebar-time-widget", "./modules/code-review-panel", "./modules/ai-completer", "./modules/token-usage"],
+    "src/modules/editor.ts": ["./ts-lint", "./minimap", "./ai-completer", "./settings"],
+    "src/modules/chatbot.ts": ["./settings", "./agent-memory", "./token-usage"],
+    "src/modules/file-explorer.ts": ["./file-icons", "./context-menu"],
+    "src/modules/source-control.ts": ["./settings"],
+    "src/modules/settings.ts": ["./editor", "./model-list"],
+    "src/modules/agent-memory.ts": ["./settings"],
+    "src/modules/git-status.ts": ["./dialogs"],
+    "src/modules/code-review-panel.ts": ["./settings", "./token-usage"],
+    "src/modules/script-runner.ts": ["./terminal"],
+    "src/modules/ai-completer.ts": ["./settings", "./dialogs"],
+    "src/modules/context-menu.ts": ["./dialogs"],
+    "src/modules/sidebar-time-widget.ts": ["./dialogs"],
+    "src/modules/memory-settings-ui.ts": ["./agent-memory", "./settings"],
+    "src/modules/quick-open.ts": ["./file-icons"]
+  }
+}
