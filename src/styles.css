@@ -1745,6 +1745,118 @@ body {
   color: #f0c98b;
 }
 
+/* Idle CTA */
+.review-idle-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.review-idle-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.review-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.review-run-btn:hover {
+  opacity: 0.85;
+}
+
+/* Athva fix buttons */
+.review-athva-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background 0.12s, opacity 0.12s;
+}
+
+.review-athva-btn-single {
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-secondary);
+}
+
+.review-athva-btn-single:hover {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+}
+
+.review-athva-btn-file {
+  padding: 3px 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.review-athva-btn-file:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.review-athva-btn-all {
+  margin-top: 10px;
+  padding: 5px 12px;
+  background: rgba(var(--accent-rgb, 88, 130, 255), 0.15);
+  color: var(--accent);
+  width: 100%;
+  justify-content: center;
+}
+
+.review-athva-btn-all:hover {
+  background: rgba(var(--accent-rgb, 88, 130, 255), 0.25);
+}
+
+/* File group headers in cons section */
+.review-file-group {
+  margin-bottom: 8px;
+}
+
+.review-file-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  border-left: 2px solid var(--border);
+}
+
+.review-file-group-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
 .review-empty-list {
   display: flex;
   align-items: center;

@@ -67,20 +67,25 @@ export class CodeReviewPanel {
   private getAISettings: () => AISettings;
   private getProjectPath: () => string;
   private getActiveFile: () => ActiveFileSnapshot | null;
+  private onAskAthva: (msg: string) => void;
   private activeTarget: ReviewTarget = "file";
   private abortController: AbortController | null = null;
   private reviewRunId = 0;
+  private lastCons: ReviewItem[] = [];
+  private lastConsByFile: Map<string, ReviewItem[]> = new Map();
 
   constructor(
     onResize: () => void,
     getAISettings: () => AISettings,
     getProjectPath: () => string,
-    getActiveFile: () => ActiveFileSnapshot | null
+    getActiveFile: () => ActiveFileSnapshot | null,
+    onAskAthva: (msg: string) => void
   ) {
     this.onResize = onResize;
     this.getAISettings = getAISettings;
     this.getProjectPath = getProjectPath;
     this.getActiveFile = getActiveFile;
+    this.onAskAthva = onAskAthva;
 
     this.panelEl = document.getElementById("review-panel")!;
     this.resizeEl = document.getElementById("review-resize")!;
@@ -94,24 +99,40 @@ export class CodeReviewPanel {
     this.triggerBtn = document.getElementById("btn-ai-review") as HTMLButtonElement;
     this.closeBtn = document.getElementById("btn-close-review") as HTMLButtonElement;
 
-    this.fileBtn.addEventListener("click", () => void this.runReview("file"));
-    this.changesBtn.addEventListener("click", () => void this.runReview("changes"));
+    // Target buttons only switch mode — user must click Run Review to execute
+    this.fileBtn.addEventListener("click", () => this.setTarget("file"));
+    this.changesBtn.addEventListener("click", () => this.setTarget("changes"));
     this.refreshBtn.addEventListener("click", () => void this.runReview(this.activeTarget));
     this.closeBtn.addEventListener("click", () => this.close());
+
+    // Event delegation for run/fix buttons rendered inside contentEl
+    this.contentEl.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest("[data-action]") as HTMLElement | null;
+      if (!btn) return;
+      const action = btn.dataset.action!;
+      if (action === "run-review") {
+        void this.runReview(this.activeTarget);
+      } else if (action === "fix-single") {
+        this.askAthvaFixSingle(this.lastCons[parseInt(btn.dataset.index || "0")]);
+      } else if (action === "fix-file") {
+        this.askAthvaFixFile(btn.dataset.file!, this.lastConsByFile.get(btn.dataset.file!) || []);
+      } else if (action === "fix-all") {
+        this.askAthvaFixAll();
+      }
+    });
 
     this.renderIdleState();
   }
 
-  async open(target?: ReviewTarget) {
+  open() {
     if (this.panelEl.classList.contains("hidden")) {
       this.panelEl.classList.remove("hidden");
       this.resizeEl.classList.remove("hidden");
       this.triggerBtn.classList.add("active");
       setTimeout(() => this.onResize(), 0);
+      this.setTarget(this.pickDefaultTarget());
+      this.renderIdleState();
     }
-
-    const nextTarget = target || this.pickDefaultTarget();
-    await this.runReview(nextTarget);
   }
 
   close() {
@@ -146,8 +167,20 @@ export class CodeReviewPanel {
   }
 
   private renderIdleState() {
-    this.renderStatus("idle", "Choose a review target", "Review the active file or the current git diff.");
-    this.renderContent(DEFAULT_EMPTY_REVIEW, "Not run yet");
+    this.titleEl.textContent = "Code Review";
+    this.subtitleEl.textContent = "Review the active file or current git changes";
+    this.renderStatus("idle", "Ready", "Select a target above, then run the review.");
+    this.lastCons = [];
+    this.lastConsByFile = new Map();
+    this.contentEl.innerHTML = `
+      <div class="review-idle-cta">
+        <p class="review-idle-hint">Choose <strong>Current File</strong> or <strong>Changes</strong>, then start the review.</p>
+        <button class="review-run-btn" data-action="run-review">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2a.5.5 0 0 1 .812-.39l8 5.5a.5.5 0 0 1 0 .78l-8 5.5A.5.5 0 0 1 4 13V2z"/></svg>
+          Run Review
+        </button>
+      </div>
+    `;
   }
 
   private renderStatus(kind: "idle" | "loading" | "success" | "warning" | "error", title: string, text: string) {
@@ -162,21 +195,43 @@ export class CodeReviewPanel {
   }
 
   private renderContent(review: ParsedReview, sourceLabel: string) {
+    this.lastCons = review.cons;
+    this.lastConsByFile = this.groupByFile(review.cons);
+
     const prosCount = review.pros.length;
     const consCount = review.cons.length;
+
     const prosHtml = prosCount > 0
-      ? review.pros.map((item) => this.renderItemCard(item, "pro")).join("")
+      ? review.pros.map((item) => this.renderItemCard(item, "pro", -1)).join("")
       : `<div class="review-empty-list review-empty-list-pro">
           <div class="review-empty-icon">${this.itemIcon("pro")}</div>
           <div>No standout strengths were extracted from this pass.</div>
         </div>`;
 
-    const consHtml = consCount > 0
-      ? review.cons.map((item) => this.renderItemCard(item, "con")).join("")
-      : `<div class="review-empty-list review-empty-list-con">
+    let consHtml = "";
+    if (consCount === 0) {
+      consHtml = `<div class="review-empty-list review-empty-list-con">
           <div class="review-empty-icon">${this.itemIcon("con")}</div>
           <div>No critical risks were identified in this pass.</div>
         </div>`;
+    } else {
+      for (const [file, items] of this.lastConsByFile) {
+        const isGeneral = file === "__general__";
+        const fileHeader = isGeneral ? "" : `
+          <div class="review-file-group-header">
+            <span class="review-file-group-name" title="${this.escapeAttr(file)}">${this.escapeHtml(file)}</span>
+            <button class="review-athva-btn review-athva-btn-file" data-action="fix-file" data-file="${this.escapeAttr(file)}">
+              ${this.athvaIcon()} Fix file
+            </button>
+          </div>`;
+        const cards = items.map((item) => this.renderItemCard(item, "con", this.lastCons.indexOf(item))).join("");
+        consHtml += `<div class="review-file-group">${fileHeader}${cards}</div>`;
+      }
+    }
+
+    const fixAllBtn = consCount > 0
+      ? `<button class="review-athva-btn review-athva-btn-all" data-action="fix-all">${this.athvaIcon()} Fix all issues</button>`
+      : "";
 
     this.contentEl.innerHTML = `
       <div class="review-overview-card">
@@ -191,6 +246,7 @@ export class CodeReviewPanel {
           </div>
         </div>
         <p class="review-summary">${this.escapeHtml(review.summary)}</p>
+        ${fixAllBtn}
       </div>
 
       <section class="review-section review-section-pro">
@@ -217,13 +273,26 @@ export class CodeReviewPanel {
     `;
   }
 
-  private renderItemCard(item: ReviewItem, kind: "pro" | "con"): string {
+  private groupByFile(items: ReviewItem[]): Map<string, ReviewItem[]> {
+    const groups = new Map<string, ReviewItem[]>();
+    for (const item of items) {
+      const key = item.fileRef?.trim() || "__general__";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(item);
+    }
+    return groups;
+  }
+
+  private renderItemCard(item: ReviewItem, kind: "pro" | "con", conIndex: number): string {
     const severity = kind === "con" ? STATUS_META[item.severity || "medium"] : null;
     const refHtml = item.fileRef
       ? `<div class="review-card-meta">${this.metaIcon()}<span>${this.escapeHtml(item.fileRef)}</span></div>`
       : "";
     const recommendationHtml = item.recommendation
       ? `<div class="review-card-note">${this.escapeHtml(item.recommendation)}</div>`
+      : "";
+    const fixBtn = kind === "con" && conIndex >= 0
+      ? `<button class="review-athva-btn review-athva-btn-single" data-action="fix-single" data-index="${conIndex}">${this.athvaIcon()} Ask Athva</button>`
       : "";
 
     return `
@@ -238,6 +307,7 @@ export class CodeReviewPanel {
         <p class="review-card-detail">${this.escapeHtml(item.detail)}</p>
         ${refHtml}
         ${recommendationHtml}
+        ${fixBtn}
       </article>
     `;
   }
@@ -665,9 +735,49 @@ export class CodeReviewPanel {
     return `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7.5 1.5a.5.5 0 0 1 1 0V3h2.75A1.75 1.75 0 0 1 13 4.75v6.5A1.75 1.75 0 0 1 11.25 13h-6.5A1.75 1.75 0 0 1 3 11.25v-6.5A1.75 1.75 0 0 1 4.75 3H7.5V1.5zm-2.75 3a.75.75 0 0 0-.75.75v6.5c0 .414.336.75.75.75h6.5a.75.75 0 0 0 .75-.75v-6.5a.75.75 0 0 0-.75-.75h-6.5z"/></svg>`;
   }
 
+  private askAthvaFixSingle(item: ReviewItem) {
+    if (!item) return;
+    const ref = item.fileRef ? ` in \`${item.fileRef}\`` : "";
+    const lines = [`Fix the following code review issue${ref}:`, ``, `**${item.title}**`, item.detail];
+    if (item.recommendation) lines.push(``, `Recommendation: ${item.recommendation}`);
+    this.onAskAthva(lines.join("\n"));
+  }
+
+  private askAthvaFixFile(file: string, items: ReviewItem[]) {
+    if (!items.length) return;
+    const lines = [`Fix all of these issues in \`${file}\`:`, ``];
+    items.forEach((item, i) => {
+      lines.push(`${i + 1}. **${item.title}**: ${item.detail}`);
+      if (item.recommendation) lines.push(`   Recommendation: ${item.recommendation}`);
+    });
+    this.onAskAthva(lines.join("\n"));
+  }
+
+  private askAthvaFixAll() {
+    if (!this.lastCons.length) return;
+    const lines = [`Fix all of these code review issues:`, ``];
+    for (const [file, items] of this.lastConsByFile) {
+      if (file !== "__general__") lines.push(`### \`${file}\``);
+      items.forEach((item, i) => {
+        lines.push(`${i + 1}. **${item.title}**: ${item.detail}`);
+        if (item.recommendation) lines.push(`   Recommendation: ${item.recommendation}`);
+      });
+      lines.push(``);
+    }
+    this.onAskAthva(lines.join("\n"));
+  }
+
+  private athvaIcon(): string {
+    return `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`;
+  }
+
   private escapeHtml(value: string): string {
     const div = document.createElement("div");
     div.textContent = value;
     return div.innerHTML;
+  }
+
+  private escapeAttr(value: string): string {
+    return value.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 }

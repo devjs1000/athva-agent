@@ -314,6 +314,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       const content = editor.getActiveFileContent();
       if (!path || !content.trim()) return null;
       return { path, content };
+    },
+    (msg: string) => {
+      const panel = $("chat-panel");
+      if (panel.classList.contains("hidden")) toggleChat();
+      const chatInput = $("chat-input") as HTMLTextAreaElement;
+      chatInput.value = msg;
+      chatInput.focus();
+      chatInput.setSelectionRange(msg.length, msg.length);
     }
   );
 
