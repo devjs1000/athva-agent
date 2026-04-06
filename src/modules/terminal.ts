@@ -286,8 +286,9 @@ export class TerminalPanel {
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
 
-      // Use sh -c to run the command so pipes, redirects, etc. work
-      const cmd = Command.create("sh", ["-c", `cd "${this.cwd}" && ${command}`], {
+      // Use zsh login shell so ~/.zprofile / ~/.zshrc are sourced,
+      // giving access to nvm, homebrew, volta, etc.
+      const cmd = Command.create("zsh", ["-l", "-c", `cd "${this.cwd}" && ${command}`], {
         encoding: "utf-8",
       });
 
