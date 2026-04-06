@@ -29,6 +29,7 @@ let terminal!: TerminalPanel;
 let scriptRunner!: ScriptRunner;
 let sourceControl!: SourceControl;
 let codeReviewPanel!: CodeReviewPanel;
+let chatbot!: Chatbot;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -121,6 +122,7 @@ async function openProject(path: string) {
   terminal.setProject(project.path);
   scriptRunner.setProject(project.path);
   void codeReviewPanel.refreshIfOpen();
+  void chatbot.setProjectPath(project.path);
 }
 
 async function handleOpenFolder() {
@@ -260,7 +262,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   );
 
   // Init chatbot
-  const chatbot = new Chatbot(
+  chatbot = new Chatbot(
     "chat-messages",
     "chat-input",
     "btn-send-chat",
@@ -393,6 +395,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-toggle-scm").addEventListener("click", () => sourceControl.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);
   $("btn-close-chat").addEventListener("click", toggleChat);
+  $("btn-edit-context").addEventListener("click", () => chatbot.openContextEditor());
 
   // ── Settings buttons ──
   $("btn-close-settings").addEventListener("click", () => showPage("workspace"));

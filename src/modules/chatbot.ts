@@ -65,7 +65,7 @@ const AGENT_TOOLS = [
 
 const CHAT_SYSTEM_PROMPT = `You are Athva, a helpful AI coding assistant. You help users understand code, answer programming questions, and provide suggestions. Be concise and precise in your responses.`;
 
-function buildAgentSystemPrompt(projectPath: string, access: AgentAccess): string {
+function buildAgentSystemPrompt(projectPath: string, access: AgentAccess, projectContext = ""): string {
   const tools = AGENT_TOOLS.filter((t) => {
     if (t.name === "read_file" || t.name === "list_dir" || t.name === "search_files") return access.fileRead;
     if (t.name === "write_file") return access.fileWrite;
@@ -76,60 +76,37 @@ function buildAgentSystemPrompt(projectPath: string, access: AgentAccess): strin
   });
 
   const toolDescriptions = tools
-    .map((t) => `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.parameters)}`)
+    .map((t) => `- ${t.name}(${Object.keys(t.parameters).join(", ")}): ${t.description}`)
     .join("\n");
 
-  return `You are Athva Agent, an autonomous AI coding assistant. You can take actions on the user's codebase with their approval.
+  const contextSection = projectContext
+    ? `\n[Project Context]\n${projectContext}\n`
+    : "";
 
-Current project path: ${projectPath}
+  return `You are Athva Agent, an autonomous AI coding assistant.
+Project: ${projectPath}
+${contextSection}
+Tools:
+${toolDescriptions || "(none — ask user to enable permissions)"}
 
-## Available Tools
-${toolDescriptions || "(No tools available — ask the user to enable permissions in Settings)"}
-
-## How to Use Tools
-When you need to perform an action, output EXACTLY ONE tool call per response in this format:
-
+Tool call format (one per response):
 \`\`\`tool
-{"tool": "<tool_name>", "args": {"param": "value"}}
+{"tool": "<name>", "args": {"key": "value"}}
 \`\`\`
+Use \\n for newlines in string args.
 
-CRITICAL RULES:
-- Output only ONE tool call per response. After the tool result comes back, you can call the next tool.
-- The tool call must be valid JSON on a single line inside the \`\`\`tool block.
-- String values in args must use \\n for newlines, not actual newlines.
-- Always close the code block with \`\`\`.
-- You can include a brief explanation before the tool block, but keep it short.
-
-## Guidelines
-- NEVER ask the user anything as plain text. ALWAYS use the ask_user tool for ALL user input. Use type "select" for picking one option, "checkbox" for multiple options, "text" only for complex free-form input. Provide clear option labels.
-- FIRST STEP: Before doing ANY work (reading files, running commands, making plans), gather ALL the inputs and clarifications you need from the user using ask_user. Ask all questions upfront so the user can answer them all before you begin. Only after you have all the answers, start executing.
-- Ask the user about preferences only when the decision materially affects the implementation and cannot be inferred from the request or existing codebase. If the codebase already implies the right choice, follow it and continue.
-- For non-trivial tasks with multiple steps, dependencies, or edits across files, use make_plan first so the user can review the plan before execution.
-- First connect the request to the existing codebase. Reuse existing patterns, modules, naming, and architecture before creating new files.
-- First try to find missing pieces through inspection and brief brainstorming. Use ask_user only when those missing pieces block a correct implementation and cannot be resolved from the codebase, prior messages, or a reasonable assumption.
-- Ask the user whether they want unit tests only when tests are actually relevant to the task and the answer is not already known. If they explicitly do not want tests, skip them. Do not pause the main implementation only to ask about tests if the core implementation can proceed safely.
-- Before coding, decide what units are actually required. Do not force all layers by default.
-- The preferred build order is from small unit to large unit: utils, atoms, hooks, molecules, organisms, templates, pages, routes, app.
-- Before coding, produce a compact inventory of required units, one JSON object per line, for example:
-  {"type":"util","name":"email_validator","description":"email validator","testing_method":"test by unit test"}
-  {"type":"atom","name":"Button","description":"Button component","testing_method":"test by unit test"}
-- Only include valid or required layers. If a layer is unnecessary, skip it.
-- Prefer run_command over write_file when a CLI tool can generate files. For example use "npm init -y", "pnpm init", "npx create-react-app", etc. instead of manually writing package.json.
-- Prefer search, pattern matching, regex, and simple algorithms to detect existing behavior or structure before manual inspection. Use search_files first when possible, and use run_command for fast codebase search when terminal access is available.
-- Always read a file before modifying it.
-- If a file you read is empty or whitespace-only and the user has not already defined what should go into it, use ask_user to gather the file's purpose, expected behavior/features, and any framework or interface requirements before writing anything.
-- Coding should move from the smallest reusable units to the largest integrating units.
-- Explain what you're about to do before calling a tool.
-- After a tool result, analyze the output and decide the next step.
-- Do not stop after planning, inventory, search, or read steps if the task is still incomplete. Continue making tool calls until the task is finished or a blocking clarification is required.
-- Do not ask questions merely to confirm ordinary implementation choices, naming, file placement, or structure when the existing codebase already suggests the answer.
-- NEVER output a question as plain text in your response. If you need any input, use the ask_user tool.
-- If the user asks for implementation, the default assumption is that they want code changes completed end-to-end in the current turn unless they explicitly ask only for analysis or planning.
-- If a tool call is denied by the user, respect that and find an alternative approach.
-- NEVER read files like .gitignore, .env, lock files (package-lock.json, pnpm-lock.yaml, yarn.lock), or anything inside node_modules, dist, build, .git directories. These are heavy or sensitive.
-- Be concise. Focus on taking action, not lengthy explanations.
-- Before finishing, validate the result. Check for integration gaps, missing imports, obvious runtime issues, and whether the implementation matches the request.
-- When done with a task, summarize what you did.`;
+Rules:
+- One tool call per response; wait for result before the next.
+- Never ask questions as plain text — use ask_user tool instead.
+- Gather all clarifications upfront before starting work.
+- Read a file before modifying it.
+- For multi-step tasks use make_plan first.
+- Reuse existing patterns; don't create files that already exist.
+- Prefer run_command over write_file for scaffolding (npm init, etc.).
+- Skip .env, lock files, node_modules, dist, .git — never read these.
+- Be concise. Keep explanations short and act.
+- Validate the result before finishing. Summarize what you did.
+- To persist project knowledge across sessions, write facts to \`${projectPath}/.athva/context.md\` (create if missing). Do this when the user asks you to "remember" something or when you learn important project conventions.`;
 }
 
 // ── Chatbot class ──
@@ -145,6 +122,7 @@ export class Chatbot {
   private onFileChangedCb: ((path: string) => void) | null = null;
   private memory: AgentMemory | null = null;
   private getAppSettings: (() => AppSettings) | null = null;
+  private projectContext: string = "";
 
   private session: ChatSession;
   private sessions: ChatSession[] = [];
@@ -210,6 +188,65 @@ export class Chatbot {
   setMemory(memory: AgentMemory, getAppSettings: () => AppSettings) {
     this.memory = memory;
     this.getAppSettings = getAppSettings;
+  }
+
+  /** Load .athva/context.md from the project root and inject into system prompts */
+  async setProjectPath(projectPath: string) {
+    if (!projectPath) { this.projectContext = ""; return; }
+    try {
+      const contextPath = `${projectPath}/.athva/context.md`;
+      const content = await invoke<string>("read_file", { path: contextPath });
+      this.projectContext = content || "";
+    } catch {
+      this.projectContext = "";
+    }
+  }
+
+  /** Open the manual context editor modal */
+  openContextEditor() {
+    const modal = document.getElementById("context-modal");
+    const textarea = document.getElementById("context-editor-textarea") as HTMLTextAreaElement;
+    if (!modal || !textarea) return;
+
+    textarea.value = this.projectContext;
+    modal.classList.remove("hidden");
+    textarea.focus();
+
+    const close = () => modal.classList.add("hidden");
+
+    const saveBtn = document.getElementById("btn-save-context");
+    const cancelBtn = document.getElementById("btn-cancel-context");
+
+    // Remove old listeners by replacing elements
+    const newSave = saveBtn!.cloneNode(true) as HTMLElement;
+    const newCancel = cancelBtn!.cloneNode(true) as HTMLElement;
+    saveBtn!.replaceWith(newSave);
+    cancelBtn!.replaceWith(newCancel);
+
+    newSave.addEventListener("click", async () => {
+      newSave.textContent = "Saving...";
+      (newSave as HTMLButtonElement).disabled = true;
+      await this.saveContext(textarea.value);
+      close();
+    });
+    newCancel.addEventListener("click", close);
+
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) close();
+    }, { once: true });
+  }
+
+  private async saveContext(content: string) {
+    const projectPath = this.getProjectPath();
+    if (!projectPath) return;
+    try {
+      // Ensure .athva/ directory exists by writing the file (write_file creates parent dirs on Rust side)
+      const contextPath = `${projectPath}/.athva/context.md`;
+      await invoke("write_file", { path: contextPath, content });
+      this.projectContext = content;
+    } catch (e) {
+      console.error("Failed to save context:", e);
+    }
   }
 
   private onFileChanged(path: string) {
@@ -565,7 +602,7 @@ export class Chatbot {
       const fullResponse = await this.streamAI(settings, this.buildChatHistory(memoryContext), streamEl);
       this.session.messages.push({ role: "assistant", content: fullResponse });
       streamEl.classList.remove("streaming");
-      // Background: extract and save memorable facts
+      // Background: extract and save memorable facts (only if memory is enabled)
       if (fullResponse && lastUserMsg) {
         void this.extractAndSaveMemories(settings, lastUserMsg, fullResponse);
       }
@@ -580,6 +617,7 @@ export class Chatbot {
       this.sendBtn.textContent = "Send";
       this.session.updatedAt = Date.now();
       await saveSession(this.session);
+      void this.compactHistory(settings);
     }
   }
 
@@ -630,6 +668,48 @@ export class Chatbot {
     } catch {
       // Non-fatal
     }
+  }
+
+  // ── Auto-compact ──
+
+  private estimateSessionTokens(): number {
+    const totalChars = this.session.messages.reduce((sum, m) => sum + m.content.length, 0);
+    return Math.ceil(totalChars / 4);
+  }
+
+  private async compactHistory(settings: AISettings): Promise<void> {
+    const MAX_TOKENS = 10_000;
+    if (this.estimateSessionTokens() < MAX_TOKENS) return;
+
+    // Keep the last 4 messages intact
+    const keepCount = 4;
+    const toSummarize = this.session.messages.slice(0, -keepCount);
+    if (toSummarize.length < 4) return; // Not enough to compress
+
+    const historyText = toSummarize
+      .map((m) => `${m.role.toUpperCase()}: ${m.content.substring(0, 500)}`)
+      .join("\n\n");
+
+    const prompt =
+      `Summarize the following conversation history concisely. ` +
+      `Preserve key decisions, code changes made, files modified, and important context. ` +
+      `Output a dense paragraph or bullet list (max 400 words):\n\n${historyText}`;
+
+    const summary = await this.callAIOnce(settings, prompt);
+    if (!summary) return;
+
+    const previousSummary = this.session.compactedSummary;
+    this.session.compactedSummary = previousSummary
+      ? `${previousSummary}\n\n${summary}`
+      : summary;
+    this.session.messages = this.session.messages.slice(-keepCount);
+    await saveSession(this.session);
+
+    // Show compact indicator in UI
+    const indicator = document.createElement("div");
+    indicator.className = "chat-compact-indicator";
+    indicator.textContent = "⟳ History compacted to save tokens";
+    this.messagesEl.prepend(indicator);
   }
 
   private async callAIOnce(settings: AISettings, prompt: string): Promise<string> {
@@ -691,14 +771,27 @@ export class Chatbot {
   }
 
   private buildChatHistory(memoryContext = ""): { role: string; content: string }[] {
-    const systemContent = memoryContext
-      ? `${CHAT_SYSTEM_PROMPT}\n\n[Relevant memories from past sessions]\n${memoryContext}`
-      : CHAT_SYSTEM_PROMPT;
+    let systemContent = CHAT_SYSTEM_PROMPT;
+    if (this.projectContext) {
+      systemContent += `\n\n[Project Context]\n${this.projectContext}`;
+    }
+    if (memoryContext) {
+      systemContent += `\n\n[Relevant memories from past sessions]\n${memoryContext}`;
+    }
     const systemMsg = { role: "system", content: systemContent };
-    const msgs = this.session.messages
+
+    const msgs: { role: string; content: string }[] = [];
+
+    // Prepend compacted summary when history was previously compacted
+    if (this.session.compactedSummary) {
+      msgs.push({ role: "user", content: `[Conversation summary from earlier]\n${this.session.compactedSummary}` });
+      msgs.push({ role: "assistant", content: "Understood, I have the context from the earlier conversation." });
+    }
+
+    const recent = this.session.messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: m.content }));
-    return [systemMsg, ...msgs];
+    return [systemMsg, ...msgs, ...recent];
   }
 
   // ── Agent Mode (agentic loop with tool calls) ──
@@ -833,21 +926,32 @@ export class Chatbot {
       this.session.updatedAt = Date.now();
       await saveSession(this.session);
       this.scrollToBottom();
+      void this.compactHistory(settings);
     }
   }
 
   private buildAgentHistory(): { role: string; content: string }[] {
     const access = this.getAgentAccess();
     const projectPath = this.getProjectPath();
-    const systemPrompt = buildAgentSystemPrompt(projectPath, access);
+    const systemPrompt = buildAgentSystemPrompt(projectPath, access, this.projectContext);
     const systemMsg = { role: "system", content: systemPrompt };
 
+    // Keep the last N messages to avoid unbounded history growth
+    const MAX_HISTORY = 20;
+    const recentMessages = this.session.messages.slice(-MAX_HISTORY);
+
     const msgs: { role: string; content: string }[] = [];
-    for (const m of this.session.messages) {
+
+    // Prepend compacted summary when history was previously compacted
+    if (this.session.compactedSummary) {
+      msgs.push({ role: "user", content: `[Conversation summary from earlier]\n${this.session.compactedSummary}` });
+      msgs.push({ role: "assistant", content: "Understood, I have the context from the earlier conversation." });
+    }
+
+    for (const m of recentMessages) {
       if (m.role === "user") {
         msgs.push({ role: "user", content: m.content });
       } else if (m.role === "assistant") {
-        // Include the full response (with tool call syntax) for context
         let content = m.content;
         if (m.toolCalls && m.toolCalls.length > 0) {
           const toolBlock = m.toolCalls
@@ -857,8 +961,15 @@ export class Chatbot {
         }
         msgs.push({ role: "assistant", content });
       } else if (m.role === "tool") {
-        // Tool results go as user messages (for models that don't support tool role)
-        msgs.push({ role: "user", content: m.content });
+        // Keep recent tool results full so the agent doesn't re-read files.
+        // Only truncate older results (not the last 3) to manage token usage.
+        const msgIndex = recentMessages.indexOf(m);
+        const isRecent = msgIndex >= recentMessages.length - 6; // last 6 msgs = ~3 tool results
+        const TOOL_HISTORY_LIMIT = isRecent ? 8000 : 1500;
+        const content = m.content.length > TOOL_HISTORY_LIMIT
+          ? m.content.slice(0, TOOL_HISTORY_LIMIT) + `\n…[truncated, ${m.content.length - TOOL_HISTORY_LIMIT} chars omitted]`
+          : m.content;
+        msgs.push({ role: "user", content });
       }
     }
 
@@ -1036,10 +1147,12 @@ export class Chatbot {
     return new Promise((resolve) => {
       const question = tc.args.question || "Please choose:";
       const type = (tc.args.type || "select").toLowerCase();
-      const options = (tc.args.options || "")
-        .split("\n")
-        .map((o: string) => o.trim())
-        .filter(Boolean);
+      const rawOptions = tc.args.options;
+      const options = (
+        Array.isArray(rawOptions)
+          ? rawOptions.map(String)
+          : String(rawOptions || "").split("\n")
+      ).map((o) => o.trim()).filter(Boolean);
 
       const container = document.createElement("div");
       container.className = "chat-ask-user";
@@ -1241,6 +1354,10 @@ export class Chatbot {
         if (!access.fileWrite) throw new Error("File write permission denied");
         await invoke("write_file", { path: tc.args.path, content: tc.args.content });
         this.onFileChanged(tc.args.path);
+        // Keep in-memory project context in sync if agent wrote to context.md
+        if (tc.args.path.endsWith("/.athva/context.md")) {
+          this.projectContext = tc.args.content;
+        }
         return `File written: ${tc.args.path}`;
       }
 
@@ -1281,10 +1398,12 @@ export class Chatbot {
       case "make_plan": {
         const title = (tc.args.title || "").trim();
         const notes = (tc.args.notes || "").trim();
-        const steps = (tc.args.steps || "")
-          .split("\n")
-          .map((step) => step.trim())
-          .filter(Boolean);
+        const rawSteps = tc.args.steps;
+        const steps = (
+          Array.isArray(rawSteps)
+            ? rawSteps.map(String)
+            : String(rawSteps || "").split("\n")
+        ).map((s) => s.trim()).filter(Boolean);
 
         if (!title) throw new Error("Plan title is required");
         if (steps.length === 0) throw new Error("At least one plan step is required");

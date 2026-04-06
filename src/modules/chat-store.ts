@@ -23,6 +23,7 @@ export interface ChatSession {
   mode: ChatMode;
   createdAt: number;
   updatedAt: number;
+  compactedSummary?: string;
 }
 
 const DB_NAME = "athva_chat";
