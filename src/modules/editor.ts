@@ -566,6 +566,16 @@ export class Editor {
     }
   }
 
+  /** Replace the entire content of the active file in the editor. */
+  setContent(content: string) {
+    if (!this.activeTab) return;
+    const cursor = this.ace.getCursorPosition();
+    this.ace.setValue(content, -1);
+    this.ace.clearSelection();
+    this.ace.moveCursorToPosition(cursor);
+    this.ace.renderer.scrollCursorIntoView(cursor, 0.5);
+  }
+
   resize() {
     this.ace.resize();
   }

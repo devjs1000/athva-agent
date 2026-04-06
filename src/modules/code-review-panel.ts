@@ -21,6 +21,8 @@ interface ReviewItem {
   fileRef?: string;
   recommendation?: string;
   severity?: ReviewSeverity;
+  startLine?: number;
+  endLine?: number;
 }
 
 interface ParsedReview {
@@ -67,25 +69,26 @@ export class CodeReviewPanel {
   private getAISettings: () => AISettings;
   private getProjectPath: () => string;
   private getActiveFile: () => ActiveFileSnapshot | null;
-  private onAskAthva: (msg: string) => void;
+  private setEditorContent: (content: string) => void;
   private activeTarget: ReviewTarget = "file";
   private abortController: AbortController | null = null;
   private reviewRunId = 0;
   private lastCons: ReviewItem[] = [];
   private lastConsByFile: Map<string, ReviewItem[]> = new Map();
+  private fixInFlight: Set<number> = new Set();
 
   constructor(
     onResize: () => void,
     getAISettings: () => AISettings,
     getProjectPath: () => string,
     getActiveFile: () => ActiveFileSnapshot | null,
-    onAskAthva: (msg: string) => void
+    setEditorContent: (content: string) => void
   ) {
     this.onResize = onResize;
     this.getAISettings = getAISettings;
     this.getProjectPath = getProjectPath;
     this.getActiveFile = getActiveFile;
-    this.onAskAthva = onAskAthva;
+    this.setEditorContent = setEditorContent;
 
     this.panelEl = document.getElementById("review-panel")!;
     this.resizeEl = document.getElementById("review-resize")!;
@@ -113,11 +116,9 @@ export class CodeReviewPanel {
       if (action === "run-review") {
         void this.runReview(this.activeTarget);
       } else if (action === "fix-single") {
-        this.askAthvaFixSingle(this.lastCons[parseInt(btn.dataset.index || "0")]);
-      } else if (action === "fix-file") {
-        this.askAthvaFixFile(btn.dataset.file!, this.lastConsByFile.get(btn.dataset.file!) || []);
+        void this.fixSingle(parseInt(btn.dataset.index || "0"), btn);
       } else if (action === "fix-all") {
-        this.askAthvaFixAll();
+        void this.fixAll(btn);
       }
     });
 
@@ -220,9 +221,6 @@ export class CodeReviewPanel {
         const fileHeader = isGeneral ? "" : `
           <div class="review-file-group-header">
             <span class="review-file-group-name" title="${this.escapeAttr(file)}">${this.escapeHtml(file)}</span>
-            <button class="review-athva-btn review-athva-btn-file" data-action="fix-file" data-file="${this.escapeAttr(file)}">
-              ${this.athvaIcon()} Fix file
-            </button>
           </div>`;
         const cards = items.map((item) => this.renderItemCard(item, "con", this.lastCons.indexOf(item))).join("");
         consHtml += `<div class="review-file-group">${fileHeader}${cards}</div>`;
@@ -291,8 +289,10 @@ export class CodeReviewPanel {
     const recommendationHtml = item.recommendation
       ? `<div class="review-card-note">${this.escapeHtml(item.recommendation)}</div>`
       : "";
-    const fixBtn = kind === "con" && conIndex >= 0
-      ? `<button class="review-athva-btn review-athva-btn-single" data-action="fix-single" data-index="${conIndex}">${this.athvaIcon()} Ask Athva</button>`
+    const hasLines = kind === "con" && conIndex >= 0 && item.startLine && item.endLine;
+    const lineLabel = hasLines ? `L${item.startLine}–${item.endLine}` : "";
+    const fixBtn = hasLines
+      ? `<button class="review-athva-btn review-athva-btn-single" data-action="fix-single" data-index="${conIndex}">${this.athvaIcon()} Fix ${lineLabel}</button>`
       : "";
 
     return `
@@ -473,11 +473,12 @@ export class CodeReviewPanel {
     return (
       `${REVIEW_SYSTEM_PROMPT}\n` +
       `Return ONLY valid JSON with this shape:\n` +
-      `{"title":"string","summary":"string","pros":[{"title":"string","detail":"string","fileRef":"string"}],"cons":[{"title":"string","detail":"string","fileRef":"string","severity":"high|medium|low","recommendation":"string"}]}\n` +
+      `{"title":"string","summary":"string","pros":[{"title":"string","detail":"string","fileRef":"string"}],"cons":[{"title":"string","detail":"string","fileRef":"string","severity":"high|medium|low","recommendation":"string","startLine":number,"endLine":number}]}\n` +
       `Rules:\n` +
       `- Keep summary to 1-2 sentences.\n` +
       `- Put code quality wins in pros.\n` +
       `- Put bugs, regressions, risky behavior, and missing tests in cons.\n` +
+      `- For each con, include startLine and endLine (1-based, inclusive) pointing to the exact lines with the issue.\n` +
       `- Use empty arrays when needed.\n` +
       `- No markdown fences.`
     );
@@ -673,6 +674,9 @@ export class CodeReviewPanel {
       if (!title || !detail) continue;
 
       const severity = typeof value.severity === "string" ? value.severity.toLowerCase() : "medium";
+      const startLine = typeof value.startLine === "number" ? value.startLine : undefined;
+      const endLine = typeof value.endLine === "number" ? value.endLine : undefined;
+
       normalized.push({
         title,
         detail,
@@ -683,6 +687,8 @@ export class CodeReviewPanel {
           : kind === "con"
             ? "medium"
             : undefined,
+        startLine: startLine && startLine > 0 ? startLine : undefined,
+        endLine: endLine && endLine > 0 ? endLine : undefined,
       });
     }
 
@@ -735,36 +741,143 @@ export class CodeReviewPanel {
     return `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7.5 1.5a.5.5 0 0 1 1 0V3h2.75A1.75 1.75 0 0 1 13 4.75v6.5A1.75 1.75 0 0 1 11.25 13h-6.5A1.75 1.75 0 0 1 3 11.25v-6.5A1.75 1.75 0 0 1 4.75 3H7.5V1.5zm-2.75 3a.75.75 0 0 0-.75.75v6.5c0 .414.336.75.75.75h6.5a.75.75 0 0 0 .75-.75v-6.5a.75.75 0 0 0-.75-.75h-6.5z"/></svg>`;
   }
 
-  private askAthvaFixSingle(item: ReviewItem) {
+  private async fixSingle(index: number, btn: HTMLElement) {
+    const item = this.lastCons[index];
     if (!item) return;
-    const ref = item.fileRef ? ` in \`${item.fileRef}\`` : "";
-    const lines = [`Fix the following code review issue${ref}:`, ``, `**${item.title}**`, item.detail];
-    if (item.recommendation) lines.push(``, `Recommendation: ${item.recommendation}`);
-    this.onAskAthva(lines.join("\n"));
-  }
+    if (this.fixInFlight.has(index)) return;
+    this.fixInFlight.add(index);
 
-  private askAthvaFixFile(file: string, items: ReviewItem[]) {
-    if (!items.length) return;
-    const lines = [`Fix all of these issues in \`${file}\`:`, ``];
-    items.forEach((item, i) => {
-      lines.push(`${i + 1}. **${item.title}**: ${item.detail}`);
-      if (item.recommendation) lines.push(`   Recommendation: ${item.recommendation}`);
-    });
-    this.onAskAthva(lines.join("\n"));
-  }
+    const file = this.getActiveFile();
+    if (!file) { this.fixInFlight.delete(index); return; }
 
-  private askAthvaFixAll() {
-    if (!this.lastCons.length) return;
-    const lines = [`Fix all of these code review issues:`, ``];
-    for (const [file, items] of this.lastConsByFile) {
-      if (file !== "__general__") lines.push(`### \`${file}\``);
-      items.forEach((item, i) => {
-        lines.push(`${i + 1}. **${item.title}**: ${item.detail}`);
-        if (item.recommendation) lines.push(`   Recommendation: ${item.recommendation}`);
-      });
-      lines.push(``);
+    const origLabel = btn.innerHTML;
+    btn.innerHTML = `<span class="review-spinner-sm"></span> Fixing…`;
+    btn.classList.add("disabled");
+
+    try {
+      const fix = await this.requestFix([item], file.content);
+      if (fix !== null) {
+        this.setEditorContent(fix);
+        btn.innerHTML = `${this.athvaIcon()} Fixed`;
+        btn.classList.add("review-athva-btn-done");
+      } else {
+        btn.innerHTML = origLabel;
+        btn.classList.remove("disabled");
+      }
+    } catch {
+      btn.innerHTML = origLabel;
+      btn.classList.remove("disabled");
+    } finally {
+      this.fixInFlight.delete(index);
     }
-    this.onAskAthva(lines.join("\n"));
+  }
+
+  private async fixAll(btn: HTMLElement) {
+    const fixable = this.lastCons.filter((item) => item.startLine && item.endLine);
+    if (!fixable.length) return;
+
+    const file = this.getActiveFile();
+    if (!file) return;
+
+    const origLabel = btn.innerHTML;
+    btn.innerHTML = `<span class="review-spinner-sm"></span> Fixing all…`;
+    btn.classList.add("disabled");
+
+    try {
+      const fix = await this.requestFix(fixable, file.content);
+      if (fix !== null) {
+        this.setEditorContent(fix);
+        btn.innerHTML = `${this.athvaIcon()} Fixed all`;
+        btn.classList.add("review-athva-btn-done");
+        // Mark all individual fix buttons as done
+        this.contentEl.querySelectorAll("[data-action='fix-single']").forEach((el) => {
+          (el as HTMLElement).innerHTML = `${this.athvaIcon()} Fixed`;
+          (el as HTMLElement).classList.add("review-athva-btn-done", "disabled");
+        });
+      } else {
+        btn.innerHTML = origLabel;
+        btn.classList.remove("disabled");
+      }
+    } catch {
+      btn.innerHTML = origLabel;
+      btn.classList.remove("disabled");
+    }
+  }
+
+  private async requestFix(items: ReviewItem[], fileContent: string): Promise<string | null> {
+    const settings = this.getAISettings();
+    if (!settings.apiKey) return null;
+
+    const issueList = items.map((item, i) => {
+      let desc = `${i + 1}. ${item.title} (lines ${item.startLine || "?"}–${item.endLine || "?"}): ${item.detail}`;
+      if (item.recommendation) desc += `\n   Recommendation: ${item.recommendation}`;
+      return desc;
+    }).join("\n");
+
+    const systemMsg = "You are a code fixer. You will receive a complete file and a list of issues. Return the COMPLETE fixed file with all issues resolved. Return ONLY the code — no explanation, no markdown fences, no backticks.";
+    const userMsg =
+      `Issues to fix:\n${issueList}\n\n` +
+      `Complete file:\n${fileContent}`;
+
+    try {
+      const raw = await this.callFixAPI(settings, systemMsg, userMsg);
+      const cleaned = raw.replace(/^```[\w]*\n?/, "").replace(/\n?```\s*$/, "");
+      return cleaned || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async callFixAPI(settings: AISettings, system: string, user: string): Promise<string> {
+    const signal = new AbortController().signal;
+
+    switch (settings.provider) {
+      case "openai":
+        return this.callPlainText("https://api.openai.com/v1/chat/completions", settings, system, user, signal);
+      case "mimo":
+        return this.callPlainText("https://api.xiaomimimo.com/v1/chat/completions", settings, system, user, signal);
+      case "mistral":
+        return this.callPlainText("https://api.mistral.ai/v1/chat/completions", settings, system, user, signal);
+      case "anthropic":
+        return this.callAnthropic(settings, [{ role: "system", content: system }, { role: "user", content: user }], signal);
+      case "google":
+        return this.callGoogle(settings, [{ role: "system", content: system }, { role: "user", content: user }], signal);
+      default:
+        throw new Error(`Unknown provider: ${settings.provider}`);
+    }
+  }
+
+  /** OpenAI-compatible call WITHOUT response_format: json_object — returns plain text. */
+  private async callPlainText(
+    url: string,
+    settings: AISettings,
+    system: string,
+    user: string,
+    signal: AbortSignal
+  ): Promise<string> {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: settings.model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        max_tokens: 4096,
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      throw new Error(await this.describeHttpError(res, "Fix API"));
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
   }
 
   private athvaIcon(): string {

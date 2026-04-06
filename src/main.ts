@@ -315,14 +315,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!path || !content.trim()) return null;
       return { path, content };
     },
-    (msg: string) => {
-      const panel = $("chat-panel");
-      if (panel.classList.contains("hidden")) toggleChat();
-      const chatInput = $("chat-input") as HTMLTextAreaElement;
-      chatInput.value = msg;
-      chatInput.focus();
-      chatInput.setSelectionRange(msg.length, msg.length);
-    }
+    (content: string) => editor.setContent(content)
   );
 
   // Init quick open
