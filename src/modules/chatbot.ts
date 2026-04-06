@@ -16,47 +16,23 @@ import { addTokens, updateStatusBar } from "./token-usage";
 // ── Agent tool definitions for LLM function calling ──
 
 const AGENT_TOOLS = [
-  {
-    name: "read_file",
-    description: "Read the contents of a file at the given path",
-    parameters: { path: "string — absolute file path" },
-  },
-  {
-    name: "write_file",
-    description: "Write content to a file at the given path (creates or overwrites)",
-    parameters: { path: "string — absolute file path", content: "string — file content" },
-  },
-  {
-    name: "list_dir",
-    description: "List files and directories in the given path",
-    parameters: { path: "string — absolute directory path" },
-  },
-  {
-    name: "run_command",
-    description: "Run a shell command in the project directory and return the output",
-    parameters: { command: "string — shell command to execute" },
-  },
-  {
-    name: "search_files",
-    description: "Search for files matching a query in the project",
-    parameters: { query: "string — search query (matched against file paths)" },
-  },
-  {
-    name: "make_plan",
-    description: "Create a concise execution plan before doing non-trivial work",
-    parameters: {
-      title: "string — short plan title",
-      steps: "string — newline-separated plan steps",
-      notes: "string — optional constraints, assumptions, or risks",
-    },
-  },
+  { name: "read_file", description: "Read a file", parameters: { path: "string" } },
+  { name: "batch_read", description: "Read multiple files (2-8). Preferred over read_file.", parameters: { paths: "string — newline-separated paths" } },
+  { name: "write_file", description: "Write/create a file", parameters: { path: "string", content: "string" } },
+  { name: "list_dir", description: "List directory contents", parameters: { path: "string" } },
+  { name: "run_command", description: "Run shell command in project dir", parameters: { command: "string" } },
+  { name: "search_files", description: "Find files by name/path", parameters: { query: "string" } },
+  { name: "search_content", description: "Grep: search inside files", parameters: { pattern: "string — regex", glob: "string — optional file filter e.g. '*.ts'" } },
+  { name: "git_diff", description: "Show git diff", parameters: { target: "string — optional file/branch/commit" } },
+  { name: "make_plan", description: "Plan before multi-step work (mandatory)", parameters: { title: "string", steps: "string — newline-separated", notes: "string — optional" } },
   {
     name: "ask_user",
-    description: "Ask the user a question when you need input. Use type 'select' for picking one option, 'checkbox' for picking multiple options, 'text' for free-form input.",
+    description: "Ask user questions. Batch ALL into one call.",
     parameters: {
-      question: "string — the question to ask",
-      type: "string — 'select' | 'checkbox' | 'text'",
-      options: "string — newline-separated list of options (required for select/checkbox, ignored for text)",
+      questions: "string — JSON array: [{\"q\":\"text\",\"type\":\"select|checkbox|text\",\"options\":[...]}]",
+      question: "string — single question shorthand",
+      type: "string — select|checkbox|text",
+      options: "string — newline-separated options",
     },
   },
 ];
@@ -67,9 +43,10 @@ const CHAT_SYSTEM_PROMPT = `You are Athva, a helpful AI coding assistant. You he
 
 function buildAgentSystemPrompt(projectPath: string, access: AgentAccess, projectContext = ""): string {
   const tools = AGENT_TOOLS.filter((t) => {
-    if (t.name === "read_file" || t.name === "list_dir" || t.name === "search_files") return access.fileRead;
+    if (t.name === "read_file" || t.name === "batch_read" || t.name === "list_dir" || t.name === "search_files" || t.name === "search_content") return access.fileRead;
     if (t.name === "write_file") return access.fileWrite;
     if (t.name === "run_command") return access.terminal;
+    if (t.name === "git_diff") return access.fileRead;
     if (t.name === "make_plan") return true;
     if (t.name === "ask_user") return true;
     return false;
@@ -83,30 +60,27 @@ function buildAgentSystemPrompt(projectPath: string, access: AgentAccess, projec
     ? `\n[Project Context]\n${projectContext}\n`
     : "";
 
-  return `You are Athva Agent, an autonomous AI coding assistant.
-Project: ${projectPath}
+  return `You are Athva Agent. Project: ${projectPath}
 ${contextSection}
-Tools:
-${toolDescriptions || "(none — ask user to enable permissions)"}
+Tools: ${toolDescriptions || "(none)"}
 
-Tool call format (one per response):
-\`\`\`tool
-{"tool": "<name>", "args": {"key": "value"}}
-\`\`\`
-Use \\n for newlines in string args.
+Format: \`\`\`tool
+{"tool":"<name>","args":{...}}
+\`\`\` (one per response, \\n for newlines in strings)
 
-Rules:
-- One tool call per response; wait for result before the next.
-- Never ask questions as plain text — use ask_user tool instead.
-- Gather all clarifications upfront before starting work.
-- Read a file before modifying it.
-- For multi-step tasks use make_plan first.
-- Reuse existing patterns; don't create files that already exist.
-- Prefer run_command over write_file for scaffolding (npm init, etc.).
-- Skip .env, lock files, node_modules, dist, .git — never read these.
-- Be concise. Keep explanations short and act.
-- Validate the result before finishing. Summarize what you did.
-- To persist project knowledge across sessions, write facts to \`${projectPath}/.athva/context.md\` (create if missing). Do this when the user asks you to "remember" something or when you learn important project conventions.`;
+Protocol: Plan→Batch→Execute→Output
+- make_plan FIRST for 2+ step tasks
+- batch_read for 2+ files, search_content for symbols — avoid full reads
+- git_diff before reading changed files
+- ask_user: batch ALL questions in one call via "questions" param
+- One tool per response. Read before modifying.
+- Max 5-8 files, ~30KB context. Stop at 80% confidence.
+- Output: result + minimal explanation + diffs only
+- Git: ask user first, no git add ., no force push
+- run_command over write_file for scaffolding
+- Skip .env, locks, node_modules, dist, .git
+- Be concise. No restating requests. No intermediate dumps.
+- Persist knowledge to \`${projectPath}/.athva/context.md\``;
 }
 
 // ── Chatbot class ──
@@ -190,15 +164,23 @@ export class Chatbot {
     this.getAppSettings = getAppSettings;
   }
 
-  /** Load .athva/context.md from the project root and inject into system prompts */
+  /** Load .athva/context.md from the project root and inject into system prompts.
+   *  Auto-creates the file if it doesn't exist so the agent can persist knowledge from the start. */
   async setProjectPath(projectPath: string) {
     if (!projectPath) { this.projectContext = ""; return; }
+    const contextPath = `${projectPath}/.athva/context.md`;
     try {
-      const contextPath = `${projectPath}/.athva/context.md`;
       const content = await invoke<string>("read_file", { path: contextPath });
       this.projectContext = content || "";
     } catch {
-      this.projectContext = "";
+      // File doesn't exist yet — create it with a starter template so agent can persist knowledge
+      try {
+        const starter = `# Project Context — ${projectPath.split("/").pop() || "project"}\n\nThis file is auto-managed by Athva Agent. It stores project knowledge across sessions.\n`;
+        await invoke("write_file", { path: contextPath, content: starter });
+        this.projectContext = starter;
+      } catch {
+        this.projectContext = "";
+      }
     }
   }
 
@@ -463,9 +445,8 @@ export class Chatbot {
   }
 
   private scrollToBottom() {
-    // Use requestAnimationFrame to ensure DOM has updated before scrolling
     requestAnimationFrame(() => {
-      this.scrollToBottom();
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
     });
   }
 
@@ -673,12 +654,24 @@ export class Chatbot {
   // ── Auto-compact ──
 
   private estimateSessionTokens(): number {
-    const totalChars = this.session.messages.reduce((sum, m) => sum + m.content.length, 0);
+    let totalChars = 0;
+    for (const m of this.session.messages) {
+      totalChars += m.content.length;
+      // Include tool call args in the estimate — write_file args contain full file content
+      if (m.toolCalls) {
+        for (const tc of m.toolCalls) {
+          for (const v of Object.values(tc.args)) {
+            totalChars += String(v).length;
+          }
+          if (tc.result) totalChars += tc.result.length;
+        }
+      }
+    }
     return Math.ceil(totalChars / 4);
   }
 
   private async compactHistory(settings: AISettings): Promise<void> {
-    const MAX_TOKENS = 10_000;
+    const MAX_TOKENS = 6_000; // Compact earlier to prevent token bloat
     if (this.estimateSessionTokens() < MAX_TOKENS) return;
 
     // Keep the last 4 messages intact
@@ -687,13 +680,12 @@ export class Chatbot {
     if (toSummarize.length < 4) return; // Not enough to compress
 
     const historyText = toSummarize
-      .map((m) => `${m.role.toUpperCase()}: ${m.content.substring(0, 500)}`)
-      .join("\n\n");
+      .map((m) => `${m.role.toUpperCase()}: ${m.content.substring(0, 300)}`)
+      .join("\n");
 
     const prompt =
-      `Summarize the following conversation history concisely. ` +
-      `Preserve key decisions, code changes made, files modified, and important context. ` +
-      `Output a dense paragraph or bullet list (max 400 words):\n\n${historyText}`;
+      `Summarize this conversation in <150 words. Keep: files modified, decisions made, current task state. ` +
+      `Skip: file contents, command outputs, tool details.\n\n${historyText}`;
 
     const summary = await this.callAIOnce(settings, prompt);
     if (!summary) return;
@@ -802,7 +794,7 @@ export class Chatbot {
     this.abortController = new AbortController();
     this.showStopButton(true);
 
-    const maxIterations = 10; // Safety limit
+    const maxIterations = 25; // Safety limit — supports multi-step tasks
     let iterations = 0;
 
     try {
@@ -813,6 +805,14 @@ export class Chatbot {
           break;
         }
         iterations++;
+
+        // Warn agent when running low on turns so it can wrap up
+        if (iterations === maxIterations - 2) {
+          this.session.messages.push({
+            role: "tool",
+            content: "[system] WARNING: 2 turns remaining. Wrap up now — summarize what's done and what's left.",
+          });
+        }
 
         // Build messages with agent system prompt and tool results
         const history = this.buildAgentHistory();
@@ -877,7 +877,9 @@ export class Chatbot {
             const answer = await this.renderAskUser(tc);
             tc.status = "done";
             tc.result = answer;
-            this.session.messages.push({ role: "tool", content: `[ask_user] User answered: ${answer}` });
+            // Cap answer in history — user answers are usually short but just in case
+            const cappedAnswer = answer.length > 1500 ? answer.substring(0, 1500) + "…" : answer;
+            this.session.messages.push({ role: "tool", content: `[ask_user] User answered:\n${cappedAnswer}` });
             continue;
           }
 
@@ -893,8 +895,9 @@ export class Chatbot {
               const result = await this.executeTool(tc);
               tc.status = "done";
               tc.result = result;
-              // Add tool result to messages for context
-              this.session.messages.push({ role: "tool", content: `[${tc.name}] ${result}` });
+              // Compress tool result before adding to history to reduce token usage
+              const compressed = this.compressToolResult(tc.name, result);
+              this.session.messages.push({ role: "tool", content: compressed });
             } catch (e: unknown) {
               tc.status = "error";
               tc.result = e instanceof Error ? e.message : String(e);
@@ -914,7 +917,19 @@ export class Chatbot {
         // If all tool calls were denied, stop the loop
         if (allDenied) break;
 
+        // Mid-loop compaction: every 5 turns, compact history to keep tokens low
+        if (iterations % 5 === 0) {
+          await this.compactHistory(settings);
+        }
+
         // Otherwise, continue the loop — the AI will see the tool results and decide next steps
+      }
+
+      // If loop exhausted, notify user
+      if (iterations >= maxIterations && !this.agentAborted) {
+        const exhaustedMsg = `Agent reached the ${maxIterations}-turn limit. Some work may be incomplete — you can send a follow-up message to continue.`;
+        this.addDOMMessage("assistant", exhaustedMsg);
+        this.session.messages.push({ role: "assistant", content: exhaustedMsg });
       }
     } finally {
       this.isStreaming = false;
@@ -936,38 +951,55 @@ export class Chatbot {
     const systemPrompt = buildAgentSystemPrompt(projectPath, access, this.projectContext);
     const systemMsg = { role: "system", content: systemPrompt };
 
-    // Keep the last N messages to avoid unbounded history growth
-    const MAX_HISTORY = 20;
+    // Keep the last N messages — lower = less tokens per API call
+    const MAX_HISTORY = 12;
     const recentMessages = this.session.messages.slice(-MAX_HISTORY);
 
     const msgs: { role: string; content: string }[] = [];
 
     // Prepend compacted summary when history was previously compacted
     if (this.session.compactedSummary) {
-      msgs.push({ role: "user", content: `[Conversation summary from earlier]\n${this.session.compactedSummary}` });
-      msgs.push({ role: "assistant", content: "Understood, I have the context from the earlier conversation." });
+      // Cap summary itself to prevent unbounded growth
+      const cappedSummary = this.session.compactedSummary.length > 2000
+        ? this.session.compactedSummary.substring(0, 2000) + "\n…[summary truncated]"
+        : this.session.compactedSummary;
+      msgs.push({ role: "user", content: `[Earlier context]\n${cappedSummary}` });
+      msgs.push({ role: "assistant", content: "Understood." });
     }
 
     for (const m of recentMessages) {
       if (m.role === "user") {
-        msgs.push({ role: "user", content: m.content });
+        // Cap user messages too — sometimes they paste large content
+        const userContent = m.content.length > 4000
+          ? m.content.substring(0, 4000) + "\n…[user message truncated]"
+          : m.content;
+        msgs.push({ role: "user", content: userContent });
       } else if (m.role === "assistant") {
         let content = m.content;
         if (m.toolCalls && m.toolCalls.length > 0) {
+          // Only include tool name + key args, not full args (write_file content is huge)
           const toolBlock = m.toolCalls
-            .map((tc) => JSON.stringify({ tool: tc.name, args: tc.args }))
+            .map((tc) => {
+              const compactArgs: Record<string, string> = {};
+              for (const [k, v] of Object.entries(tc.args)) {
+                const val = String(v);
+                // Truncate large arg values (e.g. file content in write_file)
+                compactArgs[k] = val.length > 200 ? val.substring(0, 200) + "…" : val;
+              }
+              return JSON.stringify({ tool: tc.name, args: compactArgs });
+            })
             .join("\n");
           content += (content ? "\n" : "") + "```tool\n" + toolBlock + "\n```";
         }
         msgs.push({ role: "assistant", content });
       } else if (m.role === "tool") {
-        // Keep recent tool results full so the agent doesn't re-read files.
-        // Only truncate older results (not the last 3) to manage token usage.
+        // Aggressively limit tool results in history — they're already compressed on entry.
+        // Recent results get slightly more space; older ones get minimal.
         const msgIndex = recentMessages.indexOf(m);
-        const isRecent = msgIndex >= recentMessages.length - 6; // last 6 msgs = ~3 tool results
-        const TOOL_HISTORY_LIMIT = isRecent ? 8000 : 1500;
+        const isRecent = msgIndex >= recentMessages.length - 4; // last 4 msgs
+        const TOOL_HISTORY_LIMIT = isRecent ? 3000 : 800;
         const content = m.content.length > TOOL_HISTORY_LIMIT
-          ? m.content.slice(0, TOOL_HISTORY_LIMIT) + `\n…[truncated, ${m.content.length - TOOL_HISTORY_LIMIT} chars omitted]`
+          ? m.content.slice(0, TOOL_HISTORY_LIMIT) + `\n…[${m.content.length - TOOL_HISTORY_LIMIT} chars omitted]`
           : m.content;
         msgs.push({ role: "user", content });
       }
@@ -1143,129 +1175,200 @@ export class Chatbot {
     });
   }
 
+  /** Parse ask_user args into a normalized list of questions */
+  private parseAskUserQuestions(tc: ToolCall): { q: string; type: string; options: string[] }[] {
+    // Multi-question format: questions is a JSON array
+    if (tc.args.questions) {
+      try {
+        const raw = typeof tc.args.questions === "string" ? JSON.parse(tc.args.questions) : tc.args.questions;
+        if (Array.isArray(raw)) {
+          return raw.map((item: { q?: string; question?: string; type?: string; options?: string[] | string }) => ({
+            q: String(item.q || item.question || ""),
+            type: (item.type || "text").toLowerCase(),
+            options: Array.isArray(item.options)
+              ? item.options.map(String)
+              : String(item.options || "").split("\n").map((o: string) => o.trim()).filter(Boolean),
+          }));
+        }
+      } catch {
+        // Fall through to single question
+      }
+    }
+
+    // Single question format (backward-compatible)
+    const rawOptions = tc.args.options;
+    const options = (
+      Array.isArray(rawOptions)
+        ? rawOptions.map(String)
+        : String(rawOptions || "").split("\n")
+    ).map((o: string) => o.trim()).filter(Boolean);
+
+    return [{
+      q: tc.args.question || "Please answer:",
+      type: (tc.args.type || "text").toLowerCase(),
+      options,
+    }];
+  }
+
+  /** Build a form field for a single question and return an answer extractor */
+  private buildQuestionField(
+    question: { q: string; type: string; options: string[] },
+    index: number,
+    tcId: string
+  ): { el: HTMLElement; getAnswer: () => string } {
+    const wrapper = document.createElement("div");
+    wrapper.className = "chat-ask-field";
+
+    const label = document.createElement("div");
+    label.className = "chat-ask-question";
+    label.textContent = question.q;
+    wrapper.appendChild(label);
+
+    const formEl = document.createElement("div");
+    formEl.className = "chat-ask-form";
+    const fieldName = `ask-${tcId}-${index}`;
+
+    if (question.type === "select" && question.options.length > 0) {
+      for (let i = 0; i < question.options.length; i++) {
+        const optLabel = document.createElement("label");
+        optLabel.className = "chat-ask-option";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = fieldName;
+        input.value = question.options[i];
+        if (i === 0) input.checked = true;
+        optLabel.appendChild(input);
+        const span = document.createElement("span");
+        span.textContent = question.options[i];
+        optLabel.appendChild(span);
+        formEl.appendChild(optLabel);
+      }
+
+      // "Other" option
+      const otherLabel = document.createElement("label");
+      otherLabel.className = "chat-ask-option chat-ask-other";
+      const otherRadio = document.createElement("input");
+      otherRadio.type = "radio";
+      otherRadio.name = fieldName;
+      otherRadio.value = "__other__";
+      otherLabel.appendChild(otherRadio);
+      const otherSpan = document.createElement("span");
+      otherSpan.textContent = "Other:";
+      otherLabel.appendChild(otherSpan);
+      const otherInput = document.createElement("input");
+      otherInput.type = "text";
+      otherInput.className = "chat-ask-other-input";
+      otherInput.placeholder = "Type your answer…";
+      otherInput.addEventListener("focus", () => { otherRadio.checked = true; });
+      otherLabel.appendChild(otherInput);
+      formEl.appendChild(otherLabel);
+
+      wrapper.appendChild(formEl);
+      return {
+        el: wrapper,
+        getAnswer: () => {
+          const checked = formEl.querySelector(`input[name="${fieldName}"]:checked`) as HTMLInputElement | null;
+          if (checked && checked.value === "__other__") {
+            const otherVal = formEl.querySelector(".chat-ask-other-input") as HTMLInputElement | null;
+            return otherVal?.value.trim() || "(no input)";
+          }
+          return checked?.value || question.options[0] || "(no input)";
+        },
+      };
+    }
+
+    if (question.type === "checkbox" && question.options.length > 0) {
+      for (const opt of question.options) {
+        const optLabel = document.createElement("label");
+        optLabel.className = "chat-ask-option";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = opt;
+        optLabel.appendChild(input);
+        const span = document.createElement("span");
+        span.textContent = opt;
+        optLabel.appendChild(span);
+        formEl.appendChild(optLabel);
+      }
+
+      wrapper.appendChild(formEl);
+      return {
+        el: wrapper,
+        getAnswer: () => {
+          const checked = formEl.querySelectorAll("input[type='checkbox']:checked") as NodeListOf<HTMLInputElement>;
+          const selected = Array.from(checked).map((el) => el.value);
+          return selected.length > 0 ? selected.join(", ") : "(none selected)";
+        },
+      };
+    }
+
+    // Default: text area
+    const textarea = document.createElement("textarea");
+    textarea.className = "chat-ask-textarea";
+    textarea.placeholder = "Type your answer…";
+    textarea.rows = 2;
+    formEl.appendChild(textarea);
+
+    wrapper.appendChild(formEl);
+    return {
+      el: wrapper,
+      getAnswer: () => textarea.value.trim() || "(no input)",
+    };
+  }
+
   private renderAskUser(tc: ToolCall): Promise<string> {
     return new Promise((resolve) => {
-      const question = tc.args.question || "Please choose:";
-      const type = (tc.args.type || "select").toLowerCase();
-      const rawOptions = tc.args.options;
-      const options = (
-        Array.isArray(rawOptions)
-          ? rawOptions.map(String)
-          : String(rawOptions || "").split("\n")
-      ).map((o) => o.trim()).filter(Boolean);
+      const questions = this.parseAskUserQuestions(tc);
+      const answerExtractors: (() => string)[] = [];
 
       const container = document.createElement("div");
       container.className = "chat-ask-user";
       container.dataset.toolId = tc.id;
 
-      const questionEl = document.createElement("div");
-      questionEl.className = "chat-ask-question";
-      questionEl.textContent = question;
-      container.appendChild(questionEl);
-
-      const formEl = document.createElement("div");
-      formEl.className = "chat-ask-form";
-
-      if (type === "select" && options.length > 0) {
-        // Radio buttons for single selection
-        for (let i = 0; i < options.length; i++) {
-          const label = document.createElement("label");
-          label.className = "chat-ask-option";
-          const input = document.createElement("input");
-          input.type = "radio";
-          input.name = `ask-${tc.id}`;
-          input.value = options[i];
-          if (i === 0) input.checked = true;
-          label.appendChild(input);
-          const span = document.createElement("span");
-          span.textContent = options[i];
-          label.appendChild(span);
-          formEl.appendChild(label);
-        }
-
-        // "Other" option with inline text input
-        const otherLabel = document.createElement("label");
-        otherLabel.className = "chat-ask-option chat-ask-other";
-        const otherRadio = document.createElement("input");
-        otherRadio.type = "radio";
-        otherRadio.name = `ask-${tc.id}`;
-        otherRadio.value = "__other__";
-        otherLabel.appendChild(otherRadio);
-        const otherSpan = document.createElement("span");
-        otherSpan.textContent = "Other:";
-        otherLabel.appendChild(otherSpan);
-        const otherInput = document.createElement("input");
-        otherInput.type = "text";
-        otherInput.className = "chat-ask-other-input";
-        otherInput.placeholder = "Type your answer…";
-        otherInput.addEventListener("focus", () => { otherRadio.checked = true; });
-        otherLabel.appendChild(otherInput);
-        formEl.appendChild(otherLabel);
-
-      } else if (type === "checkbox" && options.length > 0) {
-        // Checkboxes for multiple selection
-        for (const opt of options) {
-          const label = document.createElement("label");
-          label.className = "chat-ask-option";
-          const input = document.createElement("input");
-          input.type = "checkbox";
-          input.value = opt;
-          label.appendChild(input);
-          const span = document.createElement("span");
-          span.textContent = opt;
-          label.appendChild(span);
-          formEl.appendChild(label);
-        }
-
-      } else {
-        // Text area for free-form
-        const textarea = document.createElement("textarea");
-        textarea.className = "chat-ask-textarea";
-        textarea.placeholder = "Type your answer…";
-        textarea.rows = 3;
-        formEl.appendChild(textarea);
+      // Render each question field
+      for (let i = 0; i < questions.length; i++) {
+        const { el, getAnswer } = this.buildQuestionField(questions[i], i, tc.id);
+        container.appendChild(el);
+        answerExtractors.push(getAnswer);
       }
 
-      container.appendChild(formEl);
-
-      // Submit button
+      // Single submit button for all questions
       const submitBtn = document.createElement("button");
       submitBtn.className = "chat-ask-submit";
-      submitBtn.textContent = "Submit";
+      submitBtn.textContent = questions.length > 1 ? "Submit All" : "Submit";
       container.appendChild(submitBtn);
 
       this.messagesEl.appendChild(container);
       this.scrollToBottom();
 
       submitBtn.addEventListener("click", () => {
-        let answer = "";
+        // Collect all answers
+        const answers = answerExtractors.map((fn, i) => ({
+          question: questions[i].q,
+          answer: fn(),
+        }));
 
-        if (type === "select" && options.length > 0) {
-          const checked = formEl.querySelector(`input[name="ask-${tc.id}"]:checked`) as HTMLInputElement | null;
-          if (checked && checked.value === "__other__") {
-            const otherVal = formEl.querySelector(".chat-ask-other-input") as HTMLInputElement | null;
-            answer = otherVal?.value.trim() || "(no input)";
-          } else {
-            answer = checked?.value || options[0];
-          }
-        } else if (type === "checkbox") {
-          const checked = formEl.querySelectorAll("input[type='checkbox']:checked") as NodeListOf<HTMLInputElement>;
-          const selected = Array.from(checked).map((el) => el.value);
-          answer = selected.length > 0 ? selected.join(", ") : "(none selected)";
-        } else {
-          const textarea = formEl.querySelector("textarea") as HTMLTextAreaElement | null;
-          answer = textarea?.value.trim() || "(no input)";
-        }
-
-        // Replace form with the answered state
-        formEl.remove();
+        // Remove form fields, show answers
+        container.querySelectorAll(".chat-ask-field").forEach((el) => el.remove());
         submitBtn.remove();
+
         const answerEl = document.createElement("div");
         answerEl.className = "chat-ask-answer";
-        answerEl.textContent = answer;
+        if (answers.length === 1) {
+          answerEl.textContent = answers[0].answer;
+        } else {
+          answerEl.innerHTML = answers
+            .map((a) => `<div><strong>${this.escapeHtml(a.question)}</strong> ${this.escapeHtml(a.answer)}</div>`)
+            .join("");
+        }
         container.appendChild(answerEl);
 
-        resolve(answer);
+        // Format response for the LLM
+        const response = answers.length === 1
+          ? answers[0].answer
+          : answers.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n");
+
+        resolve(response);
       });
     });
   }
@@ -1309,6 +1412,72 @@ export class Chatbot {
     this.scrollToBottom();
   }
 
+  // ── Tool Result Compression ──
+  // Reduces token usage by compressing tool outputs before storing in history
+
+  private compressToolResult(toolName: string, result: string): string {
+    const HARD_CAP = 3000; // Max chars for any tool result in history
+
+    switch (toolName) {
+      case "read_file":
+      case "batch_read": {
+        // For file reads: keep first 2500 chars, add line count summary
+        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
+        const lineCount = result.split("\n").length;
+        const truncated = result.substring(0, 2500);
+        // Try to cut at last complete line
+        const lastNewline = truncated.lastIndexOf("\n");
+        const clean = lastNewline > 2000 ? truncated.substring(0, lastNewline) : truncated;
+        return `[${toolName}] ${clean}\n…[truncated: ${lineCount} total lines, ${result.length} chars]`;
+      }
+
+      case "search_content": {
+        // For grep results: keep max 30 matches
+        const lines = result.split("\n");
+        if (lines.length <= 30) return `[${toolName}] ${result}`;
+        return `[${toolName}] ${lines.slice(0, 30).join("\n")}\n…[${lines.length - 30} more matches omitted]`;
+      }
+
+      case "list_dir": {
+        // For directory listings: keep max 40 entries
+        const entries = result.split("\n");
+        if (entries.length <= 40) return `[${toolName}] ${result}`;
+        return `[${toolName}] ${entries.slice(0, 40).join("\n")}\n…[${entries.length - 40} more entries omitted]`;
+      }
+
+      case "run_command": {
+        // For command output: truncate aggressively, keep head + tail
+        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
+        const head = result.substring(0, 1500);
+        const tail = result.substring(result.length - 1000);
+        return `[${toolName}] ${head}\n…[${result.length} chars total, showing head+tail]…\n${tail}`;
+      }
+
+      case "git_diff": {
+        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
+        return `[${toolName}] ${result.substring(0, 2500)}\n…[diff truncated: ${result.length} chars total]`;
+      }
+
+      case "write_file":
+        // Don't echo written content back — just confirm
+        return `[${toolName}] ${result}`;
+
+      case "make_plan":
+        return `[${toolName}] ${result}`;
+
+      case "search_files": {
+        const paths = result.split("\n");
+        if (paths.length <= 20) return `[${toolName}] ${result}`;
+        return `[${toolName}] ${paths.slice(0, 20).join("\n")}\n…[${paths.length - 20} more files omitted]`;
+      }
+
+      default:
+        // Generic cap
+        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
+        return `[${toolName}] ${result.substring(0, HARD_CAP)}\n…[truncated]`;
+    }
+  }
+
   // ── Blocked paths ──
 
   private static BLOCKED_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__", ".next", ".nuxt", "coverage", ".cache"];
@@ -1343,9 +1512,10 @@ export class Chatbot {
         if (content.trim().length === 0) {
           return "(empty or whitespace-only file)";
         }
-        // Truncate very large files to avoid blowing up context
-        if (content.length > 50000) {
-          return content.substring(0, 50000) + "\n\n... (truncated — file too large, showing first 50k chars)";
+        const lines = content.split("\n");
+        // Cap at 15KB to keep context lean — agent should use search_content for targeted access
+        if (content.length > 15000) {
+          return content.substring(0, 15000) + `\n\n… [truncated: ${lines.length} lines, ${content.length} chars total. Use search_content for targeted access.]`;
         }
         return content;
       }
@@ -1417,6 +1587,71 @@ export class Chatbot {
           lines.push(`Notes: ${notes}`);
         }
         return lines.join("\n");
+      }
+
+      case "batch_read": {
+        if (!access.fileRead) throw new Error("File read permission denied");
+        const paths = String(tc.args.paths || "").split("\n").map((p: string) => p.trim()).filter(Boolean);
+        if (paths.length === 0) throw new Error("No file paths provided");
+        if (paths.length > 8) throw new Error("Max 8 files per batch_read (context limit)");
+
+        const results: string[] = [];
+        let totalSize = 0;
+        const MAX_BATCH_SIZE = 15000; // 15KB total cap — matches read_file limit
+
+        for (const filePath of paths) {
+          if (this.isBlockedPath(filePath)) {
+            results.push(`── ${filePath} ──\n[BLOCKED: heavy, sensitive, or binary file]`);
+            continue;
+          }
+          try {
+            let content = await invoke<string>("read_file", { path: filePath });
+            if (content.trim().length === 0) {
+              results.push(`── ${filePath} ──\n(empty file)`);
+              continue;
+            }
+            // Respect total batch size cap
+            if (totalSize + content.length > MAX_BATCH_SIZE) {
+              const remaining = MAX_BATCH_SIZE - totalSize;
+              if (remaining > 500) {
+                content = content.substring(0, remaining) + "\n... (truncated — batch size limit reached)";
+              } else {
+                results.push(`── ${filePath} ──\n[SKIPPED: batch size limit reached]`);
+                break;
+              }
+            }
+            totalSize += content.length;
+            results.push(`── ${filePath} ──\n${content}`);
+          } catch (e: unknown) {
+            results.push(`── ${filePath} ──\n[ERROR: ${e instanceof Error ? e.message : String(e)}]`);
+          }
+        }
+        return results.join("\n\n");
+      }
+
+      case "search_content": {
+        if (!access.fileRead) throw new Error("File read permission denied");
+        const projectPath = this.getProjectPath();
+        const pattern = String(tc.args.pattern || "").trim();
+        if (!pattern) throw new Error("Search pattern is required");
+        const glob = String(tc.args.glob || "*").replace(/[;|&$`]/g, ""); // basic sanitization
+        const safePattern = pattern.replace(/'/g, "'\\''");
+        const cmd = `cd "${projectPath}" && grep -rn --include='${glob}' -E '${safePattern}' . 2>/dev/null | head -50`;
+        const result = await this.runShellCommand(cmd, projectPath);
+        if (!result.trim()) return "No matches found.";
+        return result;
+      }
+
+      case "git_diff": {
+        if (!access.fileRead) throw new Error("File read permission denied");
+        const projectPath = this.getProjectPath();
+        const target = String(tc.args.target || "").trim().replace(/[;|&$`]/g, "");
+        const cmd = target
+          ? `cd "${projectPath}" && git diff '${target.replace(/'/g, "'\\''")}' 2>/dev/null | head -200`
+          : `cd "${projectPath}" && git diff 2>/dev/null | head -200`;
+        const result = await this.runShellCommand(cmd, projectPath);
+        if (!result.trim()) return "No changes detected.";
+        return result;
       }
 
       default:
