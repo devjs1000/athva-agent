@@ -202,6 +202,21 @@ export class Editor {
       }
     });
 
+    // Cmd/Ctrl + click to open URLs in the editor
+    this.editorEl.addEventListener("click", (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const pos = this.ace.getCursorPosition();
+      const line = this.ace.session.getLine(pos.row);
+      const urlRegex = /https?:\/\/[^\s"')\]>]+/g;
+      let match: RegExpExecArray | null;
+      while ((match = urlRegex.exec(line)) !== null) {
+        if (pos.column >= match.index && pos.column <= match.index + match[0].length) {
+          import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(match![0])).catch(() => {});
+          break;
+        }
+      }
+    });
+
     // Attach AI ghost text completer
     attachAICompleter(this.ace);
 

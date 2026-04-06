@@ -100,12 +100,12 @@ CRITICAL RULES:
 - You can include a brief explanation before the tool block, but keep it short.
 
 ## Guidelines
-- Default to acting, not asking. If enough context exists to make a reasonable implementation decision, continue with tool calls instead of pausing for clarification.
-- When you need user input, ALWAYS use the ask_user tool instead of just asking in text. Use type "select" when picking one option from a list, "checkbox" when picking multiple, and "text" only for complex free-form input. Provide clear option labels.
+- NEVER ask the user anything as plain text. ALWAYS use the ask_user tool for ALL user input. Use type "select" for picking one option, "checkbox" for multiple options, "text" only for complex free-form input. Provide clear option labels.
+- FIRST STEP: Before doing ANY work (reading files, running commands, making plans), gather ALL the inputs and clarifications you need from the user using ask_user. Ask all questions upfront so the user can answer them all before you begin. Only after you have all the answers, start executing.
 - Ask the user about preferences only when the decision materially affects the implementation and cannot be inferred from the request or existing codebase. If the codebase already implies the right choice, follow it and continue.
 - For non-trivial tasks with multiple steps, dependencies, or edits across files, use make_plan first so the user can review the plan before execution.
 - First connect the request to the existing codebase. Reuse existing patterns, modules, naming, and architecture before creating new files.
-- First try to find missing pieces through inspection and brief brainstorming. Ask concise clarifying questions only when those missing pieces block a correct implementation and cannot be resolved from the codebase, prior messages, or a reasonable assumption.
+- First try to find missing pieces through inspection and brief brainstorming. Use ask_user only when those missing pieces block a correct implementation and cannot be resolved from the codebase, prior messages, or a reasonable assumption.
 - Ask the user whether they want unit tests only when tests are actually relevant to the task and the answer is not already known. If they explicitly do not want tests, skip them. Do not pause the main implementation only to ask about tests if the core implementation can proceed safely.
 - Before coding, decide what units are actually required. Do not force all layers by default.
 - The preferred build order is from small unit to large unit: utils, atoms, hooks, molecules, organisms, templates, pages, routes, app.
@@ -116,12 +116,13 @@ CRITICAL RULES:
 - Prefer run_command over write_file when a CLI tool can generate files. For example use "npm init -y", "pnpm init", "npx create-react-app", etc. instead of manually writing package.json.
 - Prefer search, pattern matching, regex, and simple algorithms to detect existing behavior or structure before manual inspection. Use search_files first when possible, and use run_command for fast codebase search when terminal access is available.
 - Always read a file before modifying it.
-- If a file you read is empty or whitespace-only and the user has not already defined what should go into it, ask a concise clarifying question before writing anything. Ask for the file's purpose, expected behavior/features, and any framework or interface requirements you need.
+- If a file you read is empty or whitespace-only and the user has not already defined what should go into it, use ask_user to gather the file's purpose, expected behavior/features, and any framework or interface requirements before writing anything.
 - Coding should move from the smallest reusable units to the largest integrating units.
 - Explain what you're about to do before calling a tool.
 - After a tool result, analyze the output and decide the next step.
 - Do not stop after planning, inventory, search, or read steps if the task is still incomplete. Continue making tool calls until the task is finished or a blocking clarification is required.
 - Do not ask questions merely to confirm ordinary implementation choices, naming, file placement, or structure when the existing codebase already suggests the answer.
+- NEVER output a question as plain text in your response. If you need any input, use the ask_user tool.
 - If the user asks for implementation, the default assumption is that they want code changes completed end-to-end in the current turn unless they explicitly ask only for analysis or planning.
 - If a tool call is denied by the user, respect that and find an alternative approach.
 - NEVER read files like .gitignore, .env, lock files (package-lock.json, pnpm-lock.yaml, yarn.lock), or anything inside node_modules, dist, build, .git directories. These are heavy or sensitive.
@@ -187,6 +188,16 @@ export class Chatbot {
     this.setupStopButton();
 
     this.init();
+
+    // Cmd/Ctrl + click to open links in chat messages
+    this.messagesEl.addEventListener("click", (e) => {
+      const anchor = (e.target as HTMLElement).closest("a.chat-link") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      e.preventDefault();
+      if (e.metaKey || e.ctrlKey) {
+        import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(anchor.href)).catch(() => {});
+      }
+    });
   }
 
   /** Register callback when agent creates/modifies a file (to refresh file explorer) */
@@ -423,7 +434,7 @@ export class Chatbot {
   private addDOMMessage(role: string, content: string): HTMLElement {
     const div = document.createElement("div");
     div.className = `chat-msg ${role}`;
-    div.textContent = content;
+    this.setLinkedText(div, content);
     this.messagesEl.appendChild(div);
     this.scrollToBottom();
     return div;
@@ -474,7 +485,7 @@ export class Chatbot {
     if (tc.result && (tc.status === "done" || tc.status === "error")) {
       const resultDiv = document.createElement("div");
       resultDiv.className = `chat-tool-result${tc.status === "error" ? " error" : ""}`;
-      resultDiv.textContent = tc.result.length > 2000 ? tc.result.substring(0, 2000) + "\n... (truncated)" : tc.result;
+      this.setLinkedText(resultDiv, tc.result.length > 2000 ? tc.result.substring(0, 2000) + "\n... (truncated)" : tc.result);
       div.appendChild(resultDiv);
     }
 
@@ -560,7 +571,7 @@ export class Chatbot {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       streamEl.className = "chat-msg error";
-      streamEl.textContent = `Error: ${msg}`;
+      this.setLinkedText(streamEl, `Error: ${msg}`);
       streamEl.classList.remove("streaming");
     } finally {
       this.isStreaming = false;
@@ -726,7 +737,7 @@ export class Chatbot {
           }
           const msg = e instanceof Error ? e.message : String(e);
           streamEl.className = "chat-msg error";
-          streamEl.textContent = `Error: ${msg}`;
+          this.setLinkedText(streamEl, `Error: ${msg}`);
           streamEl.classList.remove("streaming");
           break;
         }
@@ -752,7 +763,7 @@ export class Chatbot {
 
         // Update the stream element to only show text part
         if (text.trim()) {
-          streamEl.textContent = text;
+          this.setLinkedText(streamEl, text);
         } else {
           streamEl.remove();
         }
@@ -1176,8 +1187,7 @@ export class Chatbot {
       if (!existing) {
         const resultDiv = document.createElement("div");
         resultDiv.className = `chat-tool-result${tc.status === "error" ? " error" : ""}`;
-        resultDiv.textContent =
-          tc.result.length > 2000 ? tc.result.substring(0, 2000) + "\n... (truncated)" : tc.result;
+        this.setLinkedText(resultDiv, tc.result.length > 2000 ? tc.result.substring(0, 2000) + "\n... (truncated)" : tc.result);
         el.appendChild(resultDiv);
       }
     }
@@ -1630,6 +1640,8 @@ export class Chatbot {
       }
     }
 
+    // Linkify URLs once streaming is complete
+    this.setLinkedText(el, fullText);
     return fullText;
   }
 
@@ -1646,11 +1658,23 @@ export class Chatbot {
         if (i < text.length) {
           requestAnimationFrame(step);
         } else {
+          // Linkify URLs once streaming is complete
+          this.setLinkedText(el, text);
           resolve();
         }
       };
       requestAnimationFrame(step);
     });
+  }
+
+  /** Set element content with URLs linkified. Links open on Cmd/Ctrl+click. */
+  private setLinkedText(el: HTMLElement, text: string) {
+    const escaped = this.escapeHtml(text);
+    const linked = escaped.replace(
+      /(https?:\/\/[^\s<>"')\]]+)/g,
+      '<a class="chat-link" href="$1" title="Cmd/Ctrl + Click to open">$1</a>'
+    );
+    el.innerHTML = linked;
   }
 
   private escapeHtml(str: string): string {

@@ -2060,6 +2060,28 @@ body {
   border-bottom-left-radius: 2px;
 }
 
+/* Clickable links in chat and tool results */
+.chat-link {
+  color: #6bb3f0;
+  text-decoration: underline;
+  text-decoration-color: rgba(107, 179, 240, 0.35);
+  cursor: pointer;
+  transition: text-decoration-color 0.12s;
+}
+
+.chat-link:hover {
+  text-decoration-color: #6bb3f0;
+}
+
+.chat-msg.user .chat-link {
+  color: #c5ddf9;
+  text-decoration-color: rgba(197, 221, 249, 0.35);
+}
+
+.chat-msg.user .chat-link:hover {
+  text-decoration-color: #c5ddf9;
+}
+
 .chat-input-area {
   padding: 8px 12px;
   border-top: 1px solid var(--border);

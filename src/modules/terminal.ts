@@ -135,7 +135,9 @@ export class TerminalPanel {
 
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
-    this.term.loadAddon(new WebLinksAddon());
+    this.term.loadAddon(new WebLinksAddon((_event, uri) => {
+      import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(uri)).catch(() => {});
+    }));
 
     this.term.open(this.container);
     this.fit();
