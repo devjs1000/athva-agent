@@ -2244,6 +2244,122 @@ body {
   background: #4a2a2a;
 }
 
+/* Ask User form */
+.chat-ask-user {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 8px 0;
+}
+
+.chat-ask-question {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.chat-ask-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chat-ask-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.chat-ask-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.chat-ask-option:has(input:checked) {
+  background: rgba(var(--accent-rgb, 88, 130, 255), 0.12);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.chat-ask-option input[type="radio"],
+.chat-ask-option input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.chat-ask-other-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.chat-ask-other-input:focus {
+  border-color: var(--accent);
+}
+
+.chat-ask-textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.chat-ask-textarea:focus {
+  border-color: var(--accent);
+}
+
+.chat-ask-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.12s;
+  align-self: flex-start;
+}
+
+.chat-ask-submit:hover {
+  opacity: 0.85;
+}
+
+.chat-ask-answer {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 6px 10px;
+  background: rgba(var(--accent-rgb, 88, 130, 255), 0.08);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
 /* Tool call status indicators */
 .tool-status {
   display: inline-flex;

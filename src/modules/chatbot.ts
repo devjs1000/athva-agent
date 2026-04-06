@@ -49,6 +49,15 @@ const AGENT_TOOLS = [
       notes: "string — optional constraints, assumptions, or risks",
     },
   },
+  {
+    name: "ask_user",
+    description: "Ask the user a question when you need input. Use type 'select' for picking one option, 'checkbox' for picking multiple options, 'text' for free-form input.",
+    parameters: {
+      question: "string — the question to ask",
+      type: "string — 'select' | 'checkbox' | 'text'",
+      options: "string — newline-separated list of options (required for select/checkbox, ignored for text)",
+    },
+  },
 ];
 
 // ── System prompts ──
@@ -61,6 +70,7 @@ function buildAgentSystemPrompt(projectPath: string, access: AgentAccess): strin
     if (t.name === "write_file") return access.fileWrite;
     if (t.name === "run_command") return access.terminal;
     if (t.name === "make_plan") return true;
+    if (t.name === "ask_user") return true;
     return false;
   });
 
@@ -91,6 +101,7 @@ CRITICAL RULES:
 
 ## Guidelines
 - Default to acting, not asking. If enough context exists to make a reasonable implementation decision, continue with tool calls instead of pausing for clarification.
+- When you need user input, ALWAYS use the ask_user tool instead of just asking in text. Use type "select" when picking one option from a list, "checkbox" when picking multiple, and "text" only for complex free-form input. Provide clear option labels.
 - Ask the user about preferences only when the decision materially affects the implementation and cannot be inferred from the request or existing codebase. If the codebase already implies the right choice, follow it and continue.
 - For non-trivial tasks with multiple steps, dependencies, or edits across files, use make_plan first so the user can review the plan before execution.
 - First connect the request to the existing codebase. Reuse existing patterns, modules, naming, and architecture before creating new files.
@@ -754,6 +765,17 @@ export class Chatbot {
             tc.result = "Agent stopped.";
             break;
           }
+
+          // ask_user is special — render form, wait for answer, no approve/deny
+          if (tc.name === "ask_user") {
+            allDenied = false;
+            const answer = await this.renderAskUser(tc);
+            tc.status = "done";
+            tc.result = answer;
+            this.session.messages.push({ role: "tool", content: `[ask_user] User answered: ${answer}` });
+            continue;
+          }
+
           const toolEl = this.renderToolCall(tc);
           const approved = await this.requestApproval(tc, toolEl);
 
@@ -995,6 +1017,131 @@ export class Chatbot {
       if (access.autoApprove) {
         onApprove();
       }
+    });
+  }
+
+  private renderAskUser(tc: ToolCall): Promise<string> {
+    return new Promise((resolve) => {
+      const question = tc.args.question || "Please choose:";
+      const type = (tc.args.type || "select").toLowerCase();
+      const options = (tc.args.options || "")
+        .split("\n")
+        .map((o: string) => o.trim())
+        .filter(Boolean);
+
+      const container = document.createElement("div");
+      container.className = "chat-ask-user";
+      container.dataset.toolId = tc.id;
+
+      const questionEl = document.createElement("div");
+      questionEl.className = "chat-ask-question";
+      questionEl.textContent = question;
+      container.appendChild(questionEl);
+
+      const formEl = document.createElement("div");
+      formEl.className = "chat-ask-form";
+
+      if (type === "select" && options.length > 0) {
+        // Radio buttons for single selection
+        for (let i = 0; i < options.length; i++) {
+          const label = document.createElement("label");
+          label.className = "chat-ask-option";
+          const input = document.createElement("input");
+          input.type = "radio";
+          input.name = `ask-${tc.id}`;
+          input.value = options[i];
+          if (i === 0) input.checked = true;
+          label.appendChild(input);
+          const span = document.createElement("span");
+          span.textContent = options[i];
+          label.appendChild(span);
+          formEl.appendChild(label);
+        }
+
+        // "Other" option with inline text input
+        const otherLabel = document.createElement("label");
+        otherLabel.className = "chat-ask-option chat-ask-other";
+        const otherRadio = document.createElement("input");
+        otherRadio.type = "radio";
+        otherRadio.name = `ask-${tc.id}`;
+        otherRadio.value = "__other__";
+        otherLabel.appendChild(otherRadio);
+        const otherSpan = document.createElement("span");
+        otherSpan.textContent = "Other:";
+        otherLabel.appendChild(otherSpan);
+        const otherInput = document.createElement("input");
+        otherInput.type = "text";
+        otherInput.className = "chat-ask-other-input";
+        otherInput.placeholder = "Type your answer…";
+        otherInput.addEventListener("focus", () => { otherRadio.checked = true; });
+        otherLabel.appendChild(otherInput);
+        formEl.appendChild(otherLabel);
+
+      } else if (type === "checkbox" && options.length > 0) {
+        // Checkboxes for multiple selection
+        for (const opt of options) {
+          const label = document.createElement("label");
+          label.className = "chat-ask-option";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.value = opt;
+          label.appendChild(input);
+          const span = document.createElement("span");
+          span.textContent = opt;
+          label.appendChild(span);
+          formEl.appendChild(label);
+        }
+
+      } else {
+        // Text area for free-form
+        const textarea = document.createElement("textarea");
+        textarea.className = "chat-ask-textarea";
+        textarea.placeholder = "Type your answer…";
+        textarea.rows = 3;
+        formEl.appendChild(textarea);
+      }
+
+      container.appendChild(formEl);
+
+      // Submit button
+      const submitBtn = document.createElement("button");
+      submitBtn.className = "chat-ask-submit";
+      submitBtn.textContent = "Submit";
+      container.appendChild(submitBtn);
+
+      this.messagesEl.appendChild(container);
+      this.scrollToBottom();
+
+      submitBtn.addEventListener("click", () => {
+        let answer = "";
+
+        if (type === "select" && options.length > 0) {
+          const checked = formEl.querySelector(`input[name="ask-${tc.id}"]:checked`) as HTMLInputElement | null;
+          if (checked && checked.value === "__other__") {
+            const otherVal = formEl.querySelector(".chat-ask-other-input") as HTMLInputElement | null;
+            answer = otherVal?.value.trim() || "(no input)";
+          } else {
+            answer = checked?.value || options[0];
+          }
+        } else if (type === "checkbox") {
+          const checked = formEl.querySelectorAll("input[type='checkbox']:checked") as NodeListOf<HTMLInputElement>;
+          const selected = Array.from(checked).map((el) => el.value);
+          answer = selected.length > 0 ? selected.join(", ") : "(none selected)";
+        } else {
+          const textarea = formEl.querySelector("textarea") as HTMLTextAreaElement | null;
+          answer = textarea?.value.trim() || "(no input)";
+        }
+
+        // Replace form with the answered state
+        formEl.remove();
+        submitBtn.remove();
+        const answerEl = document.createElement("div");
+        answerEl.className = "chat-ask-answer";
+        answerEl.textContent = answer;
+        container.appendChild(answerEl);
+
+        resolve(answer);
+      });
     });
   }
 
