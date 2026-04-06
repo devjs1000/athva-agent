@@ -15,6 +15,7 @@ import { ScriptRunner } from "./modules/script-runner";
 import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { CodeReviewPanel } from "./modules/code-review-panel";
 import { setOnSendToChat } from "./modules/ai-completer";
+import { updateStatusBar } from "./modules/token-usage";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -477,6 +478,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
   });
+
+  // ── Token usage status bar ──
+  updateStatusBar();
 
   // ── Render welcome ──
   renderRecentProjects();

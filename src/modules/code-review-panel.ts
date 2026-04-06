@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AISettings } from "./settings";
+import { addTokens, updateStatusBar } from "./token-usage";
 
 type ReviewTarget = "file" | "changes";
 type ReviewSeverity = "high" | "medium" | "low";
@@ -489,36 +490,26 @@ export class CodeReviewPanel {
       { role: "system", content: REVIEW_SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ];
+    const inputChars = messages.reduce((sum, m) => sum + m.content.length, 0);
 
+    let result: string;
     switch (settings.provider) {
       case "openai":
-        return this.callOpenAICompatible(
-          "https://api.openai.com/v1/chat/completions",
-          settings,
-          messages,
-          signal
-        );
+        result = await this.callOpenAICompatible("https://api.openai.com/v1/chat/completions", settings, messages, signal); break;
       case "mimo":
-        return this.callOpenAICompatible(
-          "https://api.xiaomimimo.com/v1/chat/completions",
-          settings,
-          messages,
-          signal
-        );
+        result = await this.callOpenAICompatible("https://api.xiaomimimo.com/v1/chat/completions", settings, messages, signal); break;
       case "mistral":
-        return this.callOpenAICompatible(
-          "https://api.mistral.ai/v1/chat/completions",
-          settings,
-          messages,
-          signal
-        );
+        result = await this.callOpenAICompatible("https://api.mistral.ai/v1/chat/completions", settings, messages, signal); break;
       case "anthropic":
-        return this.callAnthropic(settings, messages, signal);
+        result = await this.callAnthropic(settings, messages, signal); break;
       case "google":
-        return this.callGoogle(settings, messages, signal);
+        result = await this.callGoogle(settings, messages, signal); break;
       default:
         throw new Error(`Unknown provider: ${settings.provider}`);
     }
+    addTokens(inputChars, result.length);
+    updateStatusBar();
+    return result;
   }
 
   private async callOpenAICompatible(
@@ -830,21 +821,26 @@ export class CodeReviewPanel {
 
   private async callFixAPI(settings: AISettings, system: string, user: string): Promise<string> {
     const signal = new AbortController().signal;
+    const inputChars = system.length + user.length;
 
+    let result: string;
     switch (settings.provider) {
       case "openai":
-        return this.callPlainText("https://api.openai.com/v1/chat/completions", settings, system, user, signal);
+        result = await this.callPlainText("https://api.openai.com/v1/chat/completions", settings, system, user, signal); break;
       case "mimo":
-        return this.callPlainText("https://api.xiaomimimo.com/v1/chat/completions", settings, system, user, signal);
+        result = await this.callPlainText("https://api.xiaomimimo.com/v1/chat/completions", settings, system, user, signal); break;
       case "mistral":
-        return this.callPlainText("https://api.mistral.ai/v1/chat/completions", settings, system, user, signal);
+        result = await this.callPlainText("https://api.mistral.ai/v1/chat/completions", settings, system, user, signal); break;
       case "anthropic":
-        return this.callAnthropic(settings, [{ role: "system", content: system }, { role: "user", content: user }], signal);
+        result = await this.callAnthropic(settings, [{ role: "system", content: system }, { role: "user", content: user }], signal); break;
       case "google":
-        return this.callGoogle(settings, [{ role: "system", content: system }, { role: "user", content: user }], signal);
+        result = await this.callGoogle(settings, [{ role: "system", content: system }, { role: "user", content: user }], signal); break;
       default:
         throw new Error(`Unknown provider: ${settings.provider}`);
     }
+    addTokens(inputChars, result.length);
+    updateStatusBar();
+    return result;
   }
 
   /** OpenAI-compatible call WITHOUT response_format: json_object — returns plain text. */

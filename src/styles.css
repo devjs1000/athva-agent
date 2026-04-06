@@ -3120,6 +3120,15 @@ body {
   color: var(--text-muted);
 }
 
+.token-usage {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.8;
+  border-right: 1px solid var(--border);
+  padding-right: 10px;
+  margin-right: 2px;
+}
+
 /* ── Ace Search Box (dark theme override) ── */
 .ace_search {
   background: var(--bg-secondary) !important;

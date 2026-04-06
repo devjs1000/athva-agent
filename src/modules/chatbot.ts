@@ -11,6 +11,7 @@ import {
   getAllSessions,
   deleteSession,
 } from "./chat-store";
+import { addTokens, updateStatusBar } from "./token-usage";
 
 // ── Agent tool definitions for LLM function calling ──
 
@@ -1379,20 +1380,25 @@ export class Chatbot {
     messages: { role: string; content: string }[],
     el: HTMLElement
   ): Promise<string> {
+    const inputChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+    let result: string;
     switch (settings.provider) {
       case "openai":
-        return this.streamOpenAI(settings, messages, el);
+        result = await this.streamOpenAI(settings, messages, el); break;
       case "anthropic":
-        return this.streamAnthropic(settings, messages, el);
+        result = await this.streamAnthropic(settings, messages, el); break;
       case "google":
-        return this.callGoogleNonStream(settings, messages, el);
+        result = await this.callGoogleNonStream(settings, messages, el); break;
       case "mimo":
-        return this.streamMiMo(settings, messages, el);
+        result = await this.streamMiMo(settings, messages, el); break;
       case "mistral":
-        return this.streamMistral(settings, messages, el);
+        result = await this.streamMistral(settings, messages, el); break;
       default:
         throw new Error(`Unknown provider: ${settings.provider}`);
     }
+    addTokens(inputChars, result.length);
+    updateStatusBar();
+    return result;
   }
 
   // ── OpenAI streaming ──
