@@ -16,6 +16,8 @@ import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { CodeReviewPanel } from "./modules/code-review-panel";
 import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
+import { SnippetsPanel } from "./modules/snippets-panel";
+import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -30,6 +32,7 @@ let scriptRunner!: ScriptRunner;
 let sourceControl!: SourceControl;
 let codeReviewPanel!: CodeReviewPanel;
 let chatbot!: Chatbot;
+let snippetsPanel!: SnippetsPanel;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -204,6 +207,7 @@ function setupResizeHandle(handleId: string, target: HTMLElement, side: "left" |
 function onSettingsChange(settings: AppSettings) {
   appSettings = settings;
   editor.applySettings(settings.editor);
+  setTailwindEnabled(!!settings.editor.tailwindAutocomplete);
   syncChatAutoApproveToggle();
 }
 
@@ -222,6 +226,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);
+
+  // Init snippets panel
+  snippetsPanel = new SnippetsPanel("snippets-panel");
+  snippetsPanel.onInsert((text) => editor.insertText(text));
+
+  // Init Tailwind completer
+  setTailwindEnabled(!!appSettings.editor.tailwindAutocomplete);
+  editor.addCompleter(createTailwindCompleter());
 
   // Init file explorer
   fileExplorer = new FileExplorer("file-tree", (path, name) => {
@@ -393,6 +405,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  $("btn-toggle-snippets").addEventListener("click", () => {
+    snippetsPanel.toggle();
+    $("btn-toggle-snippets").classList.toggle("active", snippetsPanel.isVisible());
+    $("snippets-resize").classList.toggle("hidden", !snippetsPanel.isVisible());
+  });
   $("btn-toggle-scm").addEventListener("click", () => sourceControl.toggle());
   $("btn-toggle-chat").addEventListener("click", toggleChat);
   $("btn-close-chat").addEventListener("click", toggleChat);

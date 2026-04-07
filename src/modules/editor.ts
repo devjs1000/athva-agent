@@ -79,6 +79,7 @@ export interface EditorSettings {
   showGutter: boolean;
   showMinimap: boolean;
   aiInlineSuggestions: boolean;
+  tailwindAutocomplete: boolean;
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -89,6 +90,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   showGutter: true,
   showMinimap: false,
   aiInlineSuggestions: false,
+  tailwindAutocomplete: false,
 };
 
 interface OpenTab {
@@ -347,6 +349,20 @@ export class Editor {
       return this.ace.getValue();
     }
     return tab.content;
+  }
+
+  /** Insert text at current cursor position */
+  insertText(text: string) {
+    this.ace.insert(text);
+    this.ace.focus();
+  }
+
+  /** Add a custom completer to the Ace editor */
+  addCompleter(completer: ace.Ace.Completer) {
+    const langTools = ace.require("ace/ext/language_tools");
+    if (langTools) {
+      langTools.addCompleter(completer);
+    }
   }
 
   private switchToTab(path: string) {

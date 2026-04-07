@@ -93,6 +93,7 @@ export class SettingsUI {
   private showGutterEl: HTMLInputElement;
   private minimapEl: HTMLInputElement;
   private aiInlineEl: HTMLInputElement;
+  private tailwindEl: HTMLInputElement;
 
   // AI elements
   private providerEl: HTMLSelectElement;
@@ -132,6 +133,7 @@ export class SettingsUI {
     this.showGutterEl = document.getElementById("setting-show-gutter") as HTMLInputElement;
     this.minimapEl = document.getElementById("setting-minimap") as HTMLInputElement;
     this.aiInlineEl = document.getElementById("setting-ai-inline") as HTMLInputElement;
+    this.tailwindEl = document.getElementById("setting-tailwind") as HTMLInputElement;
 
     this.providerEl = document.getElementById("setting-ai-provider") as HTMLSelectElement;
     this.apiKeyEl = document.getElementById("setting-ai-api-key") as HTMLInputElement;
@@ -179,6 +181,7 @@ export class SettingsUI {
     this.showGutterEl.checked = this.settings.editor.showGutter;
     this.minimapEl.checked = this.settings.editor.showMinimap;
     this.aiInlineEl.checked = this.settings.editor.aiInlineSuggestions;
+    this.tailwindEl.checked = this.settings.editor.tailwindAutocomplete;
 
     // AI
     this.providerEl.value = this.settings.ai.provider;
@@ -229,6 +232,7 @@ export class SettingsUI {
         showGutter: this.showGutterEl.checked,
         showMinimap: this.minimapEl.checked,
         aiInlineSuggestions: this.aiInlineEl.checked,
+        tailwindAutocomplete: this.tailwindEl.checked,
       },
       ai: {
         provider: this.providerEl.value,
