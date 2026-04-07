@@ -1396,35 +1396,42 @@ body {
   z-index: 5;
   cursor: pointer;
   display: none;
+  border-left: 1px solid rgba(255,255,255,0.04);
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+.minimap-canvas:hover {
+  opacity: 1;
 }
 
 /* ── AI Suggest Button ── */
 .ai-suggest-btn {
   position: absolute;
   z-index: 10;
-  padding: 2px 8px;
+  padding: 3px 10px;
   font-size: 11px;
   font-family: inherit;
-  background: var(--bg-tertiary);
-  color: var(--accent);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: rgba(0,120,212,0.15);
+  color: #6bb3f0;
+  border: 1px solid rgba(0,120,212,0.25);
+  border-radius: 6px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition:
-    background 0.1s,
-    opacity 0.15s;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  transition: background 0.1s, opacity 0.15s, transform 0.1s;
   white-space: nowrap;
+  backdrop-filter: blur(4px);
 }
 
 .ai-suggest-btn:hover {
-  background: var(--bg-active);
-  color: var(--accent-hover);
+  background: rgba(0,120,212,0.28);
+  color: #8ec8ff;
+  transform: scale(1.02);
 }
 
 .ai-suggest-btn:disabled {
   cursor: wait;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .ai-suggest-btn.hidden {
@@ -1435,51 +1442,103 @@ body {
 .ai-floating-textarea-container {
   position: absolute;
   z-index: 10;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 50%;
+  width: min(520px, 80%);
+  background: linear-gradient(160deg, #24262c 0%, #1e2024 100%);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 14px;
+  padding: 0;
+  box-shadow:
+    0 24px 64px rgba(0,0,0,0.55),
+    0 2px 8px rgba(0,0,0,0.3),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: floating-in 0.18s ease;
+}
+
+@keyframes floating-in {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.ai-floating-textarea-container::before {
+  content: "";
+  display: block;
+  padding: 12px 16px 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.3);
+  text-transform: uppercase;
 }
 
 .ai-floating-textarea-container textarea {
   width: 100%;
-  background: var(--bg-secondary);
+  background: transparent;
   border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   outline: none;
   resize: none;
-  font-size: 12px;
+  font-size: 13.5px;
   font-family: inherit;
   color: var(--text-primary);
-  padding: 3px;
-  min-height: 100px;
+  padding: 16px 18px 14px;
+  min-height: 90px;
+  max-height: 200px;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.ai-floating-textarea-container textarea::placeholder {
+  color: rgba(255,255,255,0.2);
+}
+
+.ai-floating-textarea-container .ai-floating-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  gap: 8px;
+}
+
+.ai-floating-textarea-container .ai-floating-hint {
+  font-size: 11px;
+  color: rgba(255,255,255,0.2);
 }
 
 .ai-floating-textarea-container button {
-  width: 100%;
-  height: 100%;
-  padding: 3px 8px;
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 500;
   font-family: inherit;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: var(--accent);
+  color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.1s;
+  transition: background 0.12s, transform 0.1s;
+  flex-shrink: 0;
 }
 
 .ai-floating-textarea-container button:hover {
-  background: var(--bg-active);
-  color: var(--accent-hover);
+  background: #1a8ae0;
+  transform: scale(1.02);
+}
+
+.ai-floating-textarea-container button:active {
+  transform: scale(0.97);
+}
+
+.ai-floating-textarea-container.hidden {
+  display: none;
 }
 
 /* ── AI Action Menu (on selection) ── */
@@ -1488,11 +1547,18 @@ body {
   z-index: 10;
   display: flex;
   gap: 2px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: #23262c;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
   padding: 3px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(8px);
+  animation: action-menu-in 0.12s ease;
+}
+
+@keyframes action-menu-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .ai-action-menu.hidden {
@@ -1500,20 +1566,20 @@ body {
 }
 
 .ai-action-item {
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 4px 10px;
+  font-size: 11.5px;
   font-family: inherit;
   background: transparent;
-  color: var(--text-primary);
+  color: rgba(255,255,255,0.65);
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.1s;
+  transition: background 0.08s, color 0.08s;
 }
 
 .ai-action-item:hover {
-  background: var(--accent);
+  background: rgba(0,120,212,0.25);
   color: #fff;
 }
 
@@ -1568,13 +1634,20 @@ body {
 .minimap-viewport {
   position: absolute;
   right: 0;
-  width: 60px;
-  background: rgba(255, 255, 255, 0.08);
-  border-left: 2px solid rgba(255, 255, 255, 0.15);
+  width: 80px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-right: none;
+  border-radius: 2px 0 0 2px;
   z-index: 6;
   pointer-events: auto;
   cursor: pointer;
   display: none;
+  transition: background 0.1s;
+}
+
+.minimap-viewport:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ── Chat Panel ── */

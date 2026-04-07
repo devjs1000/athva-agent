@@ -65,7 +65,7 @@ export class Minimap {
     const session = this.editor.session;
     const lineCount = session.getLength();
     const containerHeight = this.canvas.parentElement!.clientHeight;
-    const width = 60;
+    const width = 80;
 
     this.canvas.width = width * devicePixelRatio;
     this.canvas.height = containerHeight * devicePixelRatio;
@@ -73,49 +73,72 @@ export class Minimap {
     this.canvas.style.height = `${containerHeight}px`;
     this.ctx.scale(devicePixelRatio, devicePixelRatio);
 
-    // Background
-    this.ctx.fillStyle = "#1a1a1a";
+    // Background — match editor bg
+    this.ctx.fillStyle = "#1e1e1e";
     this.ctx.fillRect(0, 0, width, containerHeight);
 
-    // Calculate line height in minimap
-    const lineH = Math.max(2, Math.min(3, containerHeight / Math.max(lineCount, 1)));
+    // Line height: clamp between 1.5 and 4px
+    const lineH = Math.max(1.5, Math.min(4, containerHeight / Math.max(lineCount, 1)));
     const maxLines = Math.floor(containerHeight / lineH);
 
-    // Colors for code representation
-    const colors: Record<string, string> = {
-      keyword: "#569cd6",
-      string: "#ce9178",
-      comment: "#6a9955",
-      number: "#b5cea8",
-      default: "#808080",
+    // Token colours (VSCode-inspired dark theme)
+    const C = {
+      keyword:  "#569cd6",
+      type:     "#4ec9b0",
+      string:   "#ce9178",
+      comment:  "#6a9955",
+      number:   "#b5cea8",
+      operator: "#d4d4d4",
+      fn:       "#dcdcaa",
+      default:  "#606060",
     };
 
     for (let i = 0; i < Math.min(lineCount, maxLines); i++) {
       const line = session.getLine(i);
-      if (!line || line.trim().length === 0) continue;
+      if (!line || !line.trim()) continue;
 
       const y = i * lineH;
-      const indent = line.length - line.trimStart().length;
       const trimmed = line.trim();
+      const indent = line.length - line.trimStart().length;
+      const x = 4 + indent * 0.9;
+      const maxW = width - x - 4;
 
-      // Simple heuristic coloring
-      let color = colors.default;
+      // Classify line
+      let color = C.default;
+      let alpha = 0.55;
       if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
-        color = colors.comment;
+        color = C.comment; alpha = 0.45;
       } else if (trimmed.startsWith('"') || trimmed.startsWith("'") || trimmed.startsWith("`")) {
-        color = colors.string;
-      } else if (/^(import|export|const|let|var|function|class|if|else|return|for|while|switch|case|async|await|from|interface|type|enum)\b/.test(trimmed)) {
-        color = colors.keyword;
+        color = C.string; alpha = 0.7;
+      } else if (/^\d/.test(trimmed)) {
+        color = C.number; alpha = 0.7;
+      } else if (/^(import|export|const|let|var|function|class|return|if|else|for|while|switch|case|async|await|from|interface|type|enum|extends|implements|new|throw|try|catch|finally|default|static|public|private|protected|readonly|override|abstract)\b/.test(trimmed)) {
+        color = C.keyword; alpha = 0.75;
+      } else if (/^[A-Z][a-zA-Z0-9_]*/.test(trimmed)) {
+        color = C.type; alpha = 0.7;
+      } else if (/^\w+\s*\(/.test(trimmed)) {
+        color = C.fn; alpha = 0.65;
       }
 
+      // Draw segments: indent gap + content bar
+      const barW = Math.min(trimmed.length * 0.9, maxW);
+      const h = Math.max(lineH - 0.6, 1);
+
+      this.ctx.globalAlpha = alpha;
       this.ctx.fillStyle = color;
-      const x = 2 + indent * 0.8;
-      const barWidth = Math.min(trimmed.length * 0.8, width - x - 2);
-      this.ctx.globalAlpha = 0.6;
-      this.ctx.fillRect(x, y, Math.max(barWidth, 2), Math.max(lineH - 0.5, 1));
+      this.ctx.beginPath();
+      this.ctx.roundRect(x, y + 0.3, Math.max(barW, 3), h, 0.5);
+      this.ctx.fill();
     }
 
     this.ctx.globalAlpha = 1;
+
+    // Subtle horizontal rules every ~10 lines for orientation
+    this.ctx.fillStyle = "rgba(255,255,255,0.025)";
+    for (let i = 10; i < Math.min(lineCount, maxLines); i += 10) {
+      this.ctx.fillRect(0, i * lineH, width, 0.5);
+    }
+
     this.updateViewport();
   }
 
@@ -125,13 +148,13 @@ export class Minimap {
     const session = this.editor.session;
     const lineCount = session.getLength();
     const containerHeight = this.canvas.parentElement!.clientHeight;
-    const lineH = Math.max(2, Math.min(3, containerHeight / Math.max(lineCount, 1)));
+    const lineH = Math.max(1.5, Math.min(4, containerHeight / Math.max(lineCount, 1)));
 
     const firstRow = this.editor.getFirstVisibleRow();
     const lastRow = this.editor.getLastVisibleRow();
 
     const top = firstRow * lineH;
-    const height = Math.max((lastRow - firstRow + 1) * lineH, 10);
+    const height = Math.max((lastRow - firstRow + 1) * lineH, 12);
 
     this.viewport.style.top = `${top}px`;
     this.viewport.style.height = `${height}px`;

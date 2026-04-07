@@ -68,24 +68,48 @@ export function attachAICompleter(editor: any) {
   });
   (editor.container as HTMLElement).appendChild(suggestBtn);
 
-  //Create floating textarea if the file is empty
+  // Create floating textarea shown when file is empty
   floatingTextareaContainer = document.createElement("div");
   floatingTextareaContainer.className = "ai-floating-textarea-container hidden";
+
   floatingTextarea = document.createElement("textarea");
   floatingTextarea.className = "ai-floating-textarea";
-  floatingTextarea.placeholder = "Ask AI to generate code...";
+  floatingTextarea.placeholder = "Describe what you want to build, or paste a prompt…";
+  floatingTextarea.rows = 4;
+
+  // Footer: hint + generate button
+  const footer = document.createElement("div");
+  footer.className = "ai-floating-footer";
+
+  const hint = document.createElement("span");
+  hint.className = "ai-floating-hint";
+  hint.textContent = "Enter to generate · Shift+Enter for newline";
+
   floatingTextareaBtn = document.createElement("button");
   floatingTextareaBtn.className = "ai-floating-textarea-btn";
-  floatingTextareaBtn.textContent = "Generate";
+  floatingTextareaBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>Generate`;
   floatingTextareaBtn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     const prompt = floatingTextarea?.value;
-    if (!prompt) return;
+    if (!prompt?.trim()) return;
     onEmptyGenerateClick(prompt);
   });
+
+  // Enter to submit, Shift+Enter for newline
+  floatingTextarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const prompt = floatingTextarea?.value;
+      if (!prompt?.trim()) return;
+      onEmptyGenerateClick(prompt);
+    }
+  });
+
+  footer.appendChild(hint);
+  footer.appendChild(floatingTextareaBtn);
   floatingTextareaContainer.appendChild(floatingTextarea);
-  floatingTextareaContainer.appendChild(floatingTextareaBtn);
+  floatingTextareaContainer.appendChild(footer);
   (editor.container as HTMLElement).appendChild(floatingTextareaContainer);
 
   if (editor.getValue().trim() === "") {
