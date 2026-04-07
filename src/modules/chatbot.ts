@@ -337,9 +337,9 @@ export class Chatbot {
 
   private updatePlaceholder() {
     if (this.session.mode === "agent") {
-      this.inputEl.placeholder = "Tell the agent what to do...";
+      this.inputEl.placeholder = "Tell the agent what to do…";
     } else {
-      this.inputEl.placeholder = "Ask AI...";
+      this.inputEl.placeholder = "Ask anything about your code…";
     }
   }
 
@@ -526,17 +526,34 @@ export class Chatbot {
   private renderMessages() {
     this.messagesEl.innerHTML = "";
     if (this.session.messages.length === 0) {
-      if (this.session.mode === "agent") {
-        this.addDOMMessage(
-          "assistant",
-          "I'm Athva Agent. I can read files, run commands, and modify your codebase. Tell me what you'd like to do."
-        );
-      } else {
-        this.addDOMMessage(
-          "assistant",
-          "Hello! I'm your AI assistant. Ask me anything about your code or project."
-        );
-      }
+      const isAgent = this.session.mode === "agent";
+      const chips = isAgent
+        ? ["Explain this codebase", "Find all TODO comments", "Refactor this file", "Run the tests"]
+        : ["Explain this code", "Fix the bug", "Add TypeScript types", "Write unit tests"];
+
+      const welcome = document.createElement("div");
+      welcome.className = "chat-welcome";
+      welcome.innerHTML = `
+        <div class="chat-welcome-icon">
+          <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936zM3.794 1.148a.217.217 0 0 1 .412 0l.387 1.162c.173.518.58.926 1.097 1.098l1.163.387a.217.217 0 0 1 0 .412l-1.163.387A1.734 1.734 0 0 0 4.593 5.69l-.387 1.162a.217.217 0 0 1-.412 0L3.407 5.69a1.734 1.734 0 0 0-1.097-1.098L1.147 4.207a.217.217 0 0 1 0-.412l1.163-.387a1.734 1.734 0 0 0 1.097-1.098l.387-1.162z"/>
+          </svg>
+        </div>
+        <p class="chat-welcome-title">${isAgent ? "Athva Agent" : "Athva AI"}</p>
+        <p class="chat-welcome-sub">${isAgent ? "I can read, edit files & run commands in your project." : "Ask anything about your code or project."}</p>
+        <div class="chat-welcome-chips">
+          ${chips.map(c => `<button class="chat-chip" type="button">${c}</button>`).join("")}
+        </div>
+      `;
+
+      welcome.querySelectorAll(".chat-chip").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          this.inputEl.value = (btn as HTMLElement).textContent || "";
+          this.inputEl.focus();
+        });
+      });
+
+      this.messagesEl.appendChild(welcome);
       return;
     }
     for (const msg of this.session.messages) {

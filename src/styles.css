@@ -2306,6 +2306,75 @@ body {
   gap: 12px;
 }
 
+/* ── Chat Welcome State ── */
+.chat-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px 12px;
+  text-align: center;
+  flex: 1;
+}
+
+.chat-welcome-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(0,120,212,0.12);
+  border: 1px solid rgba(0,120,212,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0,120,212,0.8);
+  margin-bottom: 2px;
+  box-shadow: 0 2px 16px rgba(0,120,212,0.1);
+}
+
+.chat-welcome-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.65);
+  margin: 0;
+}
+
+.chat-welcome-sub {
+  font-size: 12px;
+  color: rgba(255,255,255,0.28);
+  margin: 0;
+  line-height: 1.5;
+  max-width: 220px;
+}
+
+.chat-welcome-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 8px;
+  max-width: 260px;
+}
+
+.chat-chip {
+  padding: 5px 11px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.45);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.chat-chip:hover {
+  background: rgba(0,120,212,0.18);
+  border-color: rgba(0,120,212,0.35);
+  color: rgba(255,255,255,0.75);
+}
+
 .chat-msg {
   max-width: 90%;
   padding: 8px 12px;
@@ -2360,32 +2429,91 @@ body {
 }
 
 .chat-input-area {
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
+  padding: 10px 10px 8px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--bg-secondary);
+}
+
+.chat-input-shell {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  background: var(--bg-primary);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.chat-input-shell:focus-within {
+  border-color: rgba(0, 120, 212, 0.5);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.12), 0 1px 4px rgba(0,0,0,0.2);
 }
 
 .chat-input {
   flex: 1;
-  padding: 6px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  padding: 9px 10px 9px 12px;
+  background: transparent;
+  border: none;
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
   resize: none;
   outline: none;
-  line-height: 1.4;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
-.chat-input:focus {
-  border-color: var(--accent);
+.chat-input::placeholder {
+  color: rgba(255,255,255,0.2);
 }
 
+.chat-input-actions {
+  display: flex;
+  align-items: flex-end;
+  padding: 6px 6px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-send-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, transform 0.1s, opacity 0.12s;
+}
+
+.btn-send-icon:hover {
+  background: #1a8ae0;
+  transform: scale(1.05);
+}
+
+.btn-send-icon:active {
+  transform: scale(0.95);
+}
+
+.chat-input-hint {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.14);
+  text-align: center;
+  letter-spacing: 0.02em;
+  padding-bottom: 2px;
+}
+
+/* Keep old .btn-send for any remaining references */
 .btn-send {
   padding: 6px 12px;
   flex-shrink: 0;
@@ -2751,19 +2879,20 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px;
-  background: #3a1d1d;
-  color: var(--danger);
-  border: 1px solid #5a2a2a;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 4px 10px;
+  background: rgba(229, 74, 74, 0.15);
+  color: #f47474;
+  border: 1px solid rgba(229, 74, 74, 0.25);
+  border-radius: 7px;
+  font-size: 11px;
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s;
+  height: 28px;
 }
 
 .btn-stop-agent:hover {
-  background: #4a2a2a;
+  background: rgba(229, 74, 74, 0.25);
 }
 
 .btn-stop-agent.hidden {
