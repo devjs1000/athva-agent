@@ -162,6 +162,9 @@
             <div class="sidebar-header">
               <span id="sidebar-title" class="sidebar-title">EXPLORER</span>
               <div class="sidebar-view-tabs">
+                <button id="btn-refresh-explorer" class="sidebar-tab-btn" title="Refresh Explorer">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                </button>
                 <button id="sidebar-tab-explorer" class="sidebar-tab-btn active" title="Explorer">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
                 </button>
@@ -227,8 +230,25 @@
               <!-- Ace editor container -->
               <div id="editor-container" class="editor-container">
                 <div id="editor-empty" class="editor-empty">
-                  <p>Open a file from the explorer to start editing</p>
-                  <span class="editor-empty-hint">Ctrl+P to quick open</span>
+                  <div class="editor-empty-logo">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+                  </div>
+                  <p class="editor-empty-title">No file open</p>
+                  <p class="editor-empty-sub">Select a file from the Explorer or use a shortcut below</p>
+                  <div class="editor-empty-shortcuts">
+                    <div class="editor-empty-shortcut">
+                      <kbd>⌘P</kbd>
+                      <span>Quick Open file</span>
+                    </div>
+                    <div class="editor-empty-shortcut">
+                      <kbd>⌘⇧F</kbd>
+                      <span>Search in files</span>
+                    </div>
+                    <div class="editor-empty-shortcut">
+                      <kbd>⌘`</kbd>
+                      <span>Toggle Terminal</span>
+                    </div>
+                  </div>
                 </div>
                 <div id="ace-editor" class="ace-editor"></div>
               </div>

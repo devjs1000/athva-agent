@@ -286,11 +286,25 @@ window.addEventListener("DOMContentLoaded", async () => {
   );
   chatbot.setMemory(agentMemory, () => appSettings);
 
-  // Refresh file explorer when agent writes/creates files
-  chatbot.setOnFileChanged((_path: string) => {
+  // Refresh file explorer and reload open tab when agent writes/creates files
+  chatbot.setOnFileChanged((path: string) => {
     if (currentProjectPath) {
       fileExplorer.loadRoot(currentProjectPath);
     }
+    // If the changed file is currently open in the editor, reload it
+    if (path && editor.getActiveFilePath() === path) {
+      editor.reloadFile(path);
+    }
+  });
+
+  // Wire editor right-click "Ask AI" submenu to chat panel
+  editor.setOnAskAI((prompt: string) => {
+    const panel = $("chat-panel");
+    if (panel.classList.contains("hidden")) toggleChat();
+    const chatInput = $("chat-input") as HTMLTextAreaElement;
+    chatInput.value = prompt;
+    chatInput.focus();
+    chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
   });
 
   // Wire "Send to Chat" from editor selection actions
@@ -392,6 +406,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     $("sidebar-tab-explorer").classList.toggle("active", tab === "explorer");
     $("sidebar-tab-search").classList.toggle("active", tab === "search");
   }
+
+  $("btn-refresh-explorer").addEventListener("click", async () => {
+    if (currentProjectPath) {
+      const btn = $("btn-refresh-explorer");
+      btn.classList.add("spinning");
+      await fileExplorer.loadRoot(currentProjectPath);
+      btn.classList.remove("spinning");
+    }
+  });
 
   $("sidebar-tab-explorer").addEventListener("click", () => {
     globalSearch.close();

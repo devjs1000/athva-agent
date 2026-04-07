@@ -133,6 +133,8 @@ export class Editor {
   private lintTimeout: ReturnType<typeof setTimeout> | null = null;
   private minimap: Minimap | null = null;
   private tabContextMenu: HTMLElement;
+  private editorContextMenu: HTMLElement;
+  private onAskAI: ((prompt: string, code: string) => void) | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -197,11 +199,27 @@ export class Editor {
     this.tabContextMenu = document.createElement("div");
     this.tabContextMenu.className = "context-menu hidden";
     document.body.appendChild(this.tabContextMenu);
-    document.addEventListener("click", () => this.tabContextMenu.classList.add("hidden"));
+
+    // Editor right-click context menu
+    this.editorContextMenu = document.createElement("div");
+    this.editorContextMenu.className = "context-menu editor-context-menu hidden";
+    document.body.appendChild(this.editorContextMenu);
+
+    document.addEventListener("click", () => {
+      this.tabContextMenu.classList.add("hidden");
+      this.editorContextMenu.classList.add("hidden");
+    });
     document.addEventListener("contextmenu", (e) => {
       if (!this.tabContextMenu.contains(e.target as Node)) {
         this.tabContextMenu.classList.add("hidden");
       }
+    });
+
+    // Editor right-click
+    this.editorEl.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.showEditorContextMenu(e as MouseEvent);
     });
 
     // Cmd/Ctrl + click to open URLs in the editor
@@ -609,5 +627,171 @@ export class Editor {
 
   resize() {
     this.ace.resize();
+  }
+
+  setOnAskAI(handler: (prompt: string, code: string) => void) {
+    this.onAskAI = handler;
+  }
+
+  private showEditorContextMenu(e: MouseEvent) {
+    const selection = this.ace.getSelectedText();
+    const menu = this.editorContextMenu;
+    menu.innerHTML = "";
+
+    type MenuItem =
+      | { label: string; icon: string; shortcut?: string; action: () => void; separator?: false }
+      | { separator: true };
+
+    const items: MenuItem[] = [
+      {
+        label: "Cut", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5c-.2.2-.3.4-.3.7 0 .5.4 1 1 1 .2 0 .5-.1.7-.3L7 2.8 5.1 1a.5.5 0 0 0-.7.7L5.8 3l-.7.7-.2-.2-.9.9L3 3.4 1 5.4 2.4 6.8l2.2-2.2c.1.2.3.4.5.5L3.5 6.6l2 1.4 2-2L8 7l-1 1 1 1 1.1-1.1.5.5-1.1 1.1 1 1 2-2-1.5-1.5.7-.7c.2.2.5.3.7.3.6 0 1-.4 1-1 0-.3-.1-.5-.3-.7L8 3.5 7.3 2.8 5.8 1.3 4.5 2.6l-.5-.5-.5.5.5.5-.5.5v-.1zm1 1c-.3 0-.5-.2-.5-.5s.2-.5.5-.5.5.2.5.5-.2.5-.5.5z"/></svg>`,
+        shortcut: "⌘X",
+        action: () => {
+          const text = this.ace.getSelectedText();
+          if (text) {
+            navigator.clipboard.writeText(text).catch(() => {});
+            this.ace.execCommand("del");
+          }
+        },
+      },
+      {
+        label: "Copy", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`,
+        shortcut: "⌘C",
+        action: () => {
+          const text = this.ace.getSelectedText();
+          if (text) navigator.clipboard.writeText(text).catch(() => {});
+        },
+      },
+      {
+        label: "Paste", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 1.5A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5v1A1.5 1.5 0 0 1 9.5 4h-3A1.5 1.5 0 0 1 5 2.5v-1zm1.5-.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-3z"/><path d="M3 2.5a.5.5 0 0 1 .5-.5H5v1H3.5a.5.5 0 0 1-.5-.5V2.5zm8 0v.5H9.5V2h1a.5.5 0 0 1 .5.5zM3 4v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4H3zm2 2h6v1H5V6zm0 2h6v1H5V8zm0 2h4v1H5v-1z"/></svg>`,
+        shortcut: "⌘V",
+        action: () => {
+          navigator.clipboard.readText().then((text) => {
+            this.ace.focus();
+            this.ace.insert(text);
+          }).catch(() => {});
+        },
+      },
+      { separator: true },
+      {
+        label: "Select All", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1h13a.5.5 0 0 1 .5.5v13a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5zm-1.5.5v13A1.5 1.5 0 0 0 1.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 14.5 0h-13A1.5 1.5 0 0 0 0 1.5z"/></svg>`,
+        shortcut: "⌘A",
+        action: () => this.ace.selectAll(),
+      },
+      { separator: true },
+      {
+        label: "Format Document", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2 3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2 3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2 3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5z"/></svg>`,
+        shortcut: "⇧⌥F",
+        action: () => this.formatDocument(),
+      },
+      { separator: true },
+      {
+        label: "Ask AI",
+        icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`,
+        action: () => {},
+        // submenu handled separately
+      },
+    ];
+
+    for (const item of items) {
+      if ("separator" in item && item.separator) {
+        const sep = document.createElement("div");
+        sep.className = "context-menu-separator";
+        menu.appendChild(sep);
+        continue;
+      }
+
+      const row = document.createElement("div");
+      row.className = "context-menu-item ecm-item";
+
+      const left = document.createElement("span");
+      left.className = "ecm-left";
+      left.innerHTML = item.icon + `<span class="ecm-label">${item.label}</span>`;
+      row.appendChild(left);
+
+      if ("shortcut" in item && item.shortcut) {
+        const sc = document.createElement("span");
+        sc.className = "ecm-shortcut";
+        sc.textContent = item.shortcut;
+        row.appendChild(sc);
+      }
+
+      if (item.label === "Ask AI") {
+        // Submenu for AI actions
+        const arrow = document.createElement("span");
+        arrow.className = "context-menu-arrow";
+        arrow.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 3.5L10.5 8 6 12.5V3.5Z"/></svg>`;
+        row.appendChild(arrow);
+
+        const sub = document.createElement("div");
+        sub.className = "context-submenu ecm-submenu hidden";
+
+        const aiActions = [
+          { label: "Fix", prompt: "Fix the issues in this code:\n" },
+          { label: "Explain", prompt: "Explain what this code does:\n" },
+          { label: "Refactor", prompt: "Refactor this code to be cleaner and more efficient:\n" },
+          { label: "Add comments", prompt: "Add clear comments to this code:\n" },
+          { label: "Optimize", prompt: "Optimize this code for performance:\n" },
+          { label: "Write tests", prompt: "Write unit tests for this code:\n" },
+        ];
+
+        for (const ai of aiActions) {
+          const subRow = document.createElement("div");
+          subRow.className = "context-menu-item ecm-item";
+          subRow.innerHTML = `<span class="ecm-left"><span class="ecm-label">${ai.label}</span></span>`;
+          subRow.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            menu.classList.add("hidden");
+            const code = selection || this.ace.getValue();
+            this.onAskAI?.(ai.prompt + "```\n" + code + "\n```", code);
+          });
+          sub.appendChild(subRow);
+        }
+
+        row.addEventListener("mouseenter", () => {
+          const rect = row.getBoundingClientRect();
+          const menuRect = menu.getBoundingClientRect();
+          // Check if submenu would overflow right side
+          const subWidth = 180;
+          const rightSpace = window.innerWidth - rect.right;
+          if (rightSpace < subWidth) {
+            sub.style.left = `-${subWidth}px`;
+          } else {
+            sub.style.left = `${rect.width}px`;
+          }
+          sub.style.top = `${rect.top - menuRect.top}px`;
+          sub.classList.remove("hidden");
+        });
+        row.addEventListener("mouseleave", (ev) => {
+          if (!sub.contains(ev.relatedTarget as Node)) sub.classList.add("hidden");
+        });
+        sub.addEventListener("mouseleave", () => sub.classList.add("hidden"));
+
+        menu.appendChild(row);
+        menu.appendChild(sub);
+        continue;
+      }
+
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        menu.classList.add("hidden");
+        item.action();
+      });
+      menu.appendChild(row);
+    }
+
+    menu.classList.remove("hidden");
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+
+    requestAnimationFrame(() => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        menu.style.left = `${window.innerWidth - rect.width - 6}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${window.innerHeight - rect.height - 6}px`;
+      }
+    });
   }
 }
