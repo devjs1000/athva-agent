@@ -675,7 +675,9 @@ fn git_stage(path: String, file: String) -> Result<String, String> {
 
 #[tauri::command]
 fn git_unstage(path: String, file: String) -> Result<String, String> {
+    // repos with no commits yet have no HEAD — fall back to rm --cached
     run_git(&path, &["reset", "HEAD", "--", &file])
+        .or_else(|_| run_git(&path, &["rm", "--cached", "--force", "--", &file]))
 }
 
 #[tauri::command]

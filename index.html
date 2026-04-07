@@ -281,6 +281,9 @@
               <button id="btn-scm-commit" class="btn-primary scm-commit-btn">Commit</button>
             </div>
 
+            <!-- Sections wrapper (scrolls independently so diff view always has space) -->
+            <div class="scm-sections-body">
+
             <!-- Staged Changes -->
             <div class="scm-section">
               <div id="scm-staged-header" class="scm-section-header">
@@ -310,6 +313,8 @@
               </div>
               <div id="scm-changes-list" class="scm-file-list"></div>
             </div>
+
+            </div><!-- end .scm-sections-body -->
 
             <!-- Diff view -->
             <div id="scm-diff-view" class="scm-diff-view hidden">

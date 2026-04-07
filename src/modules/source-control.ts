@@ -385,22 +385,25 @@ export class SourceControl {
   private async showDiff(filePath: string, staged: boolean) {
     if (!this.projectPath) return;
 
+    const diffView = document.getElementById("scm-diff-view")!;
+    const diffTitle = document.getElementById("scm-diff-title")!;
+    const diffContent = document.getElementById("scm-diff-content")!;
+
+    diffTitle.textContent = filePath;
+    diffContent.innerHTML = `<div class="diff-line" style="color:var(--text-muted)">Loading…</div>`;
+    diffView.classList.remove("hidden");
+    diffView.scrollIntoView({ block: "nearest" });
+
     try {
       const diff = await invoke<string>("git_diff_file", {
         path: this.projectPath,
         file: filePath,
         staged,
       });
-
-      const diffView = document.getElementById("scm-diff-view")!;
-      const diffTitle = document.getElementById("scm-diff-title")!;
-      const diffContent = document.getElementById("scm-diff-content")!;
-
-      diffTitle.textContent = filePath;
       diffContent.innerHTML = this.renderDiff(diff || "(No diff available — file may be untracked or binary)");
-      diffView.classList.remove("hidden");
     } catch (e) {
       console.error("Failed to get diff:", e);
+      diffContent.innerHTML = `<div class="diff-line" style="color:var(--text-muted)">Error loading diff: ${this.escHtml(String(e))}</div>`;
     }
   }
 

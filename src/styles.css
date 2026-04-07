@@ -2952,10 +2952,16 @@ body {
   transform: rotate(0deg);
 }
 
+/* Sections wrapper — scrolls so diff view always has room */
+.scm-sections-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 /* File list */
 .scm-file-list {
   overflow-y: auto;
-  max-height: 300px;
 }
 
 .scm-file-list.collapsed {
@@ -3042,11 +3048,12 @@ body {
 
 /* Diff view */
 .scm-diff-view {
-  flex: 1;
+  flex: none;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);
-  min-height: 0;
+  min-height: 220px;
+  max-height: 50%;
 }
 
 .scm-diff-header {
