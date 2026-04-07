@@ -12,7 +12,9 @@ import {
   getSessionsByProject,
   deleteSession,
 } from "./chat-store";
-import { addTokens, updateStatusBar } from "./token-usage";
+import { streamAI, callAIOnce, type StreamContext } from "./chat-streaming";
+import { parseToolCalls } from "./chat-tool-parser";
+import { executeTool, compressToolResult, type ToolExecContext } from "./chat-tool-executor";
 
 // ── Agent tool definitions for LLM function calling ──
 
@@ -692,7 +694,7 @@ export class Chatbot {
     this.sendBtn.textContent = "...";
 
     try {
-      const fullResponse = await this.streamAI(settings, this.buildChatHistory(memoryContext), streamEl);
+      const fullResponse = await streamAI(settings, this.buildChatHistory(memoryContext), streamEl, this.streamCtx());
       this.session.messages.push({ role: "assistant", content: fullResponse });
       streamEl.classList.remove("streaming");
       // Background: extract and save memorable facts (only if memory is enabled)
@@ -744,7 +746,7 @@ export class Chatbot {
         `Use "global" for cross-project facts, "project" for project-specific ones.\n` +
         `If nothing noteworthy, output: { "global": [], "project": [] }\n\n` +
         `User: ${userMsg}\nAssistant: ${response.substring(0, 800)}`;
-      const raw = await this.callAIOnce(settings, prompt);
+      const raw = await callAIOnce(settings, prompt);
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return;
       const parsed = JSON.parse(jsonMatch[0]) as { global: string[]; project: string[] };
@@ -799,7 +801,7 @@ export class Chatbot {
       `Summarize this conversation in <150 words. Keep: files modified, decisions made, current task state. ` +
       `Skip: file contents, command outputs, tool details.\n\n${historyText}`;
 
-    const summary = await this.callAIOnce(settings, prompt);
+    const summary = await callAIOnce(settings, prompt);
     if (!summary) return;
 
     const previousSummary = this.session.compactedSummary;
@@ -816,63 +818,7 @@ export class Chatbot {
     this.messagesEl.prepend(indicator);
   }
 
-  private async callAIOnce(settings: AISettings, prompt: string): Promise<string> {
-    const messages = [{ role: "user", content: prompt }];
-    try {
-      switch (settings.provider) {
-        case "openai":
-        case "mimo":
-        case "mistral": {
-          const urls: Record<string, string> = {
-            openai: "https://api.openai.com/v1/chat/completions",
-            mimo: "https://api.xiaomimimo.com/v1/chat/completions",
-            mistral: "https://api.mistral.ai/v1/chat/completions",
-          };
-          const res = await fetch(urls[settings.provider], {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-            body: JSON.stringify({ model: settings.model, messages, max_tokens: 256 }),
-          });
-          if (!res.ok) return "";
-          const data = await res.json();
-          return data.choices?.[0]?.message?.content || "";
-        }
-        case "anthropic": {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": settings.apiKey,
-              "anthropic-version": "2023-06-01",
-              "anthropic-dangerous-direct-browser-access": "true",
-            },
-            body: JSON.stringify({ model: settings.model, max_tokens: 256, messages }),
-          });
-          if (!res.ok) return "";
-          const data = await res.json();
-          return data.content?.[0]?.text || "";
-        }
-        case "google": {
-          const model = settings.model || "gemini-2.0-flash";
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } }),
-            }
-          );
-          if (!res.ok) return "";
-          const data = await res.json();
-          return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        }
-        default:
-          return "";
-      }
-    } catch {
-      return "";
-    }
-  }
+
 
   private buildChatHistory(memoryContext = ""): { role: string; content: string }[] {
     let systemContent = CHAT_SYSTEM_PROMPT;
@@ -935,7 +881,7 @@ export class Chatbot {
 
         let fullResponse: string;
         try {
-          fullResponse = await this.streamAI(settings, history, streamEl);
+          fullResponse = await streamAI(settings, history, streamEl, this.streamCtx());
         } catch (e: unknown) {
           if (e instanceof Error && e.name === "AbortError") {
             streamEl.remove();
@@ -951,7 +897,7 @@ export class Chatbot {
         streamEl.classList.remove("streaming");
 
         // Parse tool calls from the response
-        const { text, toolCalls } = this.parseToolCalls(fullResponse);
+        const { text, toolCalls } = parseToolCalls(fullResponse);
 
         if (toolCalls.length === 0) {
           // No tool calls — conversation turn is done
@@ -1004,11 +950,11 @@ export class Chatbot {
             this.updateToolCallUI(tc);
 
             try {
-              const result = await this.executeTool(tc);
+              const result = await executeTool(tc, this.toolExecCtx());
               tc.status = "done";
               tc.result = result;
               // Compress tool result before adding to history to reduce token usage
-              const compressed = this.compressToolResult(tc.name, result);
+              const compressed = compressToolResult(tc.name, result);
               this.session.messages.push({ role: "tool", content: compressed });
             } catch (e: unknown) {
               tc.status = "error";
@@ -1120,133 +1066,7 @@ export class Chatbot {
     return [systemMsg, ...msgs];
   }
 
-  // ── Tool Call Parsing ──
-
-  private parseToolCalls(response: string): { text: string; toolCalls: ToolCall[] } {
-    const toolCalls: ToolCall[] = [];
-    let text = response;
-
-    // Match ```tool blocks — handle variations: ```tool, ``` tool, with or without closing ```
-    // Also handle cases where the closing ``` may have trailing whitespace or be missing
-    const toolBlockRegex = /```\s*tool\s*\n([\s\S]*?)(?:```|$)/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = toolBlockRegex.exec(response)) !== null) {
-      const block = match[1].trim();
-      text = text.replace(match[0], "").trim();
-
-      // Try to extract JSON objects from the block
-      // The block may contain one JSON per line, or multi-line JSON objects
-      const extracted = this.extractToolJsonObjects(block);
-      for (const parsed of extracted) {
-        if (parsed.tool && parsed.args) {
-          toolCalls.push({
-            id: crypto.randomUUID(),
-            name: parsed.tool,
-            args: parsed.args,
-            status: "pending",
-          });
-        }
-      }
-    }
-
-    // Fallback: also look for bare {"tool": ...} JSON objects outside code blocks
-    // Some models don't wrap them in ```tool blocks
-    if (toolCalls.length === 0) {
-      const bareJsonRegex = /\{"tool"\s*:\s*"(\w+)"\s*,\s*"args"\s*:\s*(\{[\s\S]*?\})\s*\}/g;
-      let bareMatch: RegExpExecArray | null;
-      while ((bareMatch = bareJsonRegex.exec(response)) !== null) {
-        try {
-          const parsed = JSON.parse(bareMatch[0]);
-          if (parsed.tool && parsed.args) {
-            toolCalls.push({
-              id: crypto.randomUUID(),
-              name: parsed.tool,
-              args: parsed.args,
-              status: "pending",
-            });
-            text = text.replace(bareMatch[0], "").trim();
-          }
-        } catch {
-          // Skip malformed
-        }
-      }
-    }
-
-    return { text, toolCalls };
-  }
-
-  /** Extract valid JSON objects with "tool" and "args" from a block of text */
-  private extractToolJsonObjects(block: string): { tool: string; args: Record<string, string> }[] {
-    const results: { tool: string; args: Record<string, string> }[] = [];
-
-    // Strategy 1: Try each line as a standalone JSON
-    for (const line of block.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("{")) continue;
-      const parsed = this.parseToolJsonCandidate(trimmed);
-      if (parsed) {
-        results.push(parsed);
-      }
-    }
-
-    if (results.length > 0) return results;
-
-    // Strategy 2: Try the entire block as one JSON object
-    const wholeBlock = this.parseToolJsonCandidate(block);
-    if (wholeBlock) {
-      return [wholeBlock];
-    }
-
-    // Strategy 3: Find JSON objects by brace matching
-    let depth = 0;
-    let start = -1;
-    for (let i = 0; i < block.length; i++) {
-      if (block[i] === "{") {
-        if (depth === 0) start = i;
-        depth++;
-      } else if (block[i] === "}") {
-        depth--;
-        if (depth === 0 && start !== -1) {
-          const candidate = block.substring(start, i + 1);
-          const parsed = this.parseToolJsonCandidate(candidate);
-          if (parsed) {
-            results.push(parsed);
-          }
-          start = -1;
-        }
-      }
-    }
-
-    return results;
-  }
-
-  private parseToolJsonCandidate(candidate: string): { tool: string; args: Record<string, string> } | null {
-    const attempts = [candidate, this.normalizeJsonLikeToolCall(candidate)];
-    for (const attempt of attempts) {
-      try {
-        const parsed = JSON.parse(attempt);
-        if (parsed.tool && parsed.args) {
-          return parsed;
-        }
-      } catch {
-        // Try the next normalization
-      }
-    }
-    return null;
-  }
-
-  private normalizeJsonLikeToolCall(text: string): string {
-    return text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_match, hex) => {
-      const codePoint = Number.parseInt(hex, 16);
-      if (!Number.isFinite(codePoint)) return _match;
-      try {
-        return String.fromCodePoint(codePoint);
-      } catch {
-        return _match;
-      }
-    });
-  }
+  // Tool call parsing is now in chat-tool-parser.ts
 
   // ── Tool Approval Flow ──
 
@@ -1524,619 +1344,32 @@ export class Chatbot {
     this.scrollToBottom();
   }
 
-  // ── Tool Result Compression ──
-  // Reduces token usage by compressing tool outputs before storing in history
+  // Tool execution, compression, and shell commands are now in chat-tool-executor.ts
 
-  private compressToolResult(toolName: string, result: string): string {
-    const HARD_CAP = 3000; // Max chars for any tool result in history
+  // ── Context builders for extracted modules ──
 
-    switch (toolName) {
-      case "read_file":
-      case "batch_read": {
-        // For file reads: keep first 2500 chars, add line count summary
-        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-        const lineCount = result.split("\n").length;
-        const truncated = result.substring(0, 2500);
-        // Try to cut at last complete line
-        const lastNewline = truncated.lastIndexOf("\n");
-        const clean = lastNewline > 2000 ? truncated.substring(0, lastNewline) : truncated;
-        return `[${toolName}] ${clean}\n…[truncated: ${lineCount} total lines, ${result.length} chars]`;
-      }
-
-      case "search_content": {
-        // For grep results: keep max 30 matches
-        const lines = result.split("\n");
-        if (lines.length <= 30) return `[${toolName}] ${result}`;
-        return `[${toolName}] ${lines.slice(0, 30).join("\n")}\n…[${lines.length - 30} more matches omitted]`;
-      }
-
-      case "list_dir": {
-        // For directory listings: keep max 40 entries
-        const entries = result.split("\n");
-        if (entries.length <= 40) return `[${toolName}] ${result}`;
-        return `[${toolName}] ${entries.slice(0, 40).join("\n")}\n…[${entries.length - 40} more entries omitted]`;
-      }
-
-      case "run_command": {
-        // For command output: truncate aggressively, keep head + tail
-        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-        const head = result.substring(0, 1500);
-        const tail = result.substring(result.length - 1000);
-        return `[${toolName}] ${head}\n…[${result.length} chars total, showing head+tail]…\n${tail}`;
-      }
-
-      case "git_diff": {
-        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-        return `[${toolName}] ${result.substring(0, 2500)}\n…[diff truncated: ${result.length} chars total]`;
-      }
-
-      case "write_file":
-        // Don't echo written content back — just confirm
-        return `[${toolName}] ${result}`;
-
-      case "make_plan":
-        return `[${toolName}] ${result}`;
-
-      case "search_files": {
-        const paths = result.split("\n");
-        if (paths.length <= 20) return `[${toolName}] ${result}`;
-        return `[${toolName}] ${paths.slice(0, 20).join("\n")}\n…[${paths.length - 20} more files omitted]`;
-      }
-
-      default:
-        // Generic cap
-        if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-        return `[${toolName}] ${result.substring(0, HARD_CAP)}\n…[truncated]`;
-    }
-  }
-
-  // ── Blocked paths ──
-
-  private static BLOCKED_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__", ".next", ".nuxt", "coverage", ".cache"];
-  private static BLOCKED_FILES = [
-    ".env", ".env.local", ".env.production", ".env.development",
-    "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb",
-    ".gitignore", ".DS_Store", "Thumbs.db",
-  ];
-
-  private isBlockedPath(filePath: string): boolean {
-    const parts = filePath.split("/");
-    const fileName = parts[parts.length - 1];
-    // Block if any directory segment is in blocked list
-    if (parts.some((p) => Chatbot.BLOCKED_DIRS.includes(p))) return true;
-    // Block specific filenames
-    if (Chatbot.BLOCKED_FILES.includes(fileName)) return true;
-    // Block lock files and binary-ish extensions
-    if (/\.(lock|lockb|log|png|jpg|jpeg|gif|ico|woff2?|ttf|eot|mp[34]|zip|tar|gz)$/i.test(fileName)) return true;
-    return false;
-  }
-
-  // ── Tool Execution via Tauri ──
-
-  private async executeTool(tc: ToolCall): Promise<string> {
-    const access = this.getAgentAccess();
-
-    switch (tc.name) {
-      case "read_file": {
-        if (!access.fileRead) throw new Error("File read permission denied");
-        if (this.isBlockedPath(tc.args.path)) throw new Error(`Blocked: reading "${tc.args.path}" is not allowed (heavy, sensitive, or binary file)`);
-        const content = await invoke<string>("read_file", { path: tc.args.path });
-        if (content.trim().length === 0) {
-          return "(empty or whitespace-only file)";
-        }
-        const lines = content.split("\n");
-        // Cap at 15KB to keep context lean — agent should use search_content for targeted access
-        if (content.length > 15000) {
-          return content.substring(0, 15000) + `\n\n… [truncated: ${lines.length} lines, ${content.length} chars total. Use search_content for targeted access.]`;
-        }
-        return content;
-      }
-
-      case "write_file": {
-        if (!access.fileWrite) throw new Error("File write permission denied");
-        await invoke("write_file", { path: tc.args.path, content: tc.args.content });
-        this.onFileChanged(tc.args.path);
-        // Keep in-memory project context in sync if agent wrote to context.md
-        if (tc.args.path.endsWith("/.athva/context.md")) {
-          this.projectContext = tc.args.content;
-        }
-        return `File written: ${tc.args.path}`;
-      }
-
-      case "list_dir": {
-        if (!access.fileRead) throw new Error("File read permission denied");
-        const entries = await invoke<{ name: string; path: string; is_dir: boolean }[]>("read_dir", {
-          path: tc.args.path,
-        });
-        // Filter out blocked directories from listing
-        const filtered = entries.filter((e) => {
-          if (e.is_dir && Chatbot.BLOCKED_DIRS.includes(e.name)) return false;
-          if (!e.is_dir && Chatbot.BLOCKED_FILES.includes(e.name)) return false;
-          return true;
-        });
-        return filtered.map((e) => `${e.is_dir ? "[dir] " : "      "}${e.name}`).join("\n");
-      }
-
-      case "run_command": {
-        if (!access.terminal) throw new Error("Terminal access permission denied");
-        const projectPath = this.getProjectPath();
-        // Use Tauri shell plugin to run commands
-        const result = await this.runShellCommand(tc.args.command, projectPath);
-        return result;
-      }
-
-      case "search_files": {
-        if (!access.fileRead) throw new Error("File read permission denied");
-        const projectPath = this.getProjectPath();
-        const files = await invoke<{ name: string; path: string; is_dir: boolean }[]>("search_files", {
-          root: projectPath,
-          query: tc.args.query,
-          maxResults: 50,
-        });
-        if (files.length === 0) return "No files found.";
-        return files.map((f) => f.path).join("\n");
-      }
-
-      case "make_plan": {
-        const title = (tc.args.title || "").trim();
-        const notes = (tc.args.notes || "").trim();
-        const rawSteps = tc.args.steps;
-        const steps = (
-          Array.isArray(rawSteps)
-            ? rawSteps.map(String)
-            : String(rawSteps || "").split("\n")
-        ).map((s) => s.trim()).filter(Boolean);
-
-        if (!title) throw new Error("Plan title is required");
-        if (steps.length === 0) throw new Error("At least one plan step is required");
-
-        const lines = [`Plan: ${title}`];
-        for (let i = 0; i < steps.length; i++) {
-          lines.push(`${i + 1}. ${steps[i]}`);
-        }
-        if (notes) {
-          lines.push("");
-          lines.push(`Notes: ${notes}`);
-        }
-        return lines.join("\n");
-      }
-
-      case "batch_read": {
-        if (!access.fileRead) throw new Error("File read permission denied");
-        const paths = String(tc.args.paths || "").split("\n").map((p: string) => p.trim()).filter(Boolean);
-        if (paths.length === 0) throw new Error("No file paths provided");
-        if (paths.length > 8) throw new Error("Max 8 files per batch_read (context limit)");
-
-        const results: string[] = [];
-        let totalSize = 0;
-        const MAX_BATCH_SIZE = 15000; // 15KB total cap — matches read_file limit
-
-        for (const filePath of paths) {
-          if (this.isBlockedPath(filePath)) {
-            results.push(`── ${filePath} ──\n[BLOCKED: heavy, sensitive, or binary file]`);
-            continue;
-          }
-          try {
-            let content = await invoke<string>("read_file", { path: filePath });
-            if (content.trim().length === 0) {
-              results.push(`── ${filePath} ──\n(empty file)`);
-              continue;
-            }
-            // Respect total batch size cap
-            if (totalSize + content.length > MAX_BATCH_SIZE) {
-              const remaining = MAX_BATCH_SIZE - totalSize;
-              if (remaining > 500) {
-                content = content.substring(0, remaining) + "\n... (truncated — batch size limit reached)";
-              } else {
-                results.push(`── ${filePath} ──\n[SKIPPED: batch size limit reached]`);
-                break;
-              }
-            }
-            totalSize += content.length;
-            results.push(`── ${filePath} ──\n${content}`);
-          } catch (e: unknown) {
-            results.push(`── ${filePath} ──\n[ERROR: ${e instanceof Error ? e.message : String(e)}]`);
-          }
-        }
-        return results.join("\n\n");
-      }
-
-      case "search_content": {
-        if (!access.fileRead) throw new Error("File read permission denied");
-        const projectPath = this.getProjectPath();
-        const pattern = String(tc.args.pattern || "").trim();
-        if (!pattern) throw new Error("Search pattern is required");
-        const glob = String(tc.args.glob || "*").replace(/[;|&$`]/g, ""); // basic sanitization
-        const safePattern = pattern.replace(/'/g, "'\\''");
-        const cmd = `cd "${projectPath}" && grep -rn --include='${glob}' -E '${safePattern}' . 2>/dev/null | head -50`;
-        const result = await this.runShellCommand(cmd, projectPath);
-        if (!result.trim()) return "No matches found.";
-        return result;
-      }
-
-      case "git_diff": {
-        if (!access.fileRead) throw new Error("File read permission denied");
-        const projectPath = this.getProjectPath();
-        const target = String(tc.args.target || "").trim().replace(/[;|&$`]/g, "");
-        const cmd = target
-          ? `cd "${projectPath}" && git diff '${target.replace(/'/g, "'\\''")}' 2>/dev/null | head -200`
-          : `cd "${projectPath}" && git diff 2>/dev/null | head -200`;
-        const result = await this.runShellCommand(cmd, projectPath);
-        if (!result.trim()) return "No changes detected.";
-        return result;
-      }
-
-      default:
-        throw new Error(`Unknown tool: ${tc.name}`);
-    }
-  }
-
-  private async runShellCommand(command: string, cwd: string): Promise<string> {
-    try {
-      const { Command } = await import("@tauri-apps/plugin-shell");
-      // Use a login shell so the full user PATH is loaded (pnpm, npm, node, etc.)
-      const cmd = Command.create("zsh", ["-l", "-c", command], { cwd });
-      const stdoutChunks: string[] = [];
-      const stderrChunks: string[] = [];
-
-      cmd.stdout.on("data", (data: string) => {
-        stdoutChunks.push(data);
-      });
-      cmd.stderr.on("data", (data: string) => {
-        stderrChunks.push(data);
-      });
-
-      return await new Promise<string>(async (resolve, reject) => {
-        cmd.on("close", (payload: { code: number | null }) => {
-          const stdout = stdoutChunks.join("").trim();
-          const stderr = stderrChunks.join("").trim();
-          const wasStopped = this.activeCommandStopped;
-
-          this.activeCommandProcess = null;
-          this.activeCommandStopped = false;
-
-          if (wasStopped || this.agentAborted) {
-            reject(new Error("Command stopped by user."));
-            return;
-          }
-
-          if (payload.code !== 0 && payload.code !== null) {
-            resolve(`Exit code ${payload.code}\n${stderr || stdout}`);
-            return;
-          }
-
-          resolve(stdout || stderr || "(no output)");
-        });
-
-        cmd.on("error", (err: string) => {
-          this.activeCommandProcess = null;
-          const wasStopped = this.activeCommandStopped;
-          this.activeCommandStopped = false;
-          if (wasStopped || this.agentAborted) {
-            reject(new Error("Command stopped by user."));
-            return;
-          }
-          reject(new Error(err));
-        });
-
-        try {
-          const child = await cmd.spawn();
-          this.activeCommandStopped = false;
-          this.activeCommandProcess = child;
-
-          if (this.agentAborted) {
-            this.activeCommandStopped = true;
-            await invoke("kill_process_tree", { pid: child.pid }).catch(() => child.kill());
-          }
-        } catch (e: unknown) {
-          this.activeCommandProcess = null;
-          this.activeCommandStopped = false;
-          reject(e instanceof Error ? e : new Error(String(e)));
-        }
-      });
-    } catch (e: unknown) {
-      throw new Error(`Shell execution failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  // ── Streaming API calls ──
-
-  private async streamAI(
-    settings: AISettings,
-    messages: { role: string; content: string }[],
-    el: HTMLElement
-  ): Promise<string> {
-    const inputChars = messages.reduce((sum, m) => sum + m.content.length, 0);
-    let result: string;
-    switch (settings.provider) {
-      case "openai":
-        result = await this.streamOpenAI(settings, messages, el); break;
-      case "anthropic":
-        result = await this.streamAnthropic(settings, messages, el); break;
-      case "google":
-        result = await this.callGoogleNonStream(settings, messages, el); break;
-      case "mimo":
-        result = await this.streamMiMo(settings, messages, el); break;
-      case "mistral":
-        result = await this.streamMistral(settings, messages, el); break;
-      default:
-        throw new Error(`Unknown provider: ${settings.provider}`);
-    }
-    addTokens(inputChars, result.length);
-    updateStatusBar();
-    return result;
-  }
-
-  // ── OpenAI streaming ──
-  private async streamOpenAI(
-    settings: AISettings,
-    messages: { role: string; content: string }[],
-    el: HTMLElement
-  ): Promise<string> {
-    const model = settings.model || "gpt-4o";
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify({ model, messages, stream: true }),
-      signal: this.abortController?.signal,
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`OpenAI API error ${res.status}: ${err}`);
-    }
-
-    return this.readSSEStream(res, el, (json) => {
-      return json.choices?.[0]?.delta?.content || "";
-    });
-  }
-
-  // ── Anthropic streaming ──
-  private async streamAnthropic(
-    settings: AISettings,
-    messages: { role: string; content: string }[],
-    el: HTMLElement
-  ): Promise<string> {
-    const model = settings.model || "claude-sonnet-4-20250514";
-
-    // Anthropic requires system as a separate param, not in messages
-    let systemPrompt = "";
-    const filteredMessages = messages.filter((m) => {
-      if (m.role === "system") {
-        systemPrompt = m.content;
-        return false;
-      }
-      return true;
-    });
-
-    // Anthropic requires alternating user/assistant messages
-    // Merge consecutive same-role messages
-    const mergedMessages: { role: string; content: string }[] = [];
-    for (const m of filteredMessages) {
-      const role = m.role === "tool" ? "user" : m.role;
-      if (mergedMessages.length > 0 && mergedMessages[mergedMessages.length - 1].role === role) {
-        mergedMessages[mergedMessages.length - 1].content += "\n" + m.content;
-      } else {
-        mergedMessages.push({ role, content: m.content });
-      }
-    }
-
-    const body: Record<string, unknown> = {
-      model,
-      max_tokens: 4096,
-      messages: mergedMessages,
-      stream: true,
+  private streamCtx(): StreamContext {
+    return {
+      abortController: this.abortController,
+      agentAborted: this.agentAborted,
+      scrollToBottom: () => this.scrollToBottom(),
+      setLinkedText: (el, text) => this.setLinkedText(el, text),
     };
-    if (systemPrompt) body.system = systemPrompt;
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": settings.apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify(body),
-      signal: this.abortController?.signal,
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Anthropic API error ${res.status}: ${err}`);
-    }
-
-    return this.readSSEStream(res, el, (json) => {
-      if (json.type === "content_block_delta") {
-        return json.delta?.text || "";
-      }
-      return "";
-    });
   }
 
-  // ── MiMo streaming (OpenAI-compatible SSE) ──
-  private async streamMiMo(
-    settings: AISettings,
-    messages: { role: string; content: string }[],
-    el: HTMLElement
-  ): Promise<string> {
-    const model = settings.model || "mimo-v2-flash";
-    const res = await fetch("https://api.xiaomimimo.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": settings.apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: true,
-        temperature: 1.0,
-        top_p: 0.95,
-        max_completion_tokens: 4096,
-      }),
-      signal: this.abortController?.signal,
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`MiMo API error ${res.status}: ${err}`);
-    }
-
-    return this.readSSEStream(res, el, (json) => {
-      return json.choices?.[0]?.delta?.content || "";
-    });
-  }
-
-  // ── Mistral streaming (OpenAI-compatible SSE) ──
-  private async streamMistral(
-    settings: AISettings,
-    messages: { role: string; content: string }[],
-    el: HTMLElement
-  ): Promise<string> {
-    const model = settings.model || "mistral-small-latest";
-    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify({ model, messages, max_tokens: 4096, stream: true }),
-      signal: this.abortController?.signal,
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Mistral API error ${res.status}: ${err}`);
-    }
-
-    return this.readSSEStream(res, el, (json) => {
-      return json.choices?.[0]?.delta?.content || "";
-    });
-  }
-
-  // ── Google (no SSE, falls back to non-stream with simulated typing) ──
-  private async callGoogleNonStream(
-    settings: AISettings,
-    history: { role: string; content: string }[],
-    el: HTMLElement
-  ): Promise<string> {
-    const model = settings.model || "gemini-2.0-flash";
-
-    // Extract system instruction
-    let systemInstruction = "";
-    const filteredHistory = history.filter((m) => {
-      if (m.role === "system") {
-        systemInstruction = m.content;
-        return false;
-      }
-      return true;
-    });
-
-    const contents = filteredHistory.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-    const body: Record<string, unknown> = { contents };
-    if (systemInstruction) {
-      body.systemInstruction = { parts: [{ text: systemInstruction }] };
-    }
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: this.abortController?.signal,
-      }
-    );
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Google API error ${res.status}: ${err}`);
-    }
-
-    const data = await res.json();
-    const fullText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
-
-    await this.simulateStream(fullText, el);
-    return fullText;
-  }
-
-  // ── SSE stream reader (works for OpenAI, Anthropic, MiMo, Mistral) ──
-  private async readSSEStream(
-    res: Response,
-    el: HTMLElement,
-    extractContent: (json: any) => string
-  ): Promise<string> {
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let fullText = "";
-    let buffer = "";
-
-    while (true) {
-      if (this.agentAborted) {
-        reader.cancel();
-        break;
-      }
-
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith("data: ")) continue;
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
-
-        try {
-          const json = JSON.parse(data);
-          const chunk = extractContent(json);
-          if (chunk) {
-            fullText += chunk;
-            el.textContent = fullText;
-            this.scrollToBottom();
-          }
-        } catch {
-          // Skip malformed JSON chunks
-        }
-      }
-    }
-
-    // Linkify URLs once streaming is complete
-    this.setLinkedText(el, fullText);
-    return fullText;
-  }
-
-  // ── Simulated streaming for non-SSE providers ──
-  private simulateStream(text: string, el: HTMLElement): Promise<void> {
-    return new Promise((resolve) => {
-      let i = 0;
-      const step = () => {
-        if (this.agentAborted) { resolve(); return; }
-        const chunkSize = Math.min(2 + Math.floor(Math.random() * 3), text.length - i);
-        i += chunkSize;
-        el.textContent = text.substring(0, i);
-        this.scrollToBottom();
-        if (i < text.length) {
-          requestAnimationFrame(step);
-        } else {
-          // Linkify URLs once streaming is complete
-          this.setLinkedText(el, text);
-          resolve();
-        }
-      };
-      requestAnimationFrame(step);
-    });
+  private toolExecCtx(): ToolExecContext {
+    return {
+      activeCommandProcess: this.activeCommandProcess,
+      activeCommandStopped: this.activeCommandStopped,
+      agentAborted: this.agentAborted,
+      setActiveCommandProcess: (p) => { this.activeCommandProcess = p; },
+      setActiveCommandStopped: (v) => { this.activeCommandStopped = v; },
+      getProjectPath: () => this.getProjectPath(),
+      getAgentAccess: () => this.getAgentAccess(),
+      onFileChanged: (path) => this.onFileChanged(path),
+      projectContext: this.projectContext,
+      setProjectContext: (ctx) => { this.projectContext = ctx; },
+    };
   }
 
   /** Set element content with URLs linkified. Links open on Cmd/Ctrl+click. */
