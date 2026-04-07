@@ -24,6 +24,7 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   compactedSummary?: string;
+  projectPath?: string;
 }
 
 const DB_NAME = "athva_chat";
@@ -59,6 +60,11 @@ export async function getAllSessions(): Promise<ChatSession[]> {
   });
 }
 
+export async function getSessionsByProject(projectPath: string): Promise<ChatSession[]> {
+  const all = await getAllSessions();
+  return all.filter((s) => s.projectPath === projectPath);
+}
+
 export async function getSession(id: string): Promise<ChatSession | undefined> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -92,7 +98,7 @@ export async function deleteSession(id: string): Promise<void> {
   });
 }
 
-export function createSession(mode: ChatMode = "chat"): ChatSession {
+export function createSession(mode: ChatMode = "chat", projectPath?: string): ChatSession {
   return {
     id: crypto.randomUUID(),
     title: "New Chat",
@@ -100,5 +106,6 @@ export function createSession(mode: ChatMode = "chat"): ChatSession {
     mode,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    projectPath,
   };
 }

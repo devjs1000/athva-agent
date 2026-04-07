@@ -114,6 +114,7 @@ async function openProject(path: string) {
   $("workspace-project-name").textContent = project.name;
   showPage("workspace");
 
+  editor.closeAllTabs();
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
   globalSearch.setProjectRoot(project.path);

@@ -9,6 +9,7 @@ import {
   createSession,
   saveSession,
   getAllSessions,
+  getSessionsByProject,
   deleteSession,
 } from "./chat-store";
 import { addTokens, updateStatusBar } from "./token-usage";
@@ -97,6 +98,8 @@ export class Chatbot {
   private memory: AgentMemory | null = null;
   private getAppSettings: (() => AppSettings) | null = null;
   private projectContext: string = "";
+  private sessionContextMenu: HTMLElement;
+  private currentProjectPath: string = "";
 
   private session: ChatSession;
   private sessions: ChatSession[] = [];
@@ -123,6 +126,17 @@ export class Chatbot {
     this.getAgentAccess = getAgentAccess;
     this.getProjectPath = getProjectPath;
     this.session = createSession();
+
+    // Session context menu (right-click)
+    this.sessionContextMenu = document.createElement("div");
+    this.sessionContextMenu.className = "context-menu hidden";
+    document.body.appendChild(this.sessionContextMenu);
+    document.addEventListener("click", () => this.sessionContextMenu.classList.add("hidden"));
+    document.addEventListener("contextmenu", (e) => {
+      if (!this.sessionContextMenu.contains(e.target as Node)) {
+        this.sessionContextMenu.classList.add("hidden");
+      }
+    });
 
     this.sendBtn.addEventListener("click", () => this.send());
     this.inputEl.addEventListener("keydown", (e) => {
@@ -168,6 +182,16 @@ export class Chatbot {
    *  Auto-creates the file if it doesn't exist so the agent can persist knowledge from the start. */
   async setProjectPath(projectPath: string) {
     if (!projectPath) { this.projectContext = ""; return; }
+
+    // Reload sessions scoped to new project
+    if (this.currentProjectPath !== projectPath) {
+      if (this.session.messages.length > 0) {
+        await saveSession(this.session);
+      }
+      this.currentProjectPath = projectPath;
+      await this.loadSessionsForProject();
+    }
+
     const contextPath = `${projectPath}/.athva/context.md`;
     try {
       const content = await invoke<string>("read_file", { path: contextPath });
@@ -320,11 +344,22 @@ export class Chatbot {
   // ── Sessions ──
 
   private async init() {
-    this.sessions = await getAllSessions();
+    await this.loadSessionsForProject();
+  }
+
+  private async loadSessionsForProject() {
+    if (this.currentProjectPath) {
+      this.sessions = await getSessionsByProject(this.currentProjectPath);
+    } else {
+      this.sessions = await getAllSessions();
+    }
     if (this.sessions.length > 0) {
       this.session = this.sessions[0];
       // Backfill mode for old sessions
       if (!this.session.mode) this.session.mode = "chat";
+    } else {
+      this.session = createSession("chat", this.currentProjectPath);
+      this.sessions.push(this.session);
     }
     this.updateModeUI();
     this.updatePlaceholder();
@@ -336,7 +371,7 @@ export class Chatbot {
     if (this.session.messages.length > 0) {
       await saveSession(this.session);
     }
-    this.session = createSession(this.session.mode);
+    this.session = createSession(this.session.mode, this.currentProjectPath);
     this.sessions.unshift(this.session);
     this.renderSessionList();
     this.renderMessages();
@@ -369,7 +404,7 @@ export class Chatbot {
       if (this.sessions.length > 0) {
         this.session = this.sessions[0];
       } else {
-        this.session = createSession();
+        this.session = createSession("chat", this.currentProjectPath);
         this.sessions.push(this.session);
       }
     }
@@ -377,6 +412,77 @@ export class Chatbot {
     this.renderMessages();
     this.updateModeUI();
     this.updatePlaceholder();
+  }
+
+  private async closeOtherSessions(keepId: string) {
+    if (this.isStreaming) return;
+    const toDelete = this.sessions.filter((s) => s.id !== keepId);
+    for (const s of toDelete) {
+      await deleteSession(s.id);
+    }
+    this.sessions = this.sessions.filter((s) => s.id === keepId);
+    if (this.session.id !== keepId) {
+      this.session = this.sessions[0];
+    }
+    this.renderSessionList();
+    this.renderMessages();
+    this.updateModeUI();
+    this.updatePlaceholder();
+  }
+
+  private async closeAllSessions() {
+    if (this.isStreaming) return;
+    for (const s of this.sessions) {
+      await deleteSession(s.id);
+    }
+    this.sessions = [];
+    this.session = createSession("chat", this.currentProjectPath);
+    this.sessions.push(this.session);
+    this.renderSessionList();
+    this.renderMessages();
+    this.updateModeUI();
+    this.updatePlaceholder();
+  }
+
+  private showSessionContextMenu(e: MouseEvent, id: string) {
+    this.sessionContextMenu.innerHTML = "";
+
+    const items: { label?: string; action?: () => void; separator?: boolean }[] = [
+      { label: "Close Others", action: () => this.closeOtherSessions(id) },
+      { label: "Close All", action: () => this.closeAllSessions() },
+    ];
+
+    for (const item of items) {
+      if (item.separator) {
+        const sep = document.createElement("div");
+        sep.className = "context-menu-separator";
+        this.sessionContextMenu.appendChild(sep);
+        continue;
+      }
+      const row = document.createElement("div");
+      row.className = "context-menu-item";
+      row.textContent = item.label!;
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.sessionContextMenu.classList.add("hidden");
+        item.action?.();
+      });
+      this.sessionContextMenu.appendChild(row);
+    }
+
+    this.sessionContextMenu.classList.remove("hidden");
+    this.sessionContextMenu.style.left = `${e.clientX}px`;
+    this.sessionContextMenu.style.top = `${e.clientY}px`;
+
+    requestAnimationFrame(() => {
+      const rect = this.sessionContextMenu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        this.sessionContextMenu.style.left = `${window.innerWidth - rect.width - 4}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        this.sessionContextMenu.style.top = `${window.innerHeight - rect.height - 4}px`;
+      }
+    });
   }
 
   private renderSessionList() {
@@ -396,6 +502,12 @@ export class Chatbot {
       el.addEventListener("click", (e) => {
         if ((e.target as HTMLElement).closest(".chat-session-delete")) return;
         this.switchSession((el as HTMLElement).dataset.id!);
+      });
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = (el as HTMLElement).dataset.id!;
+        this.showSessionContextMenu(e as MouseEvent, id);
       });
     });
 
