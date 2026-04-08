@@ -56,6 +56,10 @@ export class FileExplorer {
     await this.renderDir(this.container, rootPath, 0);
   }
 
+  setOnRename(cb: (oldPath: string, newPath: string) => void) {
+    this.contextMenu.setOnRename(cb);
+  }
+
   setActiveFile(path: string) {
     this.container.querySelectorAll(".tree-item").forEach((el) => {
       el.classList.toggle("active", (el as HTMLElement).dataset.path === path);

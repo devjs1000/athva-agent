@@ -135,6 +135,7 @@ export class Editor {
   private tabContextMenu: HTMLElement;
   private editorContextMenu: HTMLElement;
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
+  private onSaveCallback: ((path: string, content: string) => void) | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -391,6 +392,9 @@ export class Editor {
     this.emptyEl.style.display = "none";
     this.editorEl.style.display = "block";
 
+    // Expose current file path for completers (e.g. exports-tracker)
+    (this.ace as any).__athvaFilePath = path;
+
     this.ace.setValue(tab.content, -1);
     this.ace.clearSelection();
 
@@ -532,6 +536,7 @@ export class Editor {
       await invoke("write_file", { path: tab.path, content: tab.content });
       tab.modified = false;
       this.renderTabs();
+      this.onSaveCallback?.(tab.path, tab.content);
     } catch (e) {
       console.error("Failed to save file:", e);
     }
@@ -631,6 +636,15 @@ export class Editor {
 
   setOnAskAI(handler: (prompt: string, code: string) => void) {
     this.onAskAI = handler;
+  }
+
+  setOnSave(handler: (path: string, content: string) => void) {
+    this.onSaveCallback = handler;
+  }
+
+  setOnFileRenamed(_handler: (oldPath: string, newPath: string) => void) {
+    // Renames happen in the file explorer context menu; hook via fileExplorer.setOnRename instead.
+    // This stub is kept for API symmetry.
   }
 
   private showEditorContextMenu(e: MouseEvent) {

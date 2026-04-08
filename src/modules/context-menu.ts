@@ -22,6 +22,7 @@ export class ContextMenu {
   private el: HTMLElement;
   private onRefresh: OnRefresh;
   private onOpenFile: OnOpenFile;
+  private onRenameCallback: ((oldPath: string, newPath: string) => void) | null = null;
   private projectRoot: string = "";
 
   constructor(onRefresh: OnRefresh, onOpenFile: OnOpenFile) {
@@ -42,6 +43,10 @@ export class ContextMenu {
 
   setProjectRoot(root: string) {
     this.projectRoot = root;
+  }
+
+  setOnRename(cb: (oldPath: string, newPath: string) => void) {
+    this.onRenameCallback = cb;
   }
 
   show(x: number, y: number, target: ContextMenuTarget) {
@@ -226,6 +231,7 @@ export class ContextMenu {
     const newPath = `${target.parentDir}/${newName}`;
     try {
       await invoke("rename_path", { oldPath: target.path, newPath });
+      this.onRenameCallback?.(target.path, newPath);
       this.onRefresh(target.parentDir);
     } catch (e) {
       await showConfirmDialog("Error", `Failed to rename: ${e}`, "OK");

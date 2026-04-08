@@ -18,6 +18,7 @@ import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
+import { ExportsTracker } from "./modules/exports-tracker";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -33,6 +34,7 @@ let sourceControl!: SourceControl;
 let codeReviewPanel!: CodeReviewPanel;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
+let exportsTracker!: ExportsTracker;
 let currentProjectPath: string = "";
 
 // ── DOM Helpers ──
@@ -127,6 +129,7 @@ async function openProject(path: string) {
   scriptRunner.setProject(project.path);
   void codeReviewPanel.refreshIfOpen();
   void chatbot.setProjectPath(project.path);
+  await exportsTracker.onProjectOpen(project.path);
 }
 
 async function handleOpenFolder() {
@@ -522,6 +525,39 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
   });
+
+  // ── Exports tracker ──
+  exportsTracker = new ExportsTracker();
+  editor.addCompleter(exportsTracker.getCompleter());
+  editor.setOnSave((path: string, content: string) => {
+    void exportsTracker.onFileSave(path, content);
+  });
+  fileExplorer.setOnRename((oldPath: string, newPath: string) => {
+    void exportsTracker.onFileRenamed(oldPath, newPath);
+  });
+
+  // ── Battery monitor ──
+  if ("getBattery" in navigator) {
+    const battery = await (navigator as any).getBattery();
+    function updateBattery(bat: any) {
+      const el = $("battery-status");
+      const level = Math.round(bat.level * 100);
+      const charging: boolean = bat.charging;
+      el.classList.remove("hidden");
+      el.classList.toggle("battery-low", !charging && level < 20);
+      el.classList.toggle("battery-charging", charging);
+      const icon = charging
+        ? `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9.585 2.568a.5.5 0 0 1 .226.58L8.677 6H11a.5.5 0 0 1 .39.812l-5 6a.5.5 0 0 1-.868-.44L6.677 9H4a.5.5 0 0 1-.39-.812l5-6a.5.5 0 0 1 .975.38z"/></svg>`
+        : level <= 10
+          ? `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 6h10v4H2V6zm0-1a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H2zm12 1.5h.5a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5H14v-3z"/></svg>`
+          : `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 6h10v4H2V6zm0-1a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H2zm12 1.5h.5a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5H14v-3z"/></svg>`;
+      el.innerHTML = `${icon}<span>${level}%</span>`;
+      el.title = charging ? `Battery: ${level}% (charging)` : `Battery: ${level}%`;
+    }
+    updateBattery(battery);
+    battery.addEventListener("levelchange", () => updateBattery(battery));
+    battery.addEventListener("chargingchange", () => updateBattery(battery));
+  }
 
   // ── Token usage status bar ──
   updateStatusBar();

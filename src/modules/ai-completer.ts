@@ -72,6 +72,31 @@ export function attachAICompleter(editor: any) {
   floatingTextareaContainer = document.createElement("div");
   floatingTextareaContainer.className = "ai-floating-textarea-container hidden";
 
+  // Header: agent icon + branding
+  const header = document.createElement("div");
+  header.className = "ai-floating-header";
+
+  const headerIcon = document.createElement("div");
+  headerIcon.className = "ai-floating-header-icon";
+  headerIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936zM4.5 1.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 0 1H5v.5a.5.5 0 0 1-1 0V3.5h-.5a.5.5 0 0 1 0-1H4V2a.5.5 0 0 1 .5-.5zm7 0a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 0 1H12v.5a.5.5 0 0 1-1 0V3.5h-.5a.5.5 0 0 1 0-1H11V2a.5.5 0 0 1 .5-.5z"/></svg>`;
+
+  const headerText = document.createElement("div");
+  headerText.className = "ai-floating-header-text";
+
+  const headerTitle = document.createElement("span");
+  headerTitle.className = "ai-floating-header-title";
+  headerTitle.textContent = "Athva Agent";
+
+  const headerSub = document.createElement("span");
+  headerSub.className = "ai-floating-header-sub";
+  headerSub.textContent = "Generate code with AI";
+
+  headerText.appendChild(headerTitle);
+  headerText.appendChild(headerSub);
+  header.appendChild(headerIcon);
+  header.appendChild(headerText);
+  floatingTextareaContainer.appendChild(header);
+
   floatingTextarea = document.createElement("textarea");
   floatingTextarea.className = "ai-floating-textarea";
   floatingTextarea.placeholder = "Describe what you want to build, or paste a prompt…";
