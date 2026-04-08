@@ -295,8 +295,6 @@ export class ExportsTracker {
   // ── Completer 2: import path file suggestions ─────────────────────────────
 
   getPathCompleter(): Ace.Completer {
-    const tracker = this;
-
     return {
       // Include path chars so Ace sends "." and "/" as part of prefix
       identifierRegexps: [/[a-zA-Z_$0-9./\\@\-]/],

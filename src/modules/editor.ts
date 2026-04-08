@@ -42,6 +42,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lintTypeScript, shouldUseTsLint, getTsFileName } from "./ts-lint";
 import { Minimap } from "./minimap";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
+import { CustomAutocomplete } from "./custom-autocomplete";
 import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
@@ -132,6 +133,7 @@ export class Editor {
   private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
   private lintTimeout: ReturnType<typeof setTimeout> | null = null;
   private minimap: Minimap | null = null;
+  private customAutocomplete: CustomAutocomplete;
   private tabContextMenu: HTMLElement;
   private editorContextMenu: HTMLElement;
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
@@ -157,19 +159,19 @@ export class Editor {
 
     // Enable autocompletion
     this.ace.setOptions({
-      enableBasicAutocompletion: true,
-      enableLiveAutocompletion: true,
+      enableBasicAutocompletion: false,
+      enableLiveAutocompletion: false,
       enableSnippets: true,
     });
-    // Inline autocomplete (not in type defs but supported at runtime)
-    (this.ace as any).setOption("enableInlineAutocompletion", true);
+
+    this.customAutocomplete = new CustomAutocomplete(this.ace);
 
     // Ctrl+Space / Cmd+Space to trigger autocomplete
     this.ace.commands.addCommand({
       name: "triggerAutocomplete",
       bindKey: { win: "Ctrl-Space", mac: "Cmd-Space|Ctrl-Space" },
-      exec: (editor: ace.Ace.Editor) => {
-        editor.execCommand("startAutocomplete");
+      exec: () => {
+        this.customAutocomplete.trigger();
       },
     });
 
@@ -178,14 +180,7 @@ export class Editor {
       name: "acceptInlineOrTab",
       bindKey: { win: "Tab", mac: "Tab" },
       exec: (editor: ace.Ace.Editor) => {
-        // If autocomplete popup is open, accept it
-        if ((editor as any).completer?.popup?.isOpen) {
-          editor.execCommand("insertMatch");
-          return;
-        }
-        // If there's inline autocomplete ghost text, accept it
-        if ((editor as any).completer?.inlineCompleter?.isOpen?.()) {
-          (editor as any).completer.inlineCompleter.accept();
+        if (this.customAutocomplete.acceptSelected()) {
           return;
         }
         // Otherwise normal indent
@@ -378,10 +373,7 @@ export class Editor {
 
   /** Add a custom completer to the Ace editor */
   addCompleter(completer: ace.Ace.Completer) {
-    const langTools = ace.require("ace/ext/language_tools");
-    if (langTools) {
-      langTools.addCompleter(completer);
-    }
+    this.customAutocomplete.addCompleter(completer);
   }
 
   private switchToTab(path: string) {

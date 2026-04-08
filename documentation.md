@@ -30,7 +30,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 ### Frontend Modules
 
 - `src/main.ts`: bootstraps the workspace, wires page state, and connects modules together.
-- `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, and AI completion hooks.
+- `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, AI completion hooks, and the custom completion surface wiring.
+- `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while replacing Ace's default autocomplete UI.
 - `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
 - `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI.
 - `src/modules/chatbot.ts`: manages chat sessions and provider API calls.
@@ -133,6 +134,7 @@ Primary reusable logic is tracked in `memory.md`. The current high-value reusabl
 - chatbot and chat-store
 - script runner
 - AI completer
+- custom autocomplete
 
 ## Setup Instructions
 
