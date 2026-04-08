@@ -529,6 +529,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Exports tracker ──
   exportsTracker = new ExportsTracker();
   editor.addCompleter(exportsTracker.getCompleter());
+  editor.addCompleter(exportsTracker.getPathCompleter());
   editor.setOnSave((path: string, content: string) => {
     void exportsTracker.onFileSave(path, content);
   });

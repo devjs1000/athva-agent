@@ -1,10 +1,6 @@
 // exports-tracker.ts
 // Tracks project exports in .athva/exports.json and provides auto-import completions.
-//
-// exports.json schema:
-// { "exports": [ { "name": "MyFn", "file": "src/utils.ts", "rule": "*.ts" } ] }
-//
-// "rule" is optional — from a //.athva-exports-rule <glob> comment in the source file.
+// Also provides import-path completions for relative paths in import statements.
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Ace } from "ace-builds";
@@ -63,7 +59,7 @@ function matchGlob(pattern: string, filePath: string): boolean {
   return re.test(filename);
 }
 
-// ── Relative path resolver ────────────────────────────────────────────────────
+// ── Path helpers ──────────────────────────────────────────────────────────────
 
 function relativePath(fromFile: string, toFile: string): string {
   const fromParts = fromFile.split("/");
@@ -88,9 +84,21 @@ function stripExt(p: string): string {
   return p.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
 }
 
+function resolveDir(currentDir: string, partialPath: string): string {
+  const parts = currentDir.split("/");
+  const segments = partialPath.split("/");
+  for (const seg of segments) {
+    if (seg === "..") parts.pop();
+    else if (seg !== ".") parts.push(seg);
+  }
+  return parts.join("/");
+}
+
 // ── Dirs to skip during project scan ─────────────────────────────────────────
 
-const SKIP_DIRS = new Set(["node_modules", ".git", ".athva", "dist", "build", ".next", "out"]);
+const SKIP_DIRS = new Set([
+  "node_modules", ".git", ".athva", "dist", "build", ".next", "out", ".svelte-kit",
+]);
 
 // ── Main class ────────────────────────────────────────────────────────────────
 
@@ -102,7 +110,6 @@ export class ExportsTracker {
     this.projectPath = projectPath;
     this.exports = [];
 
-    // Try to load cached exports.json first
     let loaded = false;
     try {
       const raw = await invoke<string>("read_file", {
@@ -112,10 +119,9 @@ export class ExportsTracker {
       this.exports = parsed.exports ?? [];
       loaded = true;
     } catch {
-      // No cached file — will scan below
+      // No cache yet
     }
 
-    // If no cache, do a full project scan in the background
     if (!loaded) {
       void this.scanProject(projectPath).then(() => this.persist());
     }
@@ -131,8 +137,7 @@ export class ExportsTracker {
 
     for (const entry of entries) {
       if (entry.is_dir) {
-        const dirName = entry.name;
-        if (SKIP_DIRS.has(dirName) || dirName.startsWith(".")) continue;
+        if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
         await this.scanProject(entry.path);
       } else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry.name)) {
         try {
@@ -157,7 +162,6 @@ export class ExportsTracker {
     const relFile = absolutePath.slice(this.projectPath.length + 1);
     const { names, rule } = extractExports(content);
 
-    // Replace entries for this file
     const before = this.exports.filter((e) => e.file !== relFile);
     const newEntries: ExportEntry[] = names.map((name) => ({
       name,
@@ -202,18 +206,27 @@ export class ExportsTracker {
     }
   }
 
+  // ── Completer 1: named-export auto-import ─────────────────────────────────
+
   getCompleter(): Ace.Completer {
     const tracker = this;
 
     return {
+      // Tell Ace to include these chars in the "prefix" word
+      identifierRegexps: [/[a-zA-Z_$0-9]/],
+
       getCompletions(
         editor: Ace.Editor,
-        _session: Ace.EditSession,
-        _pos: Ace.Point,
+        session: Ace.EditSession,
+        pos: Ace.Point,
         prefix: string,
         callback: Ace.CompleterCallback
       ) {
-        if (!prefix || prefix.length < 1) {
+        if (!prefix || prefix.length < 1) { callback(null, []); return; }
+
+        // Don't fire inside an import string — path completer handles that
+        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
+        if (/(?:from|import)\s*['"][^'"]*$/.test(lineUpTo)) {
           callback(null, []);
           return;
         }
@@ -237,9 +250,8 @@ export class ExportsTracker {
           results.push({
             caption: entry.name,
             value: entry.name,
-            meta: `import · ${importPath}`,
+            meta: `↑ ${importPath}`,
             score: 900,
-            // Store import info for insertMatch
             _importName: entry.name,
             _importPath: importPath,
           });
@@ -248,31 +260,107 @@ export class ExportsTracker {
         callback(null, results);
       },
 
-      // Custom insert: write the symbol name at cursor AND prepend the import line
       insertMatch(editor: Ace.Editor, data: any) {
-        // Insert the symbol name (replace prefix)
-        if ((editor as any).completer) {
-          (editor as any).completer.insertMatch({ value: data.value });
-        }
+        const session = editor.getSession();
+        const pos = editor.getCursorPosition();
+        const line = session.getLine(pos.row);
+
+        // Walk back to find where the typed prefix starts
+        let startCol = pos.column;
+        while (startCol > 0 && /[\w$]/.test(line[startCol - 1])) startCol--;
+
+        // Replace the prefix with just the symbol name — plain object works (Ace duck-types ranges)
+        session.replace(
+          { start: { row: pos.row, column: startCol }, end: { row: pos.row, column: pos.column } } as any,
+          data.value ?? ""
+        );
 
         if (!data._importName || !data._importPath) return;
 
-        const importLine = `import { ${data._importName} } from "${data._importPath}";\n`;
-        const session = editor.getSession();
-        const docValue: string = session.getValue();
+        const stmt = `import { ${data._importName} } from "${data._importPath}";`;
+        const docLines = session.getValue().split("\n");
 
-        // Don't duplicate if already imported
-        if (docValue.includes(importLine.trim())) return;
+        if (docLines.some((l) => l.includes(stmt))) return;
 
-        // Find the right row to insert: after the last existing import block
-        const lines: string[] = docValue.split("\n");
         let lastImportRow = -1;
-        for (let i = 0; i < lines.length; i++) {
-          if (/^import\s/.test(lines[i].trim())) lastImportRow = i;
+        for (let i = 0; i < docLines.length; i++) {
+          if (/^import[\s{*"']/.test(docLines[i])) lastImportRow = i;
         }
 
-        const insertRow = lastImportRow + 1; // 0 if no imports exist
-        session.insert({ row: insertRow, column: 0 }, importLine);
+        session.insert({ row: lastImportRow + 1, column: 0 }, stmt + "\n");
+      },
+    };
+  }
+
+  // ── Completer 2: import path file suggestions ─────────────────────────────
+
+  getPathCompleter(): Ace.Completer {
+    const tracker = this;
+
+    return {
+      // Include path chars so Ace sends "." and "/" as part of prefix
+      identifierRegexps: [/[a-zA-Z_$0-9./\\@\-]/],
+
+      getCompletions(
+        editor: Ace.Editor,
+        session: Ace.EditSession,
+        pos: Ace.Point,
+        _prefix: string,
+        callback: Ace.CompleterCallback
+      ) {
+        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
+
+        const m = lineUpTo.match(/(?:from|import|require\s*\()\s*['"]([^'"]*)/);
+        if (!m) { callback(null, []); return; }
+
+        const partialPath = m[1];
+        if (!partialPath.startsWith(".")) { callback(null, []); return; }
+
+        const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
+        if (!currentAbsPath) { callback(null, []); return; }
+
+        const currentDir = currentAbsPath.slice(0, currentAbsPath.lastIndexOf("/"));
+        const lastSlash = partialPath.lastIndexOf("/");
+
+        const dirPart  = lastSlash >= 0 ? partialPath.slice(0, lastSlash) : ".";
+        const filePrefix = lastSlash >= 0 ? partialPath.slice(lastSlash + 1) : "";
+
+        const absDir = resolveDir(currentDir, dirPart);
+
+        invoke<FileEntry[]>("read_dir", { path: absDir })
+          .then((entries) => {
+            const fp = filePrefix.toLowerCase();
+            const results: any[] = entries
+              .filter((e) => fp === "" || e.name.toLowerCase().startsWith(fp))
+              .map((e) => ({
+                caption: e.name,
+                value: e.is_dir ? e.name : stripExt(e.name),
+                meta: e.is_dir ? "dir" : "file",
+                score: 850,
+              }));
+            callback(null, results);
+          })
+          .catch(() => callback(null, []));
+      },
+
+      // Replace only the part after the last "/" with the selected name
+      insertMatch(editor: Ace.Editor, data: any) {
+        const session = editor.getSession();
+        const pos = editor.getCursorPosition();
+        const line = session.getLine(pos.row);
+        const lineUpTo = line.slice(0, pos.column);
+
+        // Find the last "/" inside the current import string
+        const quoteMatch = lineUpTo.match(/(?:from|import|require\s*\()\s*['"](.*)/);
+        if (!quoteMatch) return;
+        const partialPath = quoteMatch[1];
+        const lastSlash = partialPath.lastIndexOf("/");
+        const replaceStart = pos.column - (partialPath.length - lastSlash - 1);
+
+        session.replace(
+          { start: { row: pos.row, column: replaceStart }, end: { row: pos.row, column: pos.column } } as any,
+          data.value ?? ""
+        );
       },
     };
   }
