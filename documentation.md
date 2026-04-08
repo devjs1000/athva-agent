@@ -40,6 +40,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/source-control.ts`: git UI for stage/unstage/discard/diff/commit and AI commit messages.
 - `src/modules/terminal.ts`: xterm-based command runner with command history and basic shell conveniences.
 - `src/modules/script-runner.ts`: lists package scripts and executes them through the terminal.
+- `src/modules/snippets-panel.ts`: renders the snippets sidebar, supports custom snippet authoring, and inserts snippets with live tabstops.
+- `src/modules/snippet-store.ts`: merges built-in, global, and project snippets, persists custom snippets, and exposes custom snippet autocomplete data.
 - `src/modules/ai-completer.ts`: selected-code actions and idle-triggered AI suggestions.
 - `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports for ESM/CommonJS/default exports, and suggests installed package names inside import/require strings.
 - `src/modules/ts-lint.ts`: TypeScript worker bridge for editor diagnostics.
@@ -134,6 +136,8 @@ Primary reusable logic is tracked in `memory.md`. The current high-value reusabl
 - file explorer
 - chatbot and chat-store
 - script runner
+- snippets panel
+- snippet store
 - AI completer
 - exports tracker
 - custom autocomplete

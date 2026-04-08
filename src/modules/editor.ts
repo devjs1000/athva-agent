@@ -183,6 +183,9 @@ export class Editor {
         if (this.customAutocomplete.acceptSelected()) {
           return;
         }
+        if ((editor as any).expandSnippet?.()) {
+          return;
+        }
         // Otherwise normal indent
         editor.execCommand("indent");
       },
@@ -368,6 +371,12 @@ export class Editor {
   /** Insert text at current cursor position */
   insertText(text: string) {
     this.ace.insert(text);
+    this.ace.focus();
+  }
+
+  /** Insert an Ace snippet so tabstops and placeholders remain interactive */
+  insertSnippet(snippet: string) {
+    (this.ace as any).insertSnippet(snippet);
     this.ace.focus();
   }
 

@@ -285,6 +285,9 @@
             <div class="snippets-header">
               <span class="snippets-header-title">SNIPPETS</span>
               <div class="snippets-header-actions">
+                <button id="btn-add-snippet" class="btn-icon btn-icon-sm" title="Add Snippet">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a.5.5 0 0 1 .5.5V7.5h4a.5.5 0 0 1 0 1h-4v4a.5.5 0 0 1-1 0v-4h-4a.5.5 0 0 1 0-1h4v-4A.5.5 0 0 1 8 3z"/></svg>
+                </button>
                 <button id="btn-close-snippets" class="btn-icon btn-icon-sm" title="Close">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
                 </button>
@@ -292,6 +295,44 @@
             </div>
             <div class="snippets-tabs"></div>
             <input class="snippets-search" type="text" placeholder="Search snippets..." autocomplete="off" spellcheck="false" />
+            <div class="snippets-compose hidden">
+              <div class="snippets-compose-grid">
+                <label class="snippets-compose-field">
+                  <span>Language</span>
+                  <select class="snippets-compose-category"></select>
+                </label>
+                <label class="snippets-compose-field">
+                  <span>Scope</span>
+                  <select class="snippets-compose-scope">
+                    <option value="project">Project</option>
+                    <option value="global">Global</option>
+                  </select>
+                </label>
+                <label class="snippets-compose-field">
+                  <span>Prefix</span>
+                  <input class="snippets-compose-prefix" type="text" placeholder="apiFn" />
+                </label>
+                <label class="snippets-compose-field">
+                  <span>Label</span>
+                  <input class="snippets-compose-label" type="text" placeholder="API Function" />
+                </label>
+              </div>
+              <label class="snippets-compose-field">
+                <span>Description</span>
+                <input class="snippets-compose-description" type="text" placeholder="Shown in the snippets tab and autocomplete" />
+              </label>
+              <label class="snippets-compose-field">
+                <span>Body</span>
+                <textarea class="snippets-compose-body" rows="6" placeholder="function ${1:name}() {\n  $0\n}"></textarea>
+              </label>
+              <div class="snippets-compose-footer">
+                <span class="snippets-compose-error"></span>
+                <div class="snippets-compose-actions">
+                  <button id="btn-cancel-snippet" class="btn-secondary" type="button">Cancel</button>
+                  <button id="btn-save-snippet" class="btn-primary" type="button">Save Snippet</button>
+                </div>
+              </div>
+            </div>
             <div class="snippets-list"></div>
           </div>
 

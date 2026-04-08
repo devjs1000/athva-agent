@@ -127,6 +127,7 @@ async function openProject(path: string) {
   sourceControl.setProject(project.path);
   terminal.setProject(project.path);
   scriptRunner.setProject(project.path);
+  await snippetsPanel.setProjectPath(project.path);
   void codeReviewPanel.refreshIfOpen();
   void chatbot.setProjectPath(project.path);
   await exportsTracker.onProjectOpen(project.path);
@@ -232,7 +233,8 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init snippets panel
   snippetsPanel = new SnippetsPanel("snippets-panel");
-  snippetsPanel.onInsert((text) => editor.insertText(text));
+  snippetsPanel.onInsert((snippet) => editor.insertSnippet(snippet));
+  editor.addCompleter(snippetsPanel.getCompleter());
 
   // Init Tailwind completer
   setTailwindEnabled(!!appSettings.editor.tailwindAutocomplete);

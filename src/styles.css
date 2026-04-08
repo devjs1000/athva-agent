@@ -3633,6 +3633,12 @@ body {
   color: #d8dee9;
 }
 
+.snippets-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .snippets-tabs {
   display: flex;
   gap: 2px;
@@ -3687,6 +3693,84 @@ body {
   color: var(--text-muted);
 }
 
+.snippets-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 10px 6px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.snippets-compose-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.snippets-compose-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.snippets-compose-field span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.snippets-compose-field input,
+.snippets-compose-field select,
+.snippets-compose-field textarea {
+  width: 100%;
+  padding: 7px 9px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.snippets-compose-field textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: "SF Mono", Menlo, Monaco, monospace;
+  line-height: 1.5;
+}
+
+.snippets-compose-field input:focus,
+.snippets-compose-field select:focus,
+.snippets-compose-field textarea:focus {
+  border-color: rgba(126, 200, 255, 0.35);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.12);
+}
+
+.snippets-compose-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.snippets-compose-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.snippets-compose-error {
+  flex: 1;
+  font-size: 11px;
+  color: #ff9e8a;
+}
+
 .snippets-list {
   flex: 1;
   overflow-y: auto;
@@ -3728,6 +3812,14 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: #e0e4e8;
+}
+
+.snippet-scope {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .snippet-desc {
