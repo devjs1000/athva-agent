@@ -1587,7 +1587,7 @@ body {
 /* ── AI Action Menu (on selection) ── */
 .ai-action-menu {
   position: absolute;
-  z-index: 10;
+  z-index: 16;
   display: flex;
   gap: 2px;
   background: #23262c;

@@ -271,13 +271,19 @@ function showActionMenu() {
   const renderer = activeEditor.renderer;
   const coords = renderer.textToScreenCoordinates(selection.end.row, selection.end.column);
   const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
-
-  const x = coords.pageX - editorRect.left + 8;
-  const y = coords.pageY - editorRect.top + renderer.lineHeight + 4;
-
-  actionMenu.style.left = `${Math.max(0, x)}px`;
-  actionMenu.style.top = `${Math.max(0, y)}px`;
   actionMenu.classList.remove("hidden");
+
+  const menuWidth = actionMenu.offsetWidth || 520;
+  const menuHeight = actionMenu.offsetHeight || 40;
+  const anchorX = coords.pageX - editorRect.left + 8;
+  const anchorY = coords.pageY - editorRect.top + renderer.lineHeight + 4;
+  const maxLeft = Math.max(8, editorRect.width - menuWidth - 8);
+  const belowTop = Math.max(8, Math.min(anchorY, editorRect.height - menuHeight - 8));
+  const aboveTop = Math.max(8, coords.pageY - editorRect.top - menuHeight - 8);
+  const top = anchorY + menuHeight <= editorRect.height - 8 ? belowTop : aboveTop;
+
+  actionMenu.style.left = `${Math.max(8, Math.min(anchorX, maxLeft))}px`;
+  actionMenu.style.top = `${top}px`;
 }
 
 function hideActionMenu() {
