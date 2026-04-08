@@ -642,10 +642,6 @@ export class Editor {
     this.onSaveCallback = handler;
   }
 
-  setOnFileRenamed(_handler: (oldPath: string, newPath: string) => void) {
-    // Renames happen in the file explorer context menu; hook via fileExplorer.setOnRename instead.
-    // This stub is kept for API symmetry.
-  }
 
   private showEditorContextMenu(e: MouseEvent) {
     const selection = this.ace.getSelectedText();
