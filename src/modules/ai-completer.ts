@@ -202,9 +202,12 @@ export function attachAICompleter(editor: any) {
       clearGhost();
       activeEditor.insert(text);
     }
-    if (e.key === "Escape" && ghostText) {
-      e.preventDefault();
-      clearGhost();
+    if (e.key === "Escape") {
+      hideSuggestBtn();
+      if (ghostText) {
+        e.preventDefault();
+        clearGhost();
+      }
     }
     // Any typing hides the suggest button
     if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
@@ -267,9 +270,9 @@ function hideSuggestBtn() {
 function showActionMenu() {
   if (!actionMenu || !activeEditor || isLoading) return;
 
-  const selection = activeEditor.selection.getRange();
   const renderer = activeEditor.renderer;
-  const coords = renderer.textToScreenCoordinates(selection.end.row, selection.end.column);
+  const lead = activeEditor.getCursorPosition();
+  const coords = renderer.textToScreenCoordinates(lead.row, lead.column);
   const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
   actionMenu.classList.remove("hidden");
 
@@ -278,8 +281,9 @@ function showActionMenu() {
   const anchorX = coords.pageX - editorRect.left + 8;
   const anchorY = coords.pageY - editorRect.top + renderer.lineHeight + 4;
   const maxLeft = Math.max(8, editorRect.width - menuWidth - 8);
-  const belowTop = Math.max(8, Math.min(anchorY, editorRect.height - menuHeight - 8));
-  const aboveTop = Math.max(8, coords.pageY - editorRect.top - menuHeight - 8);
+  const maxTop = Math.max(8, editorRect.height - menuHeight - 8);
+  const belowTop = Math.max(8, Math.min(anchorY, maxTop));
+  const aboveTop = Math.max(8, Math.min(coords.pageY - editorRect.top - menuHeight - 8, maxTop));
   const top = anchorY + menuHeight <= editorRect.height - 8 ? belowTop : aboveTop;
 
   actionMenu.style.left = `${Math.max(8, Math.min(anchorX, maxLeft))}px`;

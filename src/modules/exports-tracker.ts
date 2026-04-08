@@ -610,6 +610,22 @@ export class ExportsTracker {
           }));
         callback(null, packageResults);
       },
+
+      insertMatch(editor: Ace.Editor, data: any) {
+        const session = editor.getSession();
+        const pos = editor.getCursorPosition();
+        const line = session.getLine(pos.row);
+        const lineUpTo = line.slice(0, pos.column);
+        const match = lineUpTo.match(/(?:from|import|require\s*\()\s*['"]([^'"]*)$/);
+        if (!match) return;
+
+        const partialPath = match[1];
+        const replaceStart = pos.column - partialPath.length;
+        session.replace(
+          { start: { row: pos.row, column: replaceStart }, end: { row: pos.row, column: pos.column } } as any,
+          data.value ?? ""
+        );
+      },
     };
 
     return completer;
