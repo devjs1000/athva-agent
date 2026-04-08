@@ -44,6 +44,19 @@ const AGENT_TOOLS = [
 
 const CHAT_SYSTEM_PROMPT = `You are Athva, a helpful AI coding assistant. You help users understand code, answer programming questions, and provide suggestions. Be concise and precise in your responses.`;
 
+const MAX_PROJECT_CONTEXT_CHARS = 2200;
+const MAX_COMPACTED_SUMMARY_CHARS = 1800;
+const AGENT_COMPACT_THRESHOLD_TOKENS = 4000;
+const AGENT_KEEP_RECENT_MESSAGES = 4;
+
+function capText(value: string, limit: number, suffix = "\n…[truncated]"): string {
+  return value.length > limit ? value.substring(0, limit) + suffix : value;
+}
+
+function capProjectContext(projectContext: string): string {
+  return capText(projectContext.trim(), MAX_PROJECT_CONTEXT_CHARS, "\n…[project context truncated]");
+}
+
 function buildAgentSystemPrompt(projectPath: string, access: AgentAccess, projectContext = ""): string {
   const tools = AGENT_TOOLS.filter((t) => {
     if (t.name === "read_file" || t.name === "batch_read" || t.name === "list_dir" || t.name === "search_files" || t.name === "search_content") return access.fileRead;
@@ -60,7 +73,7 @@ function buildAgentSystemPrompt(projectPath: string, access: AgentAccess, projec
     .join("\n");
 
   const contextSection = projectContext
-    ? `\n[Project Context]\n${projectContext}\n`
+    ? `\n[Project Context]\n${capProjectContext(projectContext)}\n`
     : "";
 
   return `You are Athva Agent. Project: ${projectPath}
@@ -802,29 +815,27 @@ export class Chatbot {
   }
 
   private async compactHistory(settings: AISettings): Promise<void> {
-    const MAX_TOKENS = 6_000; // Compact earlier to prevent token bloat
-    if (this.estimateSessionTokens() < MAX_TOKENS) return;
+    if (this.estimateSessionTokens() < AGENT_COMPACT_THRESHOLD_TOKENS) return;
 
-    // Keep the last 4 messages intact
-    const keepCount = 4;
+    const keepCount = AGENT_KEEP_RECENT_MESSAGES;
     const toSummarize = this.session.messages.slice(0, -keepCount);
     if (toSummarize.length < 4) return; // Not enough to compress
 
     const historyText = toSummarize
-      .map((m) => `${m.role.toUpperCase()}: ${m.content.substring(0, 300)}`)
+      .map((m) => `${m.role.toUpperCase()}: ${capText(m.content, 220, "…")}`)
       .join("\n");
 
     const prompt =
-      `Summarize this conversation in <150 words. Keep: files modified, decisions made, current task state. ` +
-      `Skip: file contents, command outputs, tool details.\n\n${historyText}`;
+      `Create a rolling compact summary in under 180 words.\n` +
+      `Keep only: current user goal, files changed, decisions made, unresolved blockers, next step.\n` +
+      `Do not include raw file contents, long command output, or repeated history.\n\n` +
+      `${this.session.compactedSummary ? `Previous summary:\n${capText(this.session.compactedSummary, 900, "…")}\n\n` : ""}` +
+      `Recent conversation to merge:\n${historyText}`;
 
     const summary = await callAIOnce(settings, prompt);
     if (!summary) return;
 
-    const previousSummary = this.session.compactedSummary;
-    this.session.compactedSummary = previousSummary
-      ? `${previousSummary}\n\n${summary}`
-      : summary;
+    this.session.compactedSummary = capText(summary.trim(), MAX_COMPACTED_SUMMARY_CHARS, "\n…[summary truncated]");
     this.session.messages = this.session.messages.slice(-keepCount);
     await saveSession(this.session);
 
@@ -840,10 +851,10 @@ export class Chatbot {
   private buildChatHistory(memoryContext = ""): { role: string; content: string }[] {
     let systemContent = CHAT_SYSTEM_PROMPT;
     if (this.projectContext) {
-      systemContent += `\n\n[Project Context]\n${this.projectContext}`;
+      systemContent += `\n\n[Project Context]\n${capProjectContext(this.projectContext)}`;
     }
     if (memoryContext) {
-      systemContent += `\n\n[Relevant memories from past sessions]\n${memoryContext}`;
+      systemContent += `\n\n[Relevant memories from past sessions]\n${capText(memoryContext, 1200, "\n…[memory truncated]")}`;
     }
     const systemMsg = { role: "system", content: systemContent };
 
@@ -851,8 +862,10 @@ export class Chatbot {
 
     // Prepend compacted summary when history was previously compacted
     if (this.session.compactedSummary) {
-      msgs.push({ role: "user", content: `[Conversation summary from earlier]\n${this.session.compactedSummary}` });
-      msgs.push({ role: "assistant", content: "Understood, I have the context from the earlier conversation." });
+      msgs.push({
+        role: "user",
+        content: `[Conversation summary from earlier]\n${capText(this.session.compactedSummary, MAX_COMPACTED_SUMMARY_CHARS, "\n…[summary truncated]")}`,
+      });
     }
 
     const recent = this.session.messages
@@ -880,6 +893,10 @@ export class Chatbot {
           break;
         }
         iterations++;
+
+        if (this.estimateSessionTokens() >= AGENT_COMPACT_THRESHOLD_TOKENS) {
+          await this.compactHistory(settings);
+        }
 
         // Warn agent when running low on turns so it can wrap up
         if (iterations === maxIterations - 2) {
@@ -993,7 +1010,7 @@ export class Chatbot {
         if (allDenied) break;
 
         // Mid-loop compaction: every 5 turns, compact history to keep tokens low
-        if (iterations % 5 === 0) {
+        if (iterations % 3 === 0) {
           await this.compactHistory(settings);
         }
 
@@ -1027,30 +1044,25 @@ export class Chatbot {
     const systemMsg = { role: "system", content: systemPrompt };
 
     // Keep the last N messages — lower = less tokens per API call
-    const MAX_HISTORY = 12;
+    const MAX_HISTORY = 8;
     const recentMessages = this.session.messages.slice(-MAX_HISTORY);
 
     const msgs: { role: string; content: string }[] = [];
 
     // Prepend compacted summary when history was previously compacted
     if (this.session.compactedSummary) {
-      // Cap summary itself to prevent unbounded growth
-      const cappedSummary = this.session.compactedSummary.length > 2000
-        ? this.session.compactedSummary.substring(0, 2000) + "\n…[summary truncated]"
-        : this.session.compactedSummary;
-      msgs.push({ role: "user", content: `[Earlier context]\n${cappedSummary}` });
-      msgs.push({ role: "assistant", content: "Understood." });
+      msgs.push({
+        role: "user",
+        content: `[Earlier context]\n${capText(this.session.compactedSummary, MAX_COMPACTED_SUMMARY_CHARS, "\n…[summary truncated]")}`,
+      });
     }
 
     for (const m of recentMessages) {
       if (m.role === "user") {
-        // Cap user messages too — sometimes they paste large content
-        const userContent = m.content.length > 4000
-          ? m.content.substring(0, 4000) + "\n…[user message truncated]"
-          : m.content;
+        const userContent = capText(m.content, 1800, "\n…[user message truncated]");
         msgs.push({ role: "user", content: userContent });
       } else if (m.role === "assistant") {
-        let content = m.content;
+        let content = capText(m.content, 1600, "\n…[assistant message truncated]");
         if (m.toolCalls && m.toolCalls.length > 0) {
           // Only include tool name + key args, not full args (write_file content is huge)
           const toolBlock = m.toolCalls
@@ -1059,7 +1071,7 @@ export class Chatbot {
               for (const [k, v] of Object.entries(tc.args)) {
                 const val = String(v);
                 // Truncate large arg values (e.g. file content in write_file)
-                compactArgs[k] = val.length > 200 ? val.substring(0, 200) + "…" : val;
+                compactArgs[k] = capText(val, 120, "…");
               }
               return JSON.stringify({ tool: tc.name, args: compactArgs });
             })
@@ -1072,10 +1084,8 @@ export class Chatbot {
         // Recent results get slightly more space; older ones get minimal.
         const msgIndex = recentMessages.indexOf(m);
         const isRecent = msgIndex >= recentMessages.length - 4; // last 4 msgs
-        const TOOL_HISTORY_LIMIT = isRecent ? 3000 : 800;
-        const content = m.content.length > TOOL_HISTORY_LIMIT
-          ? m.content.slice(0, TOOL_HISTORY_LIMIT) + `\n…[${m.content.length - TOOL_HISTORY_LIMIT} chars omitted]`
-          : m.content;
+        const TOOL_HISTORY_LIMIT = isRecent ? 900 : 320;
+        const content = capText(m.content, TOOL_HISTORY_LIMIT, `\n…[${Math.max(0, m.content.length - TOOL_HISTORY_LIMIT)} chars omitted]`);
         msgs.push({ role: "user", content });
       }
     }

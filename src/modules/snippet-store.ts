@@ -18,20 +18,31 @@ interface StoredSnippetFile {
 
 const GLOBAL_SNIPPETS_PATH = ".athva/snippets.json";
 const PROJECT_SNIPPETS_FILE = ".athva/snippets.json";
+const SNIPPET_PREFIX_RE = /[A-Za-z0-9_$-]/;
 
 function createSnippetId(): string {
   return `snippet_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function modeToCategories(modeName: string): string[] {
-  if (modeName.includes("tsx")) return ["typescript", "react"];
-  if (modeName.includes("jsx")) return ["javascript", "react"];
-  if (modeName.includes("typescript")) return ["typescript"];
-  if (modeName.includes("javascript")) return ["javascript"];
-  if (modeName.includes("html")) return ["html"];
-  if (modeName.includes("css")) return ["css"];
-  if (modeName.includes("python")) return ["python"];
+  const normalized = modeName.toLowerCase();
+  if (normalized.includes("tsx")) return ["typescript", "javascript", "react"];
+  if (normalized.includes("jsx")) return ["javascript", "typescript", "react"];
+  if (normalized.includes("typescript")) return ["typescript"];
+  if (normalized.includes("javascript")) return ["javascript"];
+  if (normalized.includes("html")) return ["html"];
+  if (normalized.includes("css")) return ["css"];
+  if (normalized.includes("python")) return ["python"];
   return [];
+}
+
+function getSnippetPrefix(session: Ace.EditSession, pos: Ace.Point, fallback: string): string {
+  if (fallback) return fallback;
+
+  const line = session.getLine(pos.row).slice(0, pos.column);
+  let start = line.length;
+  while (start > 0 && SNIPPET_PREFIX_RE.test(line[start - 1])) start--;
+  return line.slice(start);
 }
 
 function dedupeSnippets(snippets: SnippetEntry[]): SnippetEntry[] {
@@ -100,11 +111,12 @@ export class SnippetStore {
       getCompletions(
         _editor: Ace.Editor,
         session: Ace.EditSession,
-        _pos: Ace.Point,
+        pos: Ace.Point,
         prefix: string,
         callback: Ace.CompleterCallback
       ) {
-        if (!prefix) {
+        const resolvedPrefix = getSnippetPrefix(session, pos, prefix).trim();
+        if (!resolvedPrefix) {
           callback(null, []);
           return;
         }
@@ -116,13 +128,14 @@ export class SnippetStore {
           return;
         }
 
-        const lowerPrefix = prefix.toLowerCase();
+        const lowerPrefix = resolvedPrefix.toLowerCase();
         const results = dedupeSnippets([...store.globalSnippets, ...store.projectSnippets])
           .filter((snippet) => categories.includes(snippet.category))
           .filter(
             (snippet) =>
               snippet.prefix.toLowerCase().startsWith(lowerPrefix) ||
-              snippet.label.toLowerCase().includes(lowerPrefix)
+              snippet.label.toLowerCase().includes(lowerPrefix) ||
+              snippet.description.toLowerCase().includes(lowerPrefix)
           )
           .map((snippet) => ({
             caption: snippet.prefix,

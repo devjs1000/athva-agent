@@ -26,41 +26,41 @@ export function isBlockedPath(filePath: string): boolean {
 // ── Tool Result Compression ──
 
 export function compressToolResult(toolName: string, result: string): string {
-  const HARD_CAP = 3000;
+  const HARD_CAP = 1400;
 
   switch (toolName) {
     case "read_file":
     case "batch_read": {
       if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
       const lineCount = result.split("\n").length;
-      const truncated = result.substring(0, 2500);
+      const truncated = result.substring(0, 1100);
       const lastNewline = truncated.lastIndexOf("\n");
-      const clean = lastNewline > 2000 ? truncated.substring(0, lastNewline) : truncated;
+      const clean = lastNewline > 800 ? truncated.substring(0, lastNewline) : truncated;
       return `[${toolName}] ${clean}\n…[truncated: ${lineCount} total lines, ${result.length} chars]`;
     }
 
     case "search_content": {
       const lines = result.split("\n");
-      if (lines.length <= 30) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${lines.slice(0, 30).join("\n")}\n…[${lines.length - 30} more matches omitted]`;
+      if (lines.length <= 18) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${lines.slice(0, 18).join("\n")}\n…[${lines.length - 18} more matches omitted]`;
     }
 
     case "list_dir": {
       const entries = result.split("\n");
-      if (entries.length <= 40) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${entries.slice(0, 40).join("\n")}\n…[${entries.length - 40} more entries omitted]`;
+      if (entries.length <= 24) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${entries.slice(0, 24).join("\n")}\n…[${entries.length - 24} more entries omitted]`;
     }
 
     case "run_command": {
       if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-      const head = result.substring(0, 1500);
-      const tail = result.substring(result.length - 1000);
+      const head = result.substring(0, 700);
+      const tail = result.substring(Math.max(0, result.length - 450));
       return `[${toolName}] ${head}\n…[${result.length} chars total, showing head+tail]…\n${tail}`;
     }
 
     case "git_diff": {
       if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${result.substring(0, 2500)}\n…[diff truncated: ${result.length} chars total]`;
+      return `[${toolName}] ${result.substring(0, 1100)}\n…[diff truncated: ${result.length} chars total]`;
     }
 
     case "write_file":
@@ -71,8 +71,8 @@ export function compressToolResult(toolName: string, result: string): string {
 
     case "search_files": {
       const paths = result.split("\n");
-      if (paths.length <= 20) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${paths.slice(0, 20).join("\n")}\n…[${paths.length - 20} more files omitted]`;
+      if (paths.length <= 12) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${paths.slice(0, 12).join("\n")}\n…[${paths.length - 12} more files omitted]`;
     }
 
     default:
