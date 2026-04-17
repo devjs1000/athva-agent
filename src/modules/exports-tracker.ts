@@ -11,10 +11,11 @@ type ImportStyle = "import" | "require";
 
 interface ExportEntry {
   name: string;
-  file: string; // project-relative path (forward slashes)
+  file: string; // project-relative path or package name (for isPackage entries)
   kind: ExportKind;
   module: ModuleKind;
   rule?: string; // glob pattern — if set, only offer in matching files
+  isPackage?: boolean; // true for entries sourced from node_modules
 }
 
 interface ExportsJson {
@@ -350,11 +351,13 @@ const SKIP_DIRS = new Set([
 export class ExportsTracker {
   private projectPath = "";
   private exports: ExportEntry[] = [];
+  private packageExports: ExportEntry[] = [];
   private packageNames: string[] = [];
 
   async onProjectOpen(projectPath: string) {
     this.projectPath = projectPath;
     this.exports = [];
+    this.packageExports = [];
     await this.loadPackageNames();
 
     let loaded = false;
@@ -374,6 +377,52 @@ export class ExportsTracker {
     if (!loaded) {
       void this.scanProject(projectPath).then(() => this.persist());
     }
+
+    void this.scanPackageExports();
+  }
+
+  private async scanPackageExports(): Promise<void> {
+    if (!this.projectPath || this.packageNames.length === 0) return;
+
+    const results = await Promise.all(
+      this.packageNames.map(async (pkgName): Promise<ExportEntry[]> => {
+        const nmBase = `${this.projectPath}/node_modules/${pkgName}`;
+        let typesFile: string | null = null;
+
+        try {
+          const raw = await invoke<string>("read_file", { path: `${nmBase}/package.json` });
+          const pkg = JSON.parse(raw) as {
+            types?: string; typings?: string;
+            exports?: Record<string, { types?: string; typings?: string } | string>;
+          };
+          typesFile = pkg.types ?? pkg.typings ?? null;
+          if (!typesFile && pkg.exports) {
+            const main = pkg.exports["."];
+            if (main && typeof main === "object") typesFile = main.types ?? main.typings ?? null;
+          }
+        } catch { return []; }
+
+        const candidates = [
+          typesFile ? `${nmBase}/${typesFile}` : null,
+          `${nmBase}/index.d.ts`,
+          `${nmBase}/index.js`,
+        ].filter(Boolean) as string[];
+
+        for (const candidate of candidates) {
+          try {
+            const content = await invoke<string>("read_file", { path: candidate });
+            const { entries } = extractExports(content, pkgName);
+            return entries.map((e) => ({ ...e, file: pkgName, isPackage: true }));
+          } catch { /* try next */ }
+        }
+        return [];
+      })
+    );
+
+    this.packageExports = uniqueByKey(
+      results.flat(),
+      (e) => `${e.file}:${e.name}:${e.kind}`
+    );
   }
 
   private async loadPackageNames() {
@@ -424,6 +473,7 @@ export class ExportsTracker {
     if (!this.projectPath) return;
     if (absolutePath === `${this.projectPath}/package.json`) {
       await this.loadPackageNames();
+      void this.scanPackageExports();
       return;
     }
     if (!absolutePath.startsWith(this.projectPath)) return;
@@ -501,13 +551,19 @@ export class ExportsTracker {
           : "";
         const lowerPrefix = prefix.toLowerCase();
 
-        const results = tracker.exports
-          .filter((entry) => !entry.rule || !currentRelPath || matchGlob(entry.rule, currentRelPath))
+        const allEntries = [
+          ...tracker.exports.filter((e) => !e.rule || !currentRelPath || matchGlob(e.rule, currentRelPath)),
+          ...tracker.packageExports,
+        ];
+
+        const results = allEntries
           .filter((entry) => entry.name.toLowerCase().startsWith(lowerPrefix))
           .map((entry) => {
-            const importPath = currentRelPath
-              ? stripExt(relativePath(currentRelPath, entry.file))
-              : `./${stripExt(entry.file)}`;
+            const importPath = entry.isPackage
+              ? entry.file
+              : currentRelPath
+                ? stripExt(relativePath(currentRelPath, entry.file))
+                : `./${stripExt(entry.file)}`;
             return {
               caption: entry.name,
               value: entry.name,
