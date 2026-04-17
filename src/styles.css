@@ -2638,6 +2638,7 @@ body {
 /* ── Chat Mode Toggle ── */
 .chat-mode-toggle {
   display: flex;
+  flex-wrap: nowrap;
   background: var(--bg-tertiary);
   border-radius: 4px;
   border: 1px solid var(--border);
@@ -2720,6 +2721,27 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.chat-tool-call.status-pending {
+  border-color: rgba(255, 184, 77, 0.28);
+  background: linear-gradient(180deg, rgba(255, 184, 77, 0.06), var(--bg-tertiary));
+}
+
+.chat-tool-call.status-running {
+  border-color: rgba(0, 120, 212, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 120, 212, 0.12);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.08), var(--bg-tertiary));
+}
+
+.chat-tool-call.status-done {
+  border-color: rgba(109, 206, 138, 0.18);
+}
+
+.chat-tool-call.status-error,
+.chat-tool-call.status-denied {
+  border-color: rgba(241, 76, 76, 0.18);
 }
 
 .chat-tool-call-header {
@@ -2951,6 +2973,87 @@ body {
 .chat-tool-result.error {
   color: var(--danger);
   background: rgba(58, 29, 29, 0.3);
+}
+
+.workflow-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.workflow-card {
+  align-self: stretch;
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.08), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(0, 120, 212, 0.18);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.workflow-card-clarification {
+  border-color: rgba(255, 184, 77, 0.3);
+  background: linear-gradient(180deg, rgba(255, 184, 77, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.workflow-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.workflow-card-phase {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.workflow-card-status {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workflow-card-status.done {
+  color: #6dce8a;
+  background: rgba(109, 206, 138, 0.12);
+}
+
+.workflow-card-status.error,
+.workflow-card-status.interrupted {
+  color: #f47474;
+  background: rgba(241, 76, 76, 0.12);
+}
+
+.workflow-card-status.awaiting_input {
+  color: #ffcc66;
+  background: rgba(255, 184, 77, 0.12);
+}
+
+.workflow-card-summary {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workflow-card-details,
+.workflow-card-steps {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.workflow-card-step {
+  padding-left: 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
 }
 
 .chat-compact-indicator {

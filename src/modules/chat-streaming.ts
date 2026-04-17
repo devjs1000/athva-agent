@@ -11,6 +11,112 @@ export interface StreamContext {
   setLinkedText: (el: HTMLElement, text: string) => void;
 }
 
+interface CallAIOnceOptions {
+  throwOnError?: boolean;
+}
+
+const TRANSIENT_HTTP_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+const MAX_TRANSIENT_RETRIES = 3;
+
+function clipErrorText(value: string, limit = 320): string {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+  return trimmed.length > limit ? trimmed.slice(0, limit) + "…" : trimmed;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isRetryableStatus(status: number): boolean {
+  return TRANSIENT_HTTP_STATUS.has(status);
+}
+
+function isRetryableNetworkError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("network error") ||
+    message.includes("load failed") ||
+    message.includes("fetch failed") ||
+    message.includes("timed out")
+  );
+}
+
+function retryDelayMs(attempt: number): number {
+  const base = 700 * 2 ** (attempt - 1);
+  const jitter = Math.floor(Math.random() * 250);
+  return base + jitter;
+}
+
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function readErrorBody(res: Response): Promise<string> {
+  try {
+    const text = await res.text();
+    return clipErrorText(text);
+  } catch {
+    return "";
+  }
+}
+
+async function fetchWithRetries(
+  provider: string,
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+  maxAttempts = MAX_TRANSIENT_RETRIES,
+): Promise<Response> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, { ...init, signal });
+      if (res.ok) return res;
+
+      const err = await readErrorBody(res);
+      if (attempt < maxAttempts && isRetryableStatus(res.status)) {
+        await delay(retryDelayMs(attempt), signal);
+        continue;
+      }
+
+      const suffix = err ? `: ${err}` : "";
+      throw new Error(`${provider} API error ${res.status} (attempt ${attempt}/${maxAttempts})${suffix}`);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+
+      if (attempt < maxAttempts && isRetryableNetworkError(error)) {
+        await delay(retryDelayMs(attempt), signal);
+        continue;
+      }
+
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`${provider} request failed (attempt ${attempt}/${maxAttempts}): ${String(error)}`);
+    }
+  }
+
+  throw new Error(`${provider} request failed after ${maxAttempts} attempts.`);
+}
+
 export async function streamAI(
   settings: AISettings,
   messages: { role: string; content: string }[],
@@ -177,20 +283,19 @@ async function streamMistral(
   ctx: StreamContext
 ): Promise<string> {
   const model = settings.model || "mistral-small-latest";
-  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey}`,
+  const res = await fetchWithRetries(
+    "Mistral",
+    "https://api.mistral.ai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify({ model, messages, max_tokens: 4096, stream: true }),
     },
-    body: JSON.stringify({ model, messages, max_tokens: 4096, stream: true }),
-    signal: ctx.abortController?.signal,
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Mistral API error ${res.status}: ${err}`);
-  }
+    ctx.abortController?.signal,
+  );
 
   return readSSEStream(res, el, ctx, (json) => {
     return json.choices?.[0]?.delta?.content || "";
@@ -325,24 +430,46 @@ export function simulateStream(text: string, el: HTMLElement, ctx: StreamContext
 
 // ── Single non-streaming call (for summarization) ──
 
-export async function callAIOnce(settings: AISettings, prompt: string): Promise<string> {
+export async function callAIOnce(
+  settings: AISettings,
+  prompt: string,
+  maxTokens = 256,
+  options: CallAIOnceOptions = {},
+): Promise<string> {
   const messages = [{ role: "user", content: prompt }];
   try {
     switch (settings.provider) {
       case "openai":
-      case "mimo":
-      case "mistral": {
+      case "mimo": {
         const urls: Record<string, string> = {
           openai: "https://api.openai.com/v1/chat/completions",
           mimo: "https://api.xiaomimimo.com/v1/chat/completions",
-          mistral: "https://api.mistral.ai/v1/chat/completions",
         };
         const res = await fetch(urls[settings.provider], {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-          body: JSON.stringify({ model: settings.model, messages, max_tokens: 256 }),
+          body: JSON.stringify({ model: settings.model, messages, max_tokens: maxTokens }),
         });
-        if (!res.ok) return "";
+        if (!res.ok) {
+          const err = await readErrorBody(res);
+          throw new Error(`${settings.provider} API error ${res.status}${err ? `: ${err}` : ""}`);
+        }
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || "";
+      }
+      case "mistral": {
+        const res = await fetchWithRetries(
+          "Mistral",
+          "https://api.mistral.ai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${settings.apiKey}`,
+            },
+            body: JSON.stringify({ model: settings.model, messages, max_tokens: maxTokens }),
+          },
+        );
         const data = await res.json();
         return data.choices?.[0]?.message?.content || "";
       }
@@ -355,9 +482,12 @@ export async function callAIOnce(settings: AISettings, prompt: string): Promise<
             "anthropic-version": "2023-06-01",
             "anthropic-dangerous-direct-browser-access": "true",
           },
-          body: JSON.stringify({ model: settings.model, max_tokens: 256, messages }),
+          body: JSON.stringify({ model: settings.model, max_tokens: maxTokens, messages }),
         });
-        if (!res.ok) return "";
+        if (!res.ok) {
+          const err = await readErrorBody(res);
+          throw new Error(`Anthropic API error ${res.status}${err ? `: ${err}` : ""}`);
+        }
         const data = await res.json();
         return data.content?.[0]?.text || "";
       }
@@ -368,17 +498,21 @@ export async function callAIOnce(settings: AISettings, prompt: string): Promise<
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } }),
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: maxTokens } }),
           }
         );
-        if (!res.ok) return "";
+        if (!res.ok) {
+          const err = await readErrorBody(res);
+          throw new Error(`Google API error ${res.status}${err ? `: ${err}` : ""}`);
+        }
         const data = await res.json();
         return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       }
       default:
         return "";
     }
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     return "";
   }
 }

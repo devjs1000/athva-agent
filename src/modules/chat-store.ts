@@ -1,6 +1,8 @@
 // IndexedDB persistence for chat sessions
 
-export type ChatMode = "chat" | "agent";
+import type { WorkflowStateEnvelope } from "./chat-workflow";
+
+export type ChatMode = "chat" | "agent" | "workflow";
 
 export interface ToolCall {
   id: string;
@@ -25,6 +27,7 @@ export interface ChatSession {
   updatedAt: number;
   compactedSummary?: string;
   projectPath?: string;
+  workflowState?: WorkflowStateEnvelope;
 }
 
 const DB_NAME = "athva_chat";
