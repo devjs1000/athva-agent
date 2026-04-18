@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Ace } from "ace-builds";
+import ts from "typescript";
 
 type ExportKind = "named" | "default";
 type ModuleKind = "esm" | "cjs";
@@ -35,6 +36,12 @@ interface PackageJson {
   optionalDependencies?: Record<string, string>;
 }
 
+export interface DefinitionTarget {
+  path: string;
+  line: number;
+  column: number;
+}
+
 const RE_ESM_NAMED_DECL =
   /^\s*export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|var|function\*?|class|type|interface|enum|abstract\s+class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
 const RE_ESM_DEFAULT_DECL =
@@ -45,6 +52,23 @@ const RE_CJS_DEFAULT = /(?:^|\n)\s*module\.exports\s*=\s*([A-Za-z_$][A-Za-z0-9_$
 const RE_CJS_EXPORTS_PROP = /(?:^|\n)\s*(?:module\.)?exports\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g;
 const RE_CJS_OBJECT = /(?:^|\n)\s*module\.exports\s*=\s*\{([\s\S]*?)\}\s*;?/g;
 const RE_RULE = /\/\/\s*\.athva-exports-rule\s+(\S+)/;
+const SOURCE_FILE_RE = /\.(?:d\.ts|ts|tsx|js|jsx|mjs|cjs|mts|cts)$/i;
+const MODULE_SUFFIXES = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".d.ts"];
+
+const TS_COMPILER_OPTIONS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ESNext,
+  module: ts.ModuleKind.ESNext,
+  jsx: ts.JsxEmit.ReactJSX,
+  allowJs: true,
+  checkJs: true,
+  esModuleInterop: true,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  allowSyntheticDefaultImports: true,
+  resolveJsonModule: true,
+  skipLibCheck: true,
+  noEmit: true,
+  noLib: true,
+};
 
 function uniqueByKey<T>(items: T[], getKey: (item: T) => string): T[] {
   const seen = new Set<string>();
@@ -160,6 +184,33 @@ function extractExports(content: string, filePath: string): { entries: ExportEnt
     parseCommonJsObject(match[1], filePath, add);
   }
 
+  // TypeScript declaration file pattern: export = X + declare namespace X { members }
+  // Used by many @types/* packages (e.g. older styles, lodash, etc.)
+  const exportEqM = /^\s*export\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*;?/m.exec(content);
+  if (exportEqM) {
+    const nsName = exportEqM[1];
+    const escNs = nsName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const nsStartRe = new RegExp(`declare\\s+(?:global\\s+)?namespace\\s+${escNs}\\s*\\{`);
+    const nsM = nsStartRe.exec(content);
+    if (nsM) {
+      let ni = content.indexOf("{", nsM.index + nsM[0].length - 1);
+      let ndepth = 0;
+      let nsBodyStart = ni + 1;
+      let nsBody = "";
+      for (; ni < content.length; ni++) {
+        if (content[ni] === "{") ndepth++;
+        else if (content[ni] === "}") { ndepth--; if (ndepth === 0) { nsBody = content.slice(nsBodyStart, ni); break; } }
+      }
+      if (nsBody) {
+        const NS_RE = /(?:^|\n)\s*(?:export\s+)?(?:declare\s+)?(?:readonly\s+)?(?:async\s+)?(?:function\*?|class|const|let|var|type|interface|enum|abstract\s+class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
+        let nm: RegExpExecArray | null;
+        while ((nm = NS_RE.exec(nsBody)) !== null) {
+          add({ name: nm[1], file: filePath, kind: "named", module: "esm" });
+        }
+      }
+    }
+  }
+
   const ruleMatch = RE_RULE.exec(content);
   const defaultName = getFileBaseName(filePath);
   if (!entries.some((entry) => entry.kind === "default") && /^\s*export\s+default\b/m.test(content)) {
@@ -201,7 +252,186 @@ function relativePath(fromFile: string, toFile: string): string {
 }
 
 function stripExt(path: string): string {
-  return path.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
+  return path.replace(/\.(ts|tsx|js|jsx|mjs|cjs|d\.ts)$/, "");
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function isSupportedSourceFile(path: string): boolean {
+  return SOURCE_FILE_RE.test(path);
+}
+
+function getModuleCandidates(resolvedPath: string): string[] {
+  const normalized = normalizePath(resolvedPath);
+  const extensionless = normalized.replace(/\.(?:d\.ts|ts|tsx|js|jsx|mjs|cjs|mts|cts)$/i, "");
+  const bases = normalized === extensionless ? [normalized] : [normalized, extensionless];
+  const candidates = new Set<string>();
+  for (const base of bases) {
+    candidates.add(base);
+    for (const suffix of MODULE_SUFFIXES) {
+      candidates.add(`${base}${suffix}`);
+      candidates.add(`${base}/index${suffix}`);
+    }
+  }
+  return [...candidates];
+}
+
+function getTsExtension(filePath: string): ts.Extension {
+  const normalized = normalizePath(filePath).toLowerCase();
+  if (normalized.endsWith(".d.ts")) return ts.Extension.Dts;
+  if (normalized.endsWith(".tsx")) return ts.Extension.Tsx;
+  if (normalized.endsWith(".jsx")) return ts.Extension.Jsx;
+  if (normalized.endsWith(".mts")) return ts.Extension.Mts;
+  if (normalized.endsWith(".cts")) return ts.Extension.Cts;
+  if (normalized.endsWith(".mjs")) return ts.Extension.Mjs;
+  if (normalized.endsWith(".cjs")) return ts.Extension.Cjs;
+  if (normalized.endsWith(".js")) return ts.Extension.Js;
+  return ts.Extension.Ts;
+}
+
+function atypesToRealPkg(atypesPkg: string): string {
+  const name = atypesPkg.slice(7); // strip "@types/"
+  return name.includes("__") ? `@${name.replace("__", "/")}` : name;
+}
+
+// Single-pass depth-aware extractor: returns only top-level property/method names from a brace body.
+function topLevelProps(body: string): string[] {
+  const props: string[] = [];
+  let depth = 0;
+  let token = "";
+  let inStr = false;
+  let strCh = "";
+  const SKIP = new Set(["return", "if", "for", "while", "switch", "new", "typeof", "instanceof", "void", "delete"]);
+
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inStr) {
+      if (ch === strCh && body[i - 1] !== "\\") inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { inStr = true; strCh = ch; token = ""; continue; }
+    if (ch === "{" || ch === "(" || ch === "[") { depth++; token = ""; continue; }
+    if (ch === "}" || ch === ")" || ch === "]") { depth--; token = ""; continue; }
+    if (depth > 0) { token = ""; continue; }
+    if (/[A-Za-z_$0-9]/.test(ch)) {
+      token += ch;
+    } else if ((ch === ":" || ch === "(") && token && /^[A-Za-z_$]/.test(token) && !SKIP.has(token)) {
+      props.push(token);
+      token = "";
+    } else {
+      token = "";
+    }
+  }
+  return props;
+}
+
+// Extract property/method names from object literals, classes, interfaces, type aliases.
+// Uses brace-depth tracking so nested objects don't confuse the parser.
+function extractMembersOf(objectName: string, content: string): string[] {
+  const members: string[] = [];
+  const esc = objectName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Find the opening brace of the definition block for the given identifier.
+  function extractBody(startRe: RegExp): string | null {
+    const m = startRe.exec(content);
+    if (!m) return null;
+    let i = m.index + m[0].length - 1; // position of opening `{`
+    if (content[i] !== "{") {
+      // find the next `{`
+      while (i < content.length && content[i] !== "{") i++;
+    }
+    let depth = 0;
+    let start = i;
+    for (; i < content.length; i++) {
+      if (content[i] === "{") depth++;
+      else if (content[i] === "}") { depth--; if (depth === 0) return content.slice(start + 1, i); }
+    }
+    return null;
+  }
+
+  // Object literal: const/let/var Name = {
+  const objBody = extractBody(new RegExp(`(?:const|let|var)\\s+${esc}\\s*(?::[^=]+)?=\\s*\\{`));
+  if (objBody) members.push(...topLevelProps(objBody));
+
+  // Class: class Name { ... }
+  const classBody = extractBody(new RegExp(`class\\s+${esc}(?:\\s+extends[^{]+)?\\s*\\{`));
+  if (classBody) {
+    const memberRe = /(?:^|\n)\s*(?:(?:public|private|protected|static|async|readonly|override)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*[=(({:]/gm;
+    let m: RegExpExecArray | null;
+    while ((m = memberRe.exec(classBody)) !== null) {
+      if (m[1] !== "constructor" && m[1] !== "return" && m[1] !== "if" && m[1] !== "for") {
+        members.push(m[1]);
+      }
+    }
+  }
+
+  // Interface or type alias: interface Name { ... } / type Name = { ... }
+  const ifaceBody = extractBody(new RegExp(`(?:interface|type)\\s+${esc}(?:<[^>]+>)?\\s*(?:extends[^{]+)?[=]?\\s*\\{`));
+  if (ifaceBody) {
+    const propRe2 = /(?:^|;|\n)\s*(?:readonly\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\??:/gm;
+    let m: RegExpExecArray | null;
+    while ((m = propRe2.exec(ifaceBody)) !== null) {
+      members.push(m[1]);
+    }
+  }
+
+  return [...new Set(members)].filter(Boolean);
+}
+
+// Drill into a chain like ["resolvers", "Query"] → members of resolvers.Query
+function extractNestedMember(chain: string[], content: string): string[] {
+  // Find the body of the root object, then drill into each sub-property
+  function extractBody(startRe: RegExp, src: string): string | null {
+    const m = startRe.exec(src);
+    if (!m) return null;
+    let i = src.indexOf("{", m.index + m[0].length - 1);
+    if (i === -1) return null;
+    let depth = 0;
+    const start = i;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(start + 1, i); }
+    }
+    return null;
+  }
+
+  function extractPropBody(propName: string, body: string): string | null {
+    const esc = propName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return extractBody(new RegExp(`\\b${esc}\\s*:\\s*\\{`), body);
+  }
+
+  const esc0 = chain[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Try to find the root variable's value body
+  let body = extractBody(new RegExp(`(?:const|let|var)\\s+${esc0}\\s*(?::[^=]+)?=\\s*\\{`), content)
+    ?? extractBody(new RegExp(`(?:module\\.exports|exports)\\s*=\\s*(?:${esc0}\\s*=\\s*)?\\{`), content);
+
+  if (!body) return [];
+
+  for (let i = 1; i < chain.length; i++) {
+    const next = extractPropBody(chain[i], body);
+    if (!next) return [];
+    body = next;
+  }
+
+  // Extract top-level property names from the final body
+  const members: string[] = [];
+  for (const line of body.split("\n")) {
+    const stripped = line.replace(/\/\/.*$/, "").trim();
+    const m = stripped.match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*[:(]/);
+    if (m) members.push(m[1]);
+  }
+  return [...new Set(members)];
+}
+
+function resolveRelativeImport(fromFile: string, importPath: string): string {
+  const fromParts = fromFile.split("/").slice(0, -1);
+  for (const part of importPath.split("/")) {
+    if (part === "..") fromParts.pop();
+    else if (part !== ".") fromParts.push(part);
+  }
+  return fromParts.join("/");
 }
 
 function resolveDir(currentDir: string, partialPath: string): string {
@@ -353,12 +583,22 @@ export class ExportsTracker {
   private exports: ExportEntry[] = [];
   private packageExports: ExportEntry[] = [];
   private packageNames: string[] = [];
+  private sourceFiles = new Map<string, string>();
+  private sourceVersions = new Map<string, number>();
+  private languageService: ts.LanguageService | null = null;
+  private sourceIndexReady = false;
+  private sourceIndexPromise: Promise<void> | null = null;
 
   async onProjectOpen(projectPath: string) {
-    this.projectPath = projectPath;
+    this.projectPath = normalizePath(projectPath);
     this.exports = [];
     this.packageExports = [];
     await this.loadPackageNames();
+    this.sourceFiles.clear();
+    this.sourceVersions.clear();
+    this.languageService = null;
+    this.sourceIndexReady = false;
+    this.sourceIndexPromise = null;
 
     let loaded = false;
     try {
@@ -385,44 +625,81 @@ export class ExportsTracker {
     if (!this.projectPath || this.packageNames.length === 0) return;
 
     const results = await Promise.all(
-      this.packageNames.map(async (pkgName): Promise<ExportEntry[]> => {
-        const nmBase = `${this.projectPath}/node_modules/${pkgName}`;
-        let typesFile: string | null = null;
-
-        try {
-          const raw = await invoke<string>("read_file", { path: `${nmBase}/package.json` });
-          const pkg = JSON.parse(raw) as {
-            types?: string; typings?: string;
-            exports?: Record<string, { types?: string; typings?: string } | string>;
-          };
-          typesFile = pkg.types ?? pkg.typings ?? null;
-          if (!typesFile && pkg.exports) {
-            const main = pkg.exports["."];
-            if (main && typeof main === "object") typesFile = main.types ?? main.typings ?? null;
-          }
-        } catch { return []; }
-
-        const candidates = [
-          typesFile ? `${nmBase}/${typesFile}` : null,
-          `${nmBase}/index.d.ts`,
-          `${nmBase}/index.js`,
-        ].filter(Boolean) as string[];
-
-        for (const candidate of candidates) {
-          try {
-            const content = await invoke<string>("read_file", { path: candidate });
-            const { entries } = extractExports(content, pkgName);
-            return entries.map((e) => ({ ...e, file: pkgName, isPackage: true }));
-          } catch { /* try next */ }
-        }
-        return [];
-      })
+      this.packageNames.map((pkgName) => this.scanOnePackage(pkgName))
     );
 
     this.packageExports = uniqueByKey(
       results.flat(),
       (e) => `${e.file}:${e.name}:${e.kind}`
     );
+  }
+
+  private async scanOnePackage(pkgName: string): Promise<ExportEntry[]> {
+    const nmBase = `${this.projectPath}/node_modules/${pkgName}`;
+    let typesFile: string | null = null;
+
+    try {
+      const raw = await invoke<string>("read_file", { path: `${nmBase}/package.json` });
+      const pkg = JSON.parse(raw) as {
+        types?: string; typings?: string;
+        exports?: Record<string, { types?: string; typings?: string } | string>;
+      };
+      typesFile = pkg.types ?? pkg.typings ?? null;
+      if (!typesFile && pkg.exports) {
+        const main = pkg.exports["."];
+        if (main && typeof main === "object") typesFile = main.types ?? main.typings ?? null;
+      }
+    } catch { return []; }
+
+    // @types/{name} fallback: "react" → "@types/react", "@scope/pkg" → "@types/scope__pkg"
+    const atypesName = pkgName.startsWith("@")
+      ? pkgName.slice(1).replace("/", "__")
+      : pkgName;
+    const atypesBase = `${this.projectPath}/node_modules/@types/${atypesName}`;
+
+    const candidates = [
+      typesFile ? `${nmBase}/${typesFile}` : null,
+      `${nmBase}/index.d.ts`,
+      `${atypesBase}/index.d.ts`,
+      `${nmBase}/index.js`,
+    ].filter(Boolean) as string[];
+
+    const realPkg = pkgName.startsWith("@types/") ? atypesToRealPkg(pkgName) : pkgName;
+
+    for (const candidate of candidates) {
+      try {
+        const content = await invoke<string>("read_file", { path: candidate });
+        const { entries } = extractExports(content, pkgName);
+
+        // Follow `export * from './sub'` one level deep (common in @types packages)
+        const RE_STAR = /^\s*export\s+\*\s+(?:as\s+\w+\s+)?from\s+['"](\.[^'"]+)['"]/gm;
+        const starPaths: string[] = [];
+        let sm: RegExpExecArray | null;
+        RE_STAR.lastIndex = 0;
+        while ((sm = RE_STAR.exec(content)) !== null) starPaths.push(sm[1]);
+
+        const subEntries = (
+          await Promise.all(
+            starPaths.map(async (rel) => {
+              const dir = candidate.slice(0, candidate.lastIndexOf("/"));
+              const subPath = rel.endsWith(".d.ts") || rel.endsWith(".ts")
+                ? `${dir}/${rel}`
+                : `${dir}/${rel}.d.ts`;
+              try {
+                const sub = await invoke<string>("read_file", { path: subPath });
+                return extractExports(sub, pkgName).entries;
+              } catch { return []; }
+            })
+          )
+        ).flat();
+
+        const all = uniqueByKey([...entries, ...subEntries], (e) => `${e.name}:${e.kind}`);
+        if (all.length > 0) {
+          return all.map((e) => ({ ...e, file: realPkg, isPackage: true }));
+        }
+      } catch { /* try next */ }
+    }
+    return [];
   }
 
   private async loadPackageNames() {
@@ -470,16 +747,20 @@ export class ExportsTracker {
   }
 
   async onFileSave(absolutePath: string, content: string) {
+    const normalizedPath = normalizePath(absolutePath);
+    if (isSupportedSourceFile(normalizedPath)) {
+      this.setSourceFileContent(normalizedPath, content);
+    }
     if (!this.projectPath) return;
-    if (absolutePath === `${this.projectPath}/package.json`) {
+    if (normalizedPath === `${this.projectPath}/package.json`) {
       await this.loadPackageNames();
       void this.scanPackageExports();
       return;
     }
-    if (!absolutePath.startsWith(this.projectPath)) return;
-    if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(absolutePath)) return;
+    if (!normalizedPath.startsWith(this.projectPath)) return;
+    if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(normalizedPath)) return;
 
-    const relFile = absolutePath.slice(this.projectPath.length + 1);
+    const relFile = normalizedPath.slice(this.projectPath.length + 1);
     const { entries, rule } = extractExports(content, relFile);
 
     const before = this.exports.filter((entry) => entry.file !== relFile);
@@ -493,11 +774,13 @@ export class ExportsTracker {
 
   async onFileRenamed(oldAbsPath: string, newAbsPath: string) {
     if (!this.projectPath) return;
+    const oldNormalized = normalizePath(oldAbsPath);
+    const newNormalized = normalizePath(newAbsPath);
     const toRel = (abs: string) =>
       abs.startsWith(this.projectPath) ? abs.slice(this.projectPath.length + 1) : abs;
 
-    const oldRel = toRel(oldAbsPath);
-    const newRel = toRel(newAbsPath);
+    const oldRel = toRel(oldNormalized);
+    const newRel = toRel(newNormalized);
 
     let changed = false;
     this.exports = this.exports.map((entry) => {
@@ -509,6 +792,44 @@ export class ExportsTracker {
     });
 
     if (changed) await this.persist();
+
+    if (this.sourceFiles.has(oldNormalized)) {
+      const existing = this.sourceFiles.get(oldNormalized)!;
+      const version = this.sourceVersions.get(oldNormalized) ?? 1;
+      this.sourceFiles.delete(oldNormalized);
+      this.sourceVersions.delete(oldNormalized);
+      this.sourceFiles.set(newNormalized, existing);
+      this.sourceVersions.set(newNormalized, version + 1);
+    }
+  }
+
+  async resolveDefinition(
+    filePath: string,
+    content: string,
+    row: number,
+    column: number
+  ): Promise<DefinitionTarget | null> {
+    const normalizedFilePath = normalizePath(filePath);
+    const importTarget = await this.resolveImportPathTarget(normalizedFilePath, content, row, column);
+    if (importTarget) return importTarget;
+    if (!isSupportedSourceFile(normalizedFilePath) || !this.projectPath) return null;
+
+    await this.ensureSourceIndex();
+    this.setSourceFileContent(normalizedFilePath, content);
+
+    const languageService = this.getLanguageService();
+    const program = languageService.getProgram();
+    const sourceFile = program?.getSourceFile(normalizedFilePath);
+    if (!sourceFile) return null;
+
+    const position = ts.getPositionOfLineAndCharacter(sourceFile, row, column);
+    const definitions = languageService.getDefinitionAtPosition(normalizedFilePath, position) ?? [];
+    const preferredDefinitions = definitions.filter((definition) => this.isProjectFile(definition.fileName));
+    const resolvedDefinition = (preferredDefinitions.length > 0 ? preferredDefinitions : definitions)
+      .map((definition) => this.definitionInfoToTarget(definition, program))
+      .find((target): target is DefinitionTarget => !!target);
+
+    return resolvedDefinition ?? null;
   }
 
   private async persist() {
@@ -523,6 +844,199 @@ export class ExportsTracker {
     } catch (error) {
       console.warn("exports-tracker: failed to persist", error);
     }
+  }
+
+  private setSourceFileContent(filePath: string, content: string) {
+    const normalizedPath = normalizePath(filePath);
+    this.sourceFiles.set(normalizedPath, content);
+    this.sourceVersions.set(normalizedPath, (this.sourceVersions.get(normalizedPath) ?? 0) + 1);
+  }
+
+  private async ensureSourceIndex() {
+    if (this.sourceIndexReady || !this.projectPath) return;
+    if (!this.sourceIndexPromise) {
+      this.sourceIndexPromise = this.buildSourceIndex();
+    }
+    await this.sourceIndexPromise;
+  }
+
+  private async buildSourceIndex() {
+    try {
+      this.sourceFiles.clear();
+      this.sourceVersions.clear();
+      await this.scanSourceFiles(this.projectPath);
+      this.languageService = null;
+      this.sourceIndexReady = true;
+    } finally {
+      this.sourceIndexPromise = null;
+    }
+  }
+
+  private async scanSourceFiles(rootPath: string): Promise<void> {
+    let entries: FileEntry[];
+    try {
+      entries = await invoke<FileEntry[]>("read_dir", { path: rootPath });
+    } catch {
+      return;
+    }
+
+    const directories = entries.filter(
+      (entry) => entry.is_dir && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")
+    );
+    const files = entries.filter((entry) => !entry.is_dir && isSupportedSourceFile(entry.name));
+
+    const loadedFiles = await Promise.all(
+      files.map(async (entry) => {
+        try {
+          const content = await invoke<string>("read_file", { path: entry.path });
+          return { path: normalizePath(entry.path), content };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    loadedFiles.forEach((entry) => {
+      if (!entry) return;
+      this.sourceFiles.set(entry.path, entry.content);
+      this.sourceVersions.set(entry.path, 1);
+    });
+
+    for (const directory of directories) {
+      await this.scanSourceFiles(directory.path);
+    }
+  }
+
+  private getLanguageService(): ts.LanguageService {
+    if (this.languageService) return this.languageService;
+
+    const host: ts.LanguageServiceHost = {
+      getCompilationSettings: () => TS_COMPILER_OPTIONS,
+      getScriptFileNames: () => [...this.sourceFiles.keys()],
+      getScriptVersion: (fileName) => `${this.sourceVersions.get(normalizePath(fileName)) ?? 0}`,
+      getScriptSnapshot: (fileName) => {
+        const content = this.sourceFiles.get(normalizePath(fileName));
+        return content === undefined ? undefined : ts.ScriptSnapshot.fromString(content);
+      },
+      getCurrentDirectory: () => this.projectPath || "/",
+      getDefaultLibFileName: () => "lib.d.ts",
+      fileExists: (fileName) => this.sourceFiles.has(normalizePath(fileName)),
+      readFile: (fileName) => this.sourceFiles.get(normalizePath(fileName)),
+      readDirectory: () => [...this.sourceFiles.keys()],
+      directoryExists: (dirName) => this.directoryExists(dirName),
+      getDirectories: () => [],
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+      resolveModuleNames: (moduleNames, containingFile) =>
+        moduleNames.map((moduleName) => this.resolveModuleName(moduleName, containingFile)),
+    };
+
+    this.languageService = ts.createLanguageService(host, ts.createDocumentRegistry());
+    return this.languageService;
+  }
+
+  private resolveModuleName(
+    moduleName: string,
+    containingFile: string
+  ): ts.ResolvedModuleFull | undefined {
+    if (!moduleName.startsWith(".") && !moduleName.startsWith("/")) return undefined;
+
+    const containingDir = normalizePath(containingFile).split("/").slice(0, -1).join("/");
+    const resolvedBase = moduleName.startsWith("/")
+      ? normalizePath(moduleName)
+      : normalizePath(resolveDir(containingDir, moduleName));
+
+    for (const candidate of getModuleCandidates(resolvedBase)) {
+      if (!this.sourceFiles.has(candidate)) continue;
+      return {
+        resolvedFileName: candidate,
+        extension: getTsExtension(candidate),
+        isExternalLibraryImport: false,
+      };
+    }
+
+    return undefined;
+  }
+
+  private directoryExists(dirName: string): boolean {
+    const normalizedDir = normalizePath(dirName).replace(/\/+$/, "");
+    if (!normalizedDir) return false;
+    if (normalizedDir === this.projectPath) return true;
+    const prefix = `${normalizedDir}/`;
+    return [...this.sourceFiles.keys()].some((filePath) => filePath.startsWith(prefix));
+  }
+
+  private isProjectFile(filePath: string): boolean {
+    const normalizedPath = normalizePath(filePath);
+    return normalizedPath === this.projectPath || normalizedPath.startsWith(`${this.projectPath}/`);
+  }
+
+  private definitionInfoToTarget(
+    definition: ts.DefinitionInfo,
+    program: ts.Program | undefined
+  ): DefinitionTarget | null {
+    const normalizedPath = normalizePath(definition.fileName);
+    const sourceFile = program?.getSourceFile(normalizedPath);
+    if (!sourceFile) return null;
+
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(definition.textSpan.start);
+    return {
+      path: normalizedPath,
+      line: line + 1,
+      column: character + 1,
+    };
+  }
+
+  private async resolveImportPathTarget(
+    filePath: string,
+    content: string,
+    row: number,
+    column: number
+  ): Promise<DefinitionTarget | null> {
+    const line = content.split(/\r?\n/)[row] ?? "";
+    const literal = this.getStringLiteralAtPosition(line, column);
+    if (!literal) return null;
+
+    const before = line.slice(0, literal.start - 1);
+    const isImportPath = /(?:\bfrom\s*|require\s*\(\s*|import\s*\(\s*|^\s*import\s*)$/.test(before);
+    if (!isImportPath) return null;
+
+    const resolvedPath = await this.resolveProjectModulePath(filePath, literal.value);
+    if (!resolvedPath) return null;
+
+    return { path: resolvedPath, line: 1, column: 1 };
+  }
+
+  private getStringLiteralAtPosition(
+    line: string,
+    column: number
+  ): { value: string; start: number; end: number } | null {
+    const stringRe = /(['"])([^'"]+)\1/g;
+    let match: RegExpExecArray | null;
+    while ((match = stringRe.exec(line)) !== null) {
+      const start = match.index + 1;
+      const end = start + match[2].length;
+      if (column >= start && column <= end) {
+        return { value: match[2], start, end };
+      }
+    }
+    return null;
+  }
+
+  private async resolveProjectModulePath(fromFile: string, specifier: string): Promise<string | null> {
+    if (!specifier.startsWith(".") && !specifier.startsWith("/")) return null;
+
+    const currentDir = normalizePath(fromFile).split("/").slice(0, -1).join("/");
+    const resolvedBase = specifier.startsWith("/")
+      ? normalizePath(specifier)
+      : normalizePath(resolveDir(currentDir, specifier));
+
+    for (const candidate of getModuleCandidates(resolvedBase)) {
+      const exists = await invoke<boolean>("check_path_exists", { path: candidate }).catch(() => false);
+      if (exists) return candidate;
+    }
+
+    return null;
   }
 
   getCompleter(): Ace.Completer {
@@ -551,8 +1065,17 @@ export class ExportsTracker {
           : "";
         const lowerPrefix = prefix.toLowerCase();
 
+        // Skip entries from the current file (avoid self-import)
+        // Also skip if cursor is already inside an import statement
+        const onImportLine = /^\s*import\b/.test(session.getLine(pos.row));
+        if (onImportLine) { callback(null, []); return; }
+
         const allEntries = [
-          ...tracker.exports.filter((e) => !e.rule || !currentRelPath || matchGlob(e.rule, currentRelPath)),
+          ...tracker.exports.filter(
+            (e) =>
+              (!e.rule || !currentRelPath || matchGlob(e.rule, currentRelPath)) &&
+              e.file !== currentRelPath
+          ),
           ...tracker.packageExports,
         ];
 
@@ -685,5 +1208,127 @@ export class ExportsTracker {
     };
 
     return completer;
+  }
+
+  getNamedImportCompleter(): Ace.Completer {
+    const tracker = this;
+    return {
+      identifierRegexps: [/[a-zA-Z_$0-9]/],
+
+      getCompletions(
+        editor: Ace.Editor,
+        session: Ace.EditSession,
+        pos: Ace.Point,
+        prefix: string,
+        callback: Ace.CompleterCallback
+      ) {
+        if (!prefix) { callback(null, []); return; }
+
+        const fullLine = session.getLine(pos.row);
+
+        // Detect single-line: import [type] { ... } from "pkg"
+        const fromMatch = fullLine.match(/from\s+['"]([^'"]+)['"]/);
+        if (!fromMatch) { callback(null, []); return; }
+
+        // Cursor must be between { and }
+        const openBrace = fullLine.indexOf("{");
+        const closeBrace = fullLine.indexOf("}");
+        if (openBrace === -1 || closeBrace === -1) { callback(null, []); return; }
+        if (pos.column <= openBrace || pos.column > closeBrace) { callback(null, []); return; }
+        if (!/^\s*import\b/.test(fullLine)) { callback(null, []); return; }
+
+        const pkgOrPath = fromMatch[1];
+        const lowerPrefix = prefix.toLowerCase();
+
+        let entries: ExportEntry[];
+        if (pkgOrPath.startsWith(".")) {
+          const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
+          const currentRelPath = currentAbsPath.startsWith(tracker.projectPath)
+            ? currentAbsPath.slice(tracker.projectPath.length + 1)
+            : "";
+          const resolved = resolveRelativeImport(currentRelPath, pkgOrPath);
+          entries = tracker.exports.filter(
+            (e) =>
+              (stripExt(e.file) === resolved || stripExt(e.file) === `${resolved}/index`) &&
+              e.kind === "named"
+          );
+        } else {
+          entries = tracker.packageExports.filter(
+            (e) => e.file === pkgOrPath && e.kind === "named"
+          );
+        }
+
+        const results = entries
+          .filter((e) => e.name.toLowerCase().startsWith(lowerPrefix))
+          .map((e) => ({
+            caption: e.name,
+            value: e.name,
+            meta: pkgOrPath,
+            score: 1000,
+          }));
+
+        callback(null, results);
+      },
+    };
+  }
+
+  getMemberCompleter(): Ace.Completer {
+    return {
+      identifierRegexps: [/[a-zA-Z_$0-9]/],
+
+      getCompletions(
+        _editor: Ace.Editor,
+        session: Ace.EditSession,
+        pos: Ace.Point,
+        prefix: string,
+        callback: Ace.CompleterCallback
+      ) {
+        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
+
+        // dot access:     a.b.c.prefix  — capture full chain before last dot
+        const dotMatch = lineUpTo.match(/([A-Za-z_$][\w$.]*)\.([\w$]*)$/);
+        // bracket string: identifier["prefix  or  identifier['prefix
+        const bracketMatch = lineUpTo.match(/([A-Za-z_$][\w$]*)\[["']([\w$]*)$/);
+
+        const hit = dotMatch ?? bracketMatch;
+        if (!hit) { callback(null, []); return; }
+
+        const chain = hit[1].split(".");   // ["resolvers", "Query"] for resolvers.Query.h
+        const memberPrefix = (hit[2] ?? prefix).toLowerCase();
+        const content = session.getValue();
+        const members = chain.length === 1
+          ? extractMembersOf(chain[0], content)
+          : extractNestedMember(chain, content);
+        if (members.length === 0) { callback(null, []); return; }
+
+        const rootName = chain[0];
+        const results = members
+          .filter((m: string) => m.toLowerCase().startsWith(memberPrefix))
+          .map((m: string) => ({
+            caption: m,
+            value: bracketMatch ? `${m}"` : m,
+            meta: rootName,
+            score: 1100,
+          }));
+
+        callback(null, results);
+      },
+
+      insertMatch(editor: Ace.Editor, data: any) {
+        const session = editor.getSession();
+        const pos = editor.getCursorPosition();
+        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
+
+        // Replace only the partial member name after `.` or `["`
+        const dotIdx = lineUpTo.lastIndexOf(".");
+        const bracketIdx = Math.max(lineUpTo.lastIndexOf('["'), lineUpTo.lastIndexOf("['"));
+        const replaceFrom = Math.max(dotIdx, bracketIdx) + (bracketIdx >= dotIdx ? 2 : 1);
+
+        session.replace(
+          { start: { row: pos.row, column: replaceFrom }, end: { row: pos.row, column: pos.column } } as any,
+          data.value ?? ""
+        );
+      },
+    };
   }
 }

@@ -532,6 +532,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   exportsTracker = new ExportsTracker();
   editor.addCompleter(exportsTracker.getCompleter());
   editor.addCompleter(exportsTracker.getPathCompleter());
+  editor.addCompleter(exportsTracker.getNamedImportCompleter());
+  editor.addCompleter(exportsTracker.getMemberCompleter());
+  editor.setOnNavigate(async ({ path, content, row, column }) => {
+    const target = await exportsTracker.resolveDefinition(path, content, row, column);
+    if (!target) return;
+
+    await editor.openFile(
+      target.path,
+      target.path.split("/").pop() || target.path,
+      target.line,
+      target.column
+    );
+    fileExplorer.setActiveFile(target.path);
+  });
   editor.setOnSave((path: string, content: string) => {
     void exportsTracker.onFileSave(path, content);
   });

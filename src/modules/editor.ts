@@ -102,6 +102,13 @@ interface OpenTab {
   pinned: boolean;
 }
 
+export interface EditorNavigationRequest {
+  path: string;
+  content: string;
+  row: number;
+  column: number;
+}
+
 const EXT_MODE_MAP: Record<string, string> = {
   js: "javascript",
   jsx: "jsx",
@@ -138,6 +145,7 @@ export class Editor {
   private editorContextMenu: HTMLElement;
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
   private onSaveCallback: ((path: string, content: string) => void) | null = null;
+  private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -173,6 +181,13 @@ export class Editor {
       exec: () => {
         this.customAutocomplete.trigger();
       },
+    });
+
+    // Auto-trigger after '.' or '[' for member/property completions
+    this.ace.commands.on("afterExec", (e: any) => {
+      if (e.command.name === "insertstring" && (e.args === "." || e.args === "[")) {
+        this.customAutocomplete.trigger();
+      }
     });
 
     // Tab to accept inline completion (when visible), otherwise normal tab
@@ -221,19 +236,10 @@ export class Editor {
       this.showEditorContextMenu(e as MouseEvent);
     });
 
-    // Cmd/Ctrl + click to open URLs in the editor
+    // Cmd/Ctrl + click to open URLs or navigate to definitions in the editor
     this.editorEl.addEventListener("click", (e) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      const pos = this.ace.getCursorPosition();
-      const line = this.ace.session.getLine(pos.row);
-      const urlRegex = /https?:\/\/[^\s"')\]>]+/g;
-      let match: RegExpExecArray | null;
-      while ((match = urlRegex.exec(line)) !== null) {
-        if (pos.column >= match.index && pos.column <= match.index + match[0].length) {
-          import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(match![0])).catch(() => {});
-          break;
-        }
-      }
+      void this.handleModifierClick(e as MouseEvent);
     });
 
     // Attach AI ghost text completer
@@ -286,11 +292,11 @@ export class Editor {
     this.ace.renderer.updateFull(true);
   }
 
-  async openFile(path: string, name: string, line?: number) {
+  async openFile(path: string, name: string, line?: number, column?: number) {
     const existing = this.tabs.find((t) => t.path === path);
     if (existing) {
       this.switchToTab(path);
-      if (line !== undefined) this.gotoLine(line);
+      if (line !== undefined) this.gotoPosition(line, column);
       return;
     }
 
@@ -305,12 +311,16 @@ export class Editor {
     const tab: OpenTab = { path, name, content, modified: false, pinned: false };
     this.tabs.push(tab);
     this.switchToTab(path);
-    if (line !== undefined) this.gotoLine(line);
+    if (line !== undefined) this.gotoPosition(line, column);
   }
 
   gotoLine(line: number) {
-    // Ace gotoLine is 1-based
-    this.ace.gotoLine(line, 0, true);
+    this.gotoPosition(line, 1);
+  }
+
+  gotoPosition(line: number, column = 1) {
+    // Ace gotoLine uses 1-based line numbers and 0-based columns.
+    this.ace.gotoLine(line, Math.max(0, column - 1), true);
     this.ace.focus();
   }
 
@@ -383,6 +393,10 @@ export class Editor {
   /** Add a custom completer to the Ace editor */
   addCompleter(completer: ace.Ace.Completer) {
     this.customAutocomplete.addCompleter(completer);
+  }
+
+  setOnNavigate(callback: (request: EditorNavigationRequest) => Promise<void>) {
+    this.onNavigate = callback;
   }
 
   private switchToTab(path: string) {
@@ -569,6 +583,31 @@ export class Editor {
 
   private escapeAttr(str: string): string {
     return str.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  private async handleModifierClick(e: MouseEvent) {
+    const pos = this.ace.renderer.screenToTextCoordinates(e.clientX, e.clientY);
+    const line = this.ace.session.getLine(pos.row);
+    const urlRegex = /https?:\/\/[^\s"')\]>]+/g;
+    let match: RegExpExecArray | null;
+    while ((match = urlRegex.exec(line)) !== null) {
+      if (pos.column >= match.index && pos.column <= match.index + match[0].length) {
+        e.preventDefault();
+        await import("@tauri-apps/plugin-opener")
+          .then(({ openUrl }) => openUrl(match![0]))
+          .catch(() => {});
+        return;
+      }
+    }
+
+    if (!this.activeTab || !this.onNavigate) return;
+    e.preventDefault();
+    await this.onNavigate({
+      path: this.activeTab,
+      content: this.ace.getValue(),
+      row: pos.row,
+      column: pos.column,
+    });
   }
 
   setAISettings(getter: () => AISettings) {
