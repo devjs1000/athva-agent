@@ -128,7 +128,7 @@ export interface EditorHoverInfo {
   };
 }
 
-export interface EditorHoverRequest extends EditorNavigationRequest {}
+export interface EditorHoverRequest extends EditorNavigationRequest { }
 
 const EXT_MODE_MAP: Record<string, string> = {
   js: "javascript",
@@ -173,6 +173,7 @@ export class Editor {
   private ace: ace.Ace.Editor;
   private tabs: OpenTab[] = [];
   private activeTab: string = "";
+  //@ts-ignore
   private draggingTabPath: string | null = null;
   private tabsContainer: HTMLElement;
   private emptyEl: HTMLElement;
@@ -1357,7 +1358,7 @@ export class Editor {
         e.preventDefault();
         await import("@tauri-apps/plugin-opener")
           .then(({ openUrl }) => openUrl(match![0]))
-          .catch(() => {});
+          .catch(() => { });
         return;
       }
     }
@@ -1461,7 +1462,7 @@ export class Editor {
         action: () => {
           const text = this.ace.getSelectedText();
           if (text) {
-            navigator.clipboard.writeText(text).catch(() => {});
+            navigator.clipboard.writeText(text).catch(() => { });
             this.ace.execCommand("del");
           }
         },
@@ -1471,7 +1472,7 @@ export class Editor {
         shortcut: "⌘C",
         action: () => {
           const text = this.ace.getSelectedText();
-          if (text) navigator.clipboard.writeText(text).catch(() => {});
+          if (text) navigator.clipboard.writeText(text).catch(() => { });
         },
       },
       {
@@ -1481,7 +1482,7 @@ export class Editor {
           navigator.clipboard.readText().then((text) => {
             this.ace.focus();
             this.ace.insert(text);
-          }).catch(() => {});
+          }).catch(() => { });
         },
       },
       { separator: true },
@@ -1500,7 +1501,7 @@ export class Editor {
       {
         label: "Ask AI",
         icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`,
-        action: () => {},
+        action: () => { },
         // submenu handled separately
       },
     ];

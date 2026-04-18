@@ -48,14 +48,14 @@ function isEnvFileName(name: string): boolean {
   return /^\.env(\..+)?$/i.test(name.trim());
 }
 
-function base64UrlToBytes(value: string): Uint8Array {
-  const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-  const binary = atob(padded);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
+// function base64UrlToBytes(value: string): Uint8Array {
+//   const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
+//   const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+//   const binary = atob(padded);
+//   const out = new Uint8Array(binary.length);
+//   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+//   return out;
+// }
 
 function base64Encode(bytes: Uint8Array): string {
   let binary = "";
