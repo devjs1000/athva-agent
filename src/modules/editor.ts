@@ -301,7 +301,19 @@ export class Editor {
     document.addEventListener("click", () => {
       this.tabContextMenu.classList.add("hidden");
       this.editorContextMenu.classList.add("hidden");
+      const pickerWasVisible = !this.webPickerDropdown.classList.contains("hidden");
       this.webPickerDropdown.classList.add("hidden");
+      if (pickerWasVisible && this.activeWebLabel) {
+        const bounds = this.getEditorContainerBounds();
+        void invoke("open_web_window", {
+          url: "",
+          label: this.activeWebLabel,
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        });
+      }
     });
     document.addEventListener("contextmenu", (e) => {
       if (!this.tabContextMenu.contains(e.target as Node)) {
@@ -757,6 +769,23 @@ export class Editor {
       this.webPickerDropdown.style.top = `${rect.bottom + 4}px`;
       const left = Math.min(rect.left, window.innerWidth - 260);
       this.webPickerDropdown.style.left = `${Math.max(4, left)}px`;
+      // Hide the native webview so it doesn't cover the dropdown
+      if (this.activeWebLabel) {
+        void invoke("hide_web_window", { label: this.activeWebLabel });
+      }
+    } else {
+      // Picker closed without selecting — restore the active web tab
+      if (this.activeWebLabel) {
+        const bounds = this.getEditorContainerBounds();
+        void invoke("open_web_window", {
+          url: "",
+          label: this.activeWebLabel,
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        });
+      }
     }
   }
 
@@ -825,6 +854,17 @@ export class Editor {
       }
       if (e.key === "Escape") {
         this.webPickerDropdown.classList.add("hidden");
+        if (this.activeWebLabel) {
+          const bounds = this.getEditorContainerBounds();
+          void invoke("open_web_window", {
+            url: "",
+            label: this.activeWebLabel,
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+          });
+        }
       }
     });
   }
