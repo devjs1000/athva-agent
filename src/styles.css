@@ -1294,6 +1294,34 @@ body {
   user-select: none;
 }
 
+.editor-tab[draggable="true"] {
+  cursor: grab;
+}
+
+.editor-tab.dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.editor-tab.drag-over-before::before,
+.editor-tab.drag-over-after::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: rgba(96, 165, 250, 0.75);
+  border-radius: 2px;
+}
+
+.editor-tab.drag-over-before::before {
+  left: 0;
+}
+
+.editor-tab.drag-over-after::after {
+  right: 0;
+}
+
 .editor-tab-label {
   display: flex;
   align-items: center;
@@ -1601,6 +1629,66 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
+}
+
+.editor-protected-banner {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  color: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(10px);
+}
+
+.editor-protected-banner.hidden {
+  display: none;
+}
+
+.editor-protected-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.editor-protected-banner-icon {
+  display: flex;
+  align-items: center;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.editor-protected-banner-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.86);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-protected-banner-btn {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.editor-protected-banner-btn:hover {
+  background: rgba(0, 0, 0, 0.28);
 }
 
 .editor-empty {
@@ -3674,6 +3762,17 @@ body {
   justify-content: space-between;
   padding: 8px 0;
   gap: 16px;
+}
+
+.setting-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-btn-row .btn-secondary {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .setting-row label {

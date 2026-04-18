@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
@@ -23,6 +24,41 @@ pub struct ProjectsStore {
     pub projects: Vec<Project>,
 }
 
+static STARTUP_OPEN_PATH: OnceLock<Option<String>> = OnceLock::new();
+
+fn compute_startup_open_path() -> Option<String> {
+    for arg in std::env::args().skip(1) {
+        if arg.trim().is_empty() {
+            continue;
+        }
+        // macOS can launch GUI apps with a `-psn_*` argument.
+        if arg.starts_with('-') {
+            continue;
+        }
+        let raw = arg.trim().to_string();
+        let mut candidate = PathBuf::from(&raw);
+        if candidate.is_relative() {
+            if let Ok(cwd) = std::env::current_dir() {
+                candidate = cwd.join(candidate);
+            }
+        }
+        if !candidate.exists() {
+            continue;
+        }
+        if candidate.is_file() {
+            if let Some(parent) = candidate.parent() {
+                candidate = parent.to_path_buf();
+            }
+        }
+        if !candidate.is_dir() {
+            continue;
+        }
+        let canonical = fs::canonicalize(&candidate).unwrap_or(candidate);
+        return Some(canonical.to_string_lossy().to_string());
+    }
+    None
+}
+
 fn get_config_path(app: &tauri::AppHandle) -> PathBuf {
     let config_dir = app
         .path()
@@ -39,6 +75,47 @@ fn get_settings_path(app: &tauri::AppHandle) -> PathBuf {
         .expect("failed to get config dir");
     fs::create_dir_all(&config_dir).ok();
     config_dir.join("settings.json")
+}
+
+#[tauri::command]
+fn get_startup_open_path() -> Option<String> {
+    STARTUP_OPEN_PATH.get().cloned().unwrap_or(None)
+}
+
+#[tauri::command]
+fn read_env_masked(path: String) -> Result<String, String> {
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut out = String::with_capacity(content.len());
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') || !trimmed.contains('=') {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let (lhs, rhs) = line.split_once('=').unwrap_or((line, ""));
+        let rhs_trim = rhs.trim();
+        if rhs_trim.is_empty() {
+            out.push_str(lhs);
+            out.push('=');
+            out.push_str(rhs);
+            out.push('\n');
+            continue;
+        }
+        out.push_str(lhs);
+        out.push('=');
+        // Preserve surrounding quotes if present.
+        let quote = rhs_trim.chars().next().unwrap_or('\0');
+        if (quote == '"' || quote == '\'') && rhs_trim.ends_with(quote) && rhs_trim.len() >= 2 {
+            out.push(quote);
+            out.push_str("********");
+            out.push(quote);
+        } else {
+            out.push_str("********");
+        }
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -1209,12 +1286,15 @@ fn memory_stats(project_path: Option<String>) -> Result<MemoryStats, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = STARTUP_OPEN_PATH.set(compute_startup_open_path());
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
+            get_startup_open_path,
+            read_env_masked,
             get_projects,
             add_project,
             remove_project,

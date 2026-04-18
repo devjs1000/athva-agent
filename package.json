@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "athva": "./bin/athva.js"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

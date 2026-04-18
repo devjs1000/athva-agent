@@ -103,6 +103,7 @@ interface OpenTab {
   pinned: boolean;
   kind?: "file" | "web";
   url?: string;
+  lockedView?: boolean;
 }
 
 interface WebMediaStatePayload {
@@ -172,9 +173,11 @@ export class Editor {
   private ace: ace.Ace.Editor;
   private tabs: OpenTab[] = [];
   private activeTab: string = "";
+  private draggingTabPath: string | null = null;
   private tabsContainer: HTMLElement;
   private emptyEl: HTMLElement;
   private editorEl: HTMLElement;
+  private protectedBannerEl: HTMLElement;
   private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
   private lintTimeout: ReturnType<typeof setTimeout> | null = null;
   private minimap: Minimap | null = null;
@@ -190,6 +193,7 @@ export class Editor {
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
   private onSaveCallback: ((path: string, content: string) => void) | null = null;
   private onCreateEditorTab: (() => void) | null = null;
+  private onUnlockProtected: ((path: string) => void) | null = null;
   private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
   private onHoverInfo: ((request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) | null = null;
   private webFrameEl: HTMLIFrameElement;
@@ -299,6 +303,26 @@ export class Editor {
     this.webResizeObserver.observe(editorContainer);
     // Also sync on window resize
     window.addEventListener("resize", () => this.syncActiveWebTabBounds());
+
+    // Protected file banner (e.g. masked .env until unlocked)
+    this.protectedBannerEl = document.createElement("div");
+    this.protectedBannerEl.className = "editor-protected-banner hidden";
+    this.protectedBannerEl.innerHTML = `
+      <div class="editor-protected-banner-left">
+        <span class="editor-protected-banner-icon" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 7V5.75A3.5 3.5 0 0 1 8 2.25a3.5 3.5 0 0 1 3.5 3.5V7h.75A1.75 1.75 0 0 1 14 8.75v4.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25v-4.5A1.75 1.75 0 0 1 3.75 7h.75zm1.5 0h4V5.75A2 2 0 1 0 6 5.75V7z"/></svg>
+        </span>
+        <span class="editor-protected-banner-text">Protected secrets are hidden.</span>
+      </div>
+      <button class="editor-protected-banner-btn" type="button">Unlock to reveal</button>
+    `;
+    const bannerBtn = this.protectedBannerEl.querySelector(".editor-protected-banner-btn") as HTMLButtonElement;
+    bannerBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.activeTab) this.onUnlockProtected?.(this.activeTab);
+    });
+    editorContainer.appendChild(this.protectedBannerEl);
 
     // New tab picker dropdown
     this.tabPickerDropdown = document.createElement("div");
@@ -416,6 +440,20 @@ export class Editor {
     if (line !== undefined) this.gotoPosition(line, column);
   }
 
+  openFileWithContent(path: string, name: string, content: string, lockedView: boolean) {
+    const existing = this.tabs.find((t) => t.path === path);
+    if (existing) {
+      existing.content = content;
+      existing.modified = false;
+      existing.lockedView = lockedView;
+      this.switchToTab(path);
+      return;
+    }
+    const tab: OpenTab = { path, name, content, modified: false, pinned: false, lockedView };
+    this.tabs.push(tab);
+    this.switchToTab(path);
+  }
+
   gotoLine(line: number) {
     this.gotoPosition(line, 1);
   }
@@ -433,13 +471,16 @@ export class Editor {
       const content = await invoke<string>("read_file", { path });
       tab.content = content;
       tab.modified = false;
+      tab.lockedView = false;
       if (this.activeTab === path) {
         const cursor = this.ace.getCursorPosition();
         this.ace.setValue(content, -1);
         this.ace.moveCursorToPosition(cursor);
         this.ace.clearSelection();
+        this.ace.setReadOnly(false);
       }
       this.renderTabs();
+      this.updateProtectedBanner(tab);
     } catch (e) {
       console.error("Failed to reload file:", e);
     }
@@ -470,8 +511,10 @@ export class Editor {
       } else {
         this.activeTab = "";
         this.ace.setValue("");
+        this.ace.setReadOnly(false);
         this.editorEl.style.display = "none";
         this.emptyEl.style.display = "flex";
+        this.protectedBannerEl.classList.add("hidden");
       }
     }
 
@@ -513,6 +556,10 @@ export class Editor {
     this.onCreateEditorTab = callback;
   }
 
+  setOnUnlockProtected(callback: (path: string) => void) {
+    this.onUnlockProtected = callback;
+  }
+
   setOnNavigate(callback: (request: EditorNavigationRequest) => Promise<void>) {
     this.onNavigate = callback;
   }
@@ -532,6 +579,7 @@ export class Editor {
     if (tab.kind === "web") {
       // Hide the ace editor, show the child webview instead
       this.editorEl.style.display = "none";
+      this.protectedBannerEl.classList.add("hidden");
       this.activeWebLabel = this.webTabLabels.get(path) ?? null;
       if (prevWebLabel && prevWebLabel !== this.activeWebLabel) {
         void invoke("hide_web_window", { label: prevWebLabel });
@@ -584,9 +632,17 @@ export class Editor {
       this.ace.session.setUseWorker(true);
     }
 
+    this.ace.setReadOnly(!!tab.lockedView);
+    this.updateProtectedBanner(tab);
+
     this.renderTabs();
     this.ace.focus();
     this.ace.resize();
+  }
+
+  private updateProtectedBanner(tab: OpenTab) {
+    const shouldShow = tab.kind !== "web" && !!tab.lockedView && tab.path === this.activeTab;
+    this.protectedBannerEl.classList.toggle("hidden", !shouldShow);
   }
 
   private getEditorContainerBounds(): { x: number; y: number; width: number; height: number } {
@@ -990,7 +1046,7 @@ export class Editor {
           const isWeb = tab.kind === "web";
           const isPlaying = isWeb && this.webTabMediaState.get(tab.path) === true;
           return `
-      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${tab.kind === "web" ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}">
+      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${tab.kind === "web" ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}" draggable="true">
         ${tab.pinned ? `<span class="editor-tab-pin">&#x2605;</span>` : ""}
         ${isWeb ? `<span class="editor-tab-web-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg></span>` : ""}
         <span class="editor-tab-label">
@@ -1016,6 +1072,48 @@ export class Editor {
         const path = (el as HTMLElement).dataset.path!;
         this.switchToTab(path);
       });
+      el.addEventListener("dragstart", (e) => {
+        const path = (el as HTMLElement).dataset.path!;
+        this.draggingTabPath = path;
+        el.classList.add("dragging");
+        try {
+          (e as DragEvent).dataTransfer?.setData("text/plain", path);
+          (e as DragEvent).dataTransfer?.setData("application/x-athva-tab", path);
+          (e as DragEvent).dataTransfer!.effectAllowed = "move";
+        } catch {
+          // Some webviews restrict dataTransfer for security reasons.
+        }
+      });
+      el.addEventListener("dragend", () => {
+        this.draggingTabPath = null;
+        el.classList.remove("dragging");
+        this.tabsContainer.querySelectorAll(".editor-tab.drag-over-before,.editor-tab.drag-over-after").forEach((node) => {
+          node.classList.remove("drag-over-before", "drag-over-after");
+        });
+      });
+      el.addEventListener("dragover", (e) => {
+        if (!this.draggingTabPath) return;
+        e.preventDefault();
+        const targetPath = (el as HTMLElement).dataset.path!;
+        if (!targetPath || targetPath === this.draggingTabPath) return;
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        const before = (e as DragEvent).clientX < rect.left + rect.width / 2;
+        el.classList.toggle("drag-over-before", before);
+        el.classList.toggle("drag-over-after", !before);
+        (e as DragEvent).dataTransfer && ((e as DragEvent).dataTransfer!.dropEffect = "move");
+      });
+      el.addEventListener("dragleave", () => {
+        el.classList.remove("drag-over-before", "drag-over-after");
+      });
+      el.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const fromPath = this.draggingTabPath;
+        const targetPath = (el as HTMLElement).dataset.path!;
+        if (!fromPath || !targetPath || fromPath === targetPath) return;
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        const before = (e as DragEvent).clientX < rect.left + rect.width / 2;
+        this.moveTab(fromPath, targetPath, before);
+      });
       el.addEventListener("mousedown", (e) => {
         if ((e as MouseEvent).button === 2) e.preventDefault();
       });
@@ -1040,6 +1138,33 @@ export class Editor {
       e.stopPropagation();
       this.toggleTabPicker((e.currentTarget ?? e.target) as HTMLElement);
     });
+  }
+
+  private moveTab(fromPath: string, targetPath: string, insertBefore: boolean) {
+    const fromIdx = this.tabs.findIndex((t) => t.path === fromPath);
+    const targetIdx = this.tabs.findIndex((t) => t.path === targetPath);
+    if (fromIdx === -1 || targetIdx === -1) return;
+
+    const fromTab = this.tabs[fromIdx];
+    const targetTab = this.tabs[targetIdx];
+
+    // Keep pinned tabs grouped at the front.
+    const firstUnpinnedIdx = this.tabs.findIndex((t) => !t.pinned);
+    const pinnedCount = firstUnpinnedIdx === -1 ? this.tabs.length : firstUnpinnedIdx;
+
+    let effectiveTargetIdx = targetIdx;
+    if (!!fromTab.pinned !== !!targetTab.pinned) {
+      effectiveTargetIdx = fromTab.pinned ? pinnedCount - 1 : pinnedCount;
+      insertBefore = fromTab.pinned;
+    }
+
+    // Remove then insert at the computed position.
+    this.tabs.splice(fromIdx, 1);
+    if (fromIdx < effectiveTargetIdx) effectiveTargetIdx--;
+
+    const insertAt = insertBefore ? effectiveTargetIdx : effectiveTargetIdx + 1;
+    this.tabs.splice(Math.max(0, Math.min(this.tabs.length, insertAt)), 0, fromTab);
+    this.renderTabs();
   }
 
   private async saveCurrentFile() {

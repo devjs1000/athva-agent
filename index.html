@@ -101,6 +101,44 @@
         </div>
       </div>
 
+      <!-- ========== App Unlock Dialog ========== -->
+      <div id="unlock-dialog" class="dialog-overlay hidden">
+        <div class="dialog dialog-sm">
+          <h2 id="unlock-dialog-title">Unlock</h2>
+          <p id="unlock-dialog-message" class="confirm-msg">Enter PIN or use fingerprint to continue.</p>
+          <div class="dialog-field">
+            <label for="unlock-dialog-pin">PIN</label>
+            <input id="unlock-dialog-pin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="••••" />
+            <p id="unlock-dialog-error" class="hint hidden"></p>
+          </div>
+          <div class="dialog-actions">
+            <button id="unlock-dialog-cancel" class="btn-secondary">Cancel</button>
+            <button id="unlock-dialog-fingerprint" class="btn-secondary">Fingerprint</button>
+            <button id="unlock-dialog-ok" class="btn-primary">Unlock</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Set PIN Dialog ========== -->
+      <div id="set-pin-dialog" class="dialog-overlay hidden">
+        <div class="dialog dialog-sm">
+          <h2>Set PIN</h2>
+          <div class="dialog-field">
+            <label for="set-pin-new">New PIN</label>
+            <input id="set-pin-new" type="password" inputmode="numeric" autocomplete="new-password" placeholder="••••" />
+          </div>
+          <div class="dialog-field">
+            <label for="set-pin-confirm">Confirm PIN</label>
+            <input id="set-pin-confirm" type="password" inputmode="numeric" autocomplete="new-password" placeholder="••••" />
+            <p id="set-pin-error" class="hint hidden"></p>
+          </div>
+          <div class="dialog-actions">
+            <button id="set-pin-cancel" class="btn-secondary">Cancel</button>
+            <button id="set-pin-ok" class="btn-primary">Save PIN</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ========== Script Runner Palette ========== -->
       <div id="script-runner-overlay" class="quick-open-overlay hidden">
         <div class="quick-open">
@@ -591,16 +629,17 @@
           <div class="settings-body">
             <div id="settings-saved-toast" class="settings-saved-toast hidden">Settings saved</div>
 
-            <div class="settings-toolbar">
-              <input id="settings-search-input" class="settings-search-input" type="text" placeholder="Search settings..." autocomplete="off" spellcheck="false" />
-              <div class="settings-tabs">
-                <button class="settings-tab-btn active" data-settings-tab="all">All</button>
-                <button class="settings-tab-btn" data-settings-tab="workspace">Workspace</button>
-                <button class="settings-tab-btn" data-settings-tab="ai">AI</button>
-                <button class="settings-tab-btn" data-settings-tab="access">Access</button>
-                <button class="settings-tab-btn" data-settings-tab="memory">Memory</button>
+              <div class="settings-toolbar">
+                <input id="settings-search-input" class="settings-search-input" type="text" placeholder="Search settings..." autocomplete="off" spellcheck="false" />
+                <div class="settings-tabs">
+                  <button class="settings-tab-btn active" data-settings-tab="all">All</button>
+                  <button class="settings-tab-btn" data-settings-tab="workspace">Workspace</button>
+                  <button class="settings-tab-btn" data-settings-tab="ai">AI</button>
+                  <button class="settings-tab-btn" data-settings-tab="access">Access</button>
+                  <button class="settings-tab-btn" data-settings-tab="security">Security</button>
+                  <button class="settings-tab-btn" data-settings-tab="memory">Memory</button>
+                </div>
               </div>
-            </div>
 
             <div class="settings-sections">
               <!-- Editor Settings -->
@@ -710,8 +749,8 @@
                 </div>
               </section>
 
-              <!-- Agent Access Permissions -->
-              <section class="settings-section expanded" data-settings-category="access">
+	              <!-- Agent Access Permissions -->
+	              <section class="settings-section expanded" data-settings-category="access">
                 <button class="settings-section-header" type="button">
                   <div class="settings-section-heading">
                     <h3 class="settings-section-title">Agent Access</h3>
@@ -785,11 +824,83 @@
                     </div>
                     <input id="setting-access-auto-approve" type="checkbox" />
                   </div>
-                </div>
-              </section>
+	                </div>
+	              </section>
 
-              <!-- Agent Memory -->
-              <section class="settings-section expanded" id="memory-settings-section" data-settings-category="memory">
+	              <!-- Security -->
+	              <section class="settings-section expanded" data-settings-category="security">
+	                <button class="settings-section-header" type="button">
+	                  <div class="settings-section-heading">
+	                    <h3 class="settings-section-title">Security</h3>
+	                    <p class="setting-description">Require unlock before opening projects or viewing protected secrets.</p>
+	                  </div>
+	                  <span class="settings-section-chevron" aria-hidden="true">
+	                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+	                  </span>
+	                </button>
+	                <div class="settings-section-content">
+	                  <div class="setting-row">
+	                    <div class="setting-label-group">
+	                      <label for="setting-security-enabled">Require Unlock</label>
+	                      <span class="setting-hint">Ask for PIN/fingerprint before accessing protected areas</span>
+	                    </div>
+	                    <input id="setting-security-enabled" type="checkbox" />
+	                  </div>
+
+	                  <div class="setting-row">
+	                    <div class="setting-label-group">
+	                      <label for="setting-security-method">Unlock Method</label>
+	                      <span class="setting-hint">Choose PIN and/or fingerprint</span>
+	                    </div>
+	                    <select id="setting-security-method">
+	                      <option value="pin">PIN</option>
+	                      <option value="fingerprint">Fingerprint</option>
+	                      <option value="pin_or_fingerprint">PIN or Fingerprint</option>
+	                    </select>
+	                  </div>
+
+	                  <div class="setting-row">
+	                    <div class="setting-label-group">
+	                      <label>PIN</label>
+	                      <span id="setting-security-pin-status" class="setting-hint">Not set</span>
+	                    </div>
+	                    <div class="setting-btn-row">
+	                      <button id="btn-security-set-pin" class="btn-secondary">Set PIN</button>
+	                      <button id="btn-security-clear-pin" class="btn-secondary">Remove</button>
+	                    </div>
+	                  </div>
+
+	                  <div class="setting-row">
+	                    <div class="setting-label-group">
+	                      <label>Fingerprint</label>
+	                      <span id="setting-security-fingerprint-status" class="setting-hint">Not set</span>
+	                    </div>
+	                    <div class="setting-btn-row">
+	                      <button id="btn-security-setup-fingerprint" class="btn-secondary">Set Up</button>
+	                      <button id="btn-security-clear-fingerprint" class="btn-secondary">Remove</button>
+	                    </div>
+	                  </div>
+
+	                  <div class="setting-row">
+	                    <div class="setting-label-group">
+	                      <label for="setting-security-lock-project-open">Lock Before Opening Projects</label>
+	                      <span class="setting-hint">Require unlock before opening any project folder</span>
+	                    </div>
+	                    <input id="setting-security-lock-project-open" type="checkbox" />
+	                  </div>
+
+	                  <div class="setting-row">
+	                    <div class="setting-label-group">
+	                      <label for="setting-security-protect-env">Protect .env Files</label>
+	                      <span class="setting-hint">Mask secrets and require unlock to reveal</span>
+	                    </div>
+	                    <input id="setting-security-protect-env" type="checkbox" />
+	                  </div>
+	                </div>
+	              </section>
+
+	              <!-- Agent Memory -->
+	              <section class="settings-section expanded" id="memory-settings-section" data-settings-category="memory">
                 <button class="settings-section-header" type="button">
                   <div class="settings-section-heading">
                     <h3 class="settings-section-title">Agent Memory</h3>

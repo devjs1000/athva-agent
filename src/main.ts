@@ -1,8 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { getProjects, addProject, removeProject } from "./store/projects";
 import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
 import { SettingsUI, loadSettings, saveSettings, type AppSettings } from "./modules/settings";
+import { showConfirmDialog } from "./modules/dialogs";
 import { Chatbot } from "./modules/chatbot";
 import { AgentMemory } from "./modules/agent-memory";
 import { MemorySettingsUI } from "./modules/memory-settings-ui";
@@ -38,6 +40,195 @@ let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
 let currentProjectPath: string = "";
+let appUnlocked = false;
+let lastSecuritySignature = "";
+
+function isEnvFileName(name: string): boolean {
+  return /^\.env(\..+)?$/i.test(name.trim());
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+  const binary = atob(padded);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function base64Encode(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+async function sha256Base64(input: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", input);
+  return base64Encode(new Uint8Array(hash));
+}
+
+function refreshSecuritySession(settings: AppSettings) {
+  const security = settings.security;
+  const signature = [
+    security.enabled ? "1" : "0",
+    security.method || "",
+    security.pinHash || "",
+    security.pinSalt || "",
+    security.fingerprintCredentialId || "",
+    security.lockBeforeProjectOpen ? "1" : "0",
+    security.protectEnvFiles ? "1" : "0",
+  ].join("|");
+  if (signature !== lastSecuritySignature) {
+    appUnlocked = false;
+    lastSecuritySignature = signature;
+  }
+}
+
+async function ensureUnlocked(reason: string): Promise<boolean> {
+  const security = appSettings.security;
+  if (!security?.enabled) return true;
+  if (appUnlocked) return true;
+  const pinConfigured = !!(security.pinSalt && security.pinHash);
+  const fpConfigured = !!security.fingerprintCredentialId;
+  const fpSupported = "PublicKeyCredential" in window && !!navigator.credentials;
+  const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
+  const allowFp = security.method === "fingerprint" || security.method === "pin_or_fingerprint";
+  const canUnlock =
+    (allowPin && pinConfigured) ||
+    (allowFp && fpConfigured && fpSupported);
+  if (!canUnlock) {
+    await showConfirmDialog(
+      "Unlock Not Configured",
+      "Set a PIN and/or fingerprint in Settings > Security to enable locking.",
+      "OK"
+    );
+    return false;
+  }
+  const ok = await showUnlockDialog(reason);
+  if (ok) appUnlocked = true;
+  return ok;
+}
+
+async function verifyPin(pin: string): Promise<boolean> {
+  const security = appSettings.security;
+  const salt = security.pinSalt || "";
+  const expected = security.pinHash || "";
+  if (!salt || !expected) return false;
+  const encoded = new TextEncoder().encode(`${salt}:${pin}`);
+  const hash = await sha256Base64(encoded);
+  return hash === expected;
+}
+
+async function verifyFingerprint(): Promise<boolean> {
+  const security = appSettings.security;
+  const id = security.fingerprintCredentialId || "";
+  if (!id) return false;
+  if (!("PublicKeyCredential" in window) || !navigator.credentials?.get) return false;
+  const allowId = base64UrlToBytes(id);
+  const challenge = new Uint8Array(32);
+  crypto.getRandomValues(challenge);
+  const cred = await navigator.credentials.get({
+    publicKey: {
+      challenge,
+      allowCredentials: [{ type: "public-key", id: allowId }],
+      userVerification: "required",
+      timeout: 60_000,
+    },
+  });
+  return !!cred;
+}
+
+async function showUnlockDialog(reason: string): Promise<boolean> {
+  const overlay = document.getElementById("unlock-dialog")!;
+  const titleEl = document.getElementById("unlock-dialog-title")!;
+  const msgEl = document.getElementById("unlock-dialog-message")!;
+  const pinEl = document.getElementById("unlock-dialog-pin") as HTMLInputElement;
+  const errorEl = document.getElementById("unlock-dialog-error")!;
+  const okBtn = document.getElementById("unlock-dialog-ok") as HTMLButtonElement;
+  const fpBtn = document.getElementById("unlock-dialog-fingerprint") as HTMLButtonElement;
+  const cancelBtn = document.getElementById("unlock-dialog-cancel") as HTMLButtonElement;
+
+  const security = appSettings.security;
+  const pinConfigured = !!(security.pinSalt && security.pinHash);
+  const fpConfigured = !!security.fingerprintCredentialId;
+  const fpSupported = "PublicKeyCredential" in window && !!navigator.credentials;
+
+  const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
+  const allowFp = security.method === "fingerprint" || security.method === "pin_or_fingerprint";
+
+  fpBtn.disabled = !(allowFp && fpConfigured && fpSupported);
+  okBtn.disabled = !(allowPin && pinConfigured);
+
+  titleEl.textContent = "Unlock";
+  msgEl.textContent = reason;
+  errorEl.classList.add("hidden");
+  errorEl.textContent = "";
+  pinEl.value = "";
+
+  overlay.classList.remove("hidden");
+  (okBtn.disabled ? (fpBtn.disabled ? cancelBtn : fpBtn) : pinEl).focus();
+
+  return await new Promise((resolve) => {
+    function onOkClick() { void onOk(); }
+    function onFingerprintClick() { void onFingerprint(); }
+
+    const cleanup = () => {
+      overlay.classList.add("hidden");
+      okBtn.removeEventListener("click", onOkClick);
+      fpBtn.removeEventListener("click", onFingerprintClick);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("click", onOverlay);
+      document.removeEventListener("keydown", onKey);
+    };
+
+    const fail = (message: string) => {
+      errorEl.textContent = message;
+      errorEl.classList.remove("hidden");
+    };
+
+    const onOk = async () => {
+      if (!allowPin) return;
+      const pin = pinEl.value.trim();
+      if (!pin) return fail("Enter your PIN.");
+      const ok = await verifyPin(pin).catch(() => false);
+      if (!ok) return fail("Incorrect PIN.");
+      cleanup();
+      resolve(true);
+    };
+
+    const onFingerprint = async () => {
+      if (!allowFp) return;
+      if (!fpConfigured) return fail("Fingerprint is not set up in Settings.");
+      const ok = await verifyFingerprint().catch(() => false);
+      if (!ok) return fail("Fingerprint verification failed.");
+      cleanup();
+      resolve(true);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const onOverlay = (e: MouseEvent) => {
+      if (e.target === overlay) onCancel();
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (!okBtn.disabled) void onOk();
+        else if (!fpBtn.disabled) void onFingerprint();
+      }
+    };
+
+    okBtn.addEventListener("click", onOkClick);
+    fpBtn.addEventListener("click", onFingerprintClick);
+    cancelBtn.addEventListener("click", onCancel);
+    overlay.addEventListener("click", onOverlay);
+    document.addEventListener("keydown", onKey);
+  });
+}
 
 // ── DOM Helpers ──
 function $(id: string): HTMLElement {
@@ -116,6 +307,10 @@ async function renderRecentProjects() {
 
 // ── Project Opening ──
 async function openProject(path: string) {
+  if (appSettings.security?.enabled && appSettings.security.lockBeforeProjectOpen) {
+    const ok = await ensureUnlocked("Unlock to open project");
+    if (!ok) return;
+  }
   const project = await addProject(path);
   currentProjectPath = project.path;
   $("workspace-project-name").textContent = project.name;
@@ -216,6 +411,26 @@ function onSettingsChange(settings: AppSettings) {
   editor.applySettings(settings.editor);
   setTailwindEnabled(!!settings.editor.tailwindAutocomplete);
   syncChatAutoApproveToggle();
+  refreshSecuritySession(settings);
+}
+
+async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
+  const fileName = name || path.split("/").pop() || "";
+  const shouldProtectEnv = appSettings.security?.enabled && appSettings.security.protectEnvFiles;
+  const isEnv = isEnvFileName(fileName);
+  if (shouldProtectEnv && isEnv && !appUnlocked) {
+    const masked = await invoke<string>("read_env_masked", { path }).catch(() => "********\n");
+    editor.openFileWithContent(path, name, masked, true);
+    fileExplorer.setActiveFile(path);
+    const ok = await ensureUnlocked("Unlock to reveal .env secrets");
+    if (ok) {
+      await editor.reloadFile(path);
+    }
+    if (line !== undefined) editor.gotoPosition(line, column ?? 1);
+    return;
+  }
+  await editor.openFile(path, name, line, column);
+  fileExplorer.setActiveFile(path);
 }
 
 function syncChatAutoApproveToggle() {
@@ -228,6 +443,7 @@ function syncChatAutoApproveToggle() {
 window.addEventListener("DOMContentLoaded", async () => {
   // Load settings
   appSettings = await loadSettings();
+  refreshSecuritySession(appSettings);
 
   // Init editor
   editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
@@ -245,8 +461,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init file explorer
   fileExplorer = new FileExplorer("file-tree", (path, name) => {
-    editor.openFile(path, name);
-    fileExplorer.setActiveFile(path);
+    void openFileWithGuards(path, name);
   });
 
   // Init sidebar time widget
@@ -364,19 +579,24 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
-    editor.openFile(path, name);
-    fileExplorer.setActiveFile(path);
+    void openFileWithGuards(path, name);
   });
   editor.setOnCreateEditorTab(() => {
     if (!currentProjectPath) return;
     quickOpen.open();
   });
+  editor.setOnUnlockProtected((path) => {
+    void (async () => {
+      const ok = await ensureUnlocked("Unlock to reveal secrets");
+      if (!ok) return;
+      await editor.reloadFile(path);
+    })();
+  });
 
   // Init global search
   globalSearch = new GlobalSearch(
     (path, name, line) => {
-      editor.openFile(path, name, line);
-      fileExplorer.setActiveFile(path);
+      void openFileWithGuards(path, name, line);
     },
     (paths) => {
       paths.forEach((p) => editor.reloadFile(p));
@@ -562,13 +782,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     const target = await exportsTracker.resolveDefinition(path, content, row, column);
     if (!target) return;
 
-    await editor.openFile(
+    await openFileWithGuards(
       target.path,
       target.path.split("/").pop() || target.path,
       target.line,
       target.column
     );
-    fileExplorer.setActiveFile(target.path);
   });
   editor.setOnHoverInfo(({ path, content, row, column }) =>
     exportsTracker.resolveHoverInfo(path, content, row, column)
@@ -607,5 +826,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   updateStatusBar();
 
   // ── Render welcome ──
-  renderRecentProjects();
+  await renderRecentProjects();
+
+  const startupPath = await invoke<string | null>("get_startup_open_path").catch(() => null);
+  if (startupPath) {
+    await openProject(startupPath);
+  }
 });

@@ -24,11 +24,24 @@ export interface MemorySettings {
   projectEnabled: boolean;
 }
 
+export type UnlockMethod = "pin" | "fingerprint" | "pin_or_fingerprint";
+
+export interface SecuritySettings {
+  enabled: boolean;
+  method: UnlockMethod;
+  pinSalt?: string;
+  pinHash?: string;
+  fingerprintCredentialId?: string; // base64url
+  lockBeforeProjectOpen: boolean;
+  protectEnvFiles: boolean;
+}
+
 export interface AppSettings {
   editor: EditorSettings;
   ai: AISettings;
   agentAccess: AgentAccess;
   memory: MemorySettings;
+  security: SecuritySettings;
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
@@ -53,11 +66,22 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
   projectEnabled: true,
 };
 
+export const DEFAULT_SECURITY_SETTINGS: SecuritySettings = {
+  enabled: false,
+  method: "pin",
+  pinSalt: "",
+  pinHash: "",
+  fingerprintCredentialId: "",
+  lockBeforeProjectOpen: true,
+  protectEnvFiles: true,
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   editor: { ...DEFAULT_EDITOR_SETTINGS },
   ai: { ...DEFAULT_AI_SETTINGS },
   agentAccess: { ...DEFAULT_AGENT_ACCESS },
   memory: { ...DEFAULT_MEMORY_SETTINGS },
+  security: { ...DEFAULT_SECURITY_SETTINGS },
 };
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -69,6 +93,7 @@ export async function loadSettings(): Promise<AppSettings> {
       ai: { ...DEFAULT_AI_SETTINGS, ...parsed.ai },
       agentAccess: { ...DEFAULT_AGENT_ACCESS, ...parsed.agentAccess },
       memory: { ...DEFAULT_MEMORY_SETTINGS, ...parsed.memory },
+      security: { ...DEFAULT_SECURITY_SETTINGS, ...parsed.security },
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -114,6 +139,18 @@ export class SettingsUI {
   private memoryGlobalEl: HTMLInputElement;
   private memoryProjectEl: HTMLInputElement;
 
+  // Security elements
+  private securityEnabledEl: HTMLInputElement;
+  private securityMethodEl: HTMLSelectElement;
+  private securityPinStatusEl: HTMLElement;
+  private securityFingerprintStatusEl: HTMLElement;
+  private securityLockProjectOpenEl: HTMLInputElement;
+  private securityProtectEnvEl: HTMLInputElement;
+  private securitySetPinBtnEl: HTMLButtonElement;
+  private securityClearPinBtnEl: HTMLButtonElement;
+  private securitySetupFingerprintBtnEl: HTMLButtonElement;
+  private securityClearFingerprintBtnEl: HTMLButtonElement;
+
   // Settings navigation / filtering
   private searchEl: HTMLInputElement;
   private tabEls: HTMLElement[];
@@ -150,6 +187,17 @@ export class SettingsUI {
 
     this.memoryGlobalEl = document.getElementById("setting-memory-global") as HTMLInputElement;
     this.memoryProjectEl = document.getElementById("setting-memory-project") as HTMLInputElement;
+
+    this.securityEnabledEl = document.getElementById("setting-security-enabled") as HTMLInputElement;
+    this.securityMethodEl = document.getElementById("setting-security-method") as HTMLSelectElement;
+    this.securityPinStatusEl = document.getElementById("setting-security-pin-status") as HTMLElement;
+    this.securityFingerprintStatusEl = document.getElementById("setting-security-fingerprint-status") as HTMLElement;
+    this.securityLockProjectOpenEl = document.getElementById("setting-security-lock-project-open") as HTMLInputElement;
+    this.securityProtectEnvEl = document.getElementById("setting-security-protect-env") as HTMLInputElement;
+    this.securitySetPinBtnEl = document.getElementById("btn-security-set-pin") as HTMLButtonElement;
+    this.securityClearPinBtnEl = document.getElementById("btn-security-clear-pin") as HTMLButtonElement;
+    this.securitySetupFingerprintBtnEl = document.getElementById("btn-security-setup-fingerprint") as HTMLButtonElement;
+    this.securityClearFingerprintBtnEl = document.getElementById("btn-security-clear-fingerprint") as HTMLButtonElement;
 
     this.searchEl = document.getElementById("settings-search-input") as HTMLInputElement;
     this.tabEls = Array.from(document.querySelectorAll<HTMLElement>(".settings-tab-btn"));
@@ -201,6 +249,13 @@ export class SettingsUI {
     // Memory
     this.memoryGlobalEl.checked = this.settings.memory.globalEnabled;
     this.memoryProjectEl.checked = this.settings.memory.projectEnabled;
+
+    // Security
+    this.securityEnabledEl.checked = !!this.settings.security.enabled;
+    this.securityMethodEl.value = this.settings.security.method || "pin";
+    this.securityLockProjectOpenEl.checked = !!this.settings.security.lockBeforeProjectOpen;
+    this.securityProtectEnvEl.checked = !!this.settings.security.protectEnvFiles;
+    this.updateSecurityStatus();
   }
 
   private populateModelDropdown(provider: string, selectedModel: string) {
@@ -253,7 +308,193 @@ export class SettingsUI {
         globalEnabled: this.memoryGlobalEl.checked,
         projectEnabled: this.memoryProjectEl.checked,
       },
+      security: {
+        ...this.settings.security,
+        enabled: this.securityEnabledEl.checked,
+        method: (this.securityMethodEl.value as UnlockMethod) || "pin",
+        lockBeforeProjectOpen: this.securityLockProjectOpenEl.checked,
+        protectEnvFiles: this.securityProtectEnvEl.checked,
+      },
     };
+  }
+
+  private updateSecurityStatus() {
+    const pinSet = !!(this.settings.security.pinHash && this.settings.security.pinSalt);
+    const fpSet = !!this.settings.security.fingerprintCredentialId;
+    this.securityPinStatusEl.textContent = pinSet ? "Set" : "Not set";
+    this.securityFingerprintStatusEl.textContent = fpSet ? "Set" : "Not set";
+    this.securityClearPinBtnEl.disabled = !pinSet;
+    this.securityClearFingerprintBtnEl.disabled = !fpSet;
+  }
+
+  private async digestSha256Base64(data: Uint8Array): Promise<string> {
+    const hash = await crypto.subtle.digest("SHA-256", data);
+    return this.base64Encode(new Uint8Array(hash));
+  }
+
+  private base64Encode(bytes: Uint8Array): string {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
+  private base64UrlEncode(bytes: Uint8Array): string {
+    return this.base64Encode(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  }
+
+  private randomBytes(len: number): Uint8Array {
+    const buf = new Uint8Array(len);
+    crypto.getRandomValues(buf);
+    return buf;
+  }
+
+  private async showSetPinDialog(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const overlay = document.getElementById("set-pin-dialog")!;
+      const pinEl = document.getElementById("set-pin-new") as HTMLInputElement;
+      const confirmEl = document.getElementById("set-pin-confirm") as HTMLInputElement;
+      const errorEl = document.getElementById("set-pin-error")!;
+      const okBtn = document.getElementById("set-pin-ok")!;
+      const cancelBtn = document.getElementById("set-pin-cancel")!;
+
+      errorEl.classList.add("hidden");
+      errorEl.textContent = "";
+      pinEl.value = "";
+      confirmEl.value = "";
+      overlay.classList.remove("hidden");
+      pinEl.focus();
+
+      const cleanup = () => {
+        overlay.classList.add("hidden");
+        okBtn.removeEventListener("click", onOk);
+        cancelBtn.removeEventListener("click", onCancel);
+        overlay.removeEventListener("click", onOverlay);
+        document.removeEventListener("keydown", onKey);
+      };
+
+      const onCancel = () => {
+        cleanup();
+        resolve(null);
+      };
+
+      const onOk = () => {
+        const pin = pinEl.value.trim();
+        const confirm = confirmEl.value.trim();
+        if (!/^\d{4,12}$/.test(pin)) {
+          errorEl.textContent = "PIN must be 4–12 digits.";
+          errorEl.classList.remove("hidden");
+          pinEl.focus();
+          return;
+        }
+        if (pin !== confirm) {
+          errorEl.textContent = "PINs do not match.";
+          errorEl.classList.remove("hidden");
+          confirmEl.focus();
+          return;
+        }
+        cleanup();
+        resolve(pin);
+      };
+
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+        if (e.key === "Enter") { e.preventDefault(); onOk(); }
+      };
+
+      const onOverlay = (e: MouseEvent) => {
+        if (e.target === overlay) onCancel();
+      };
+
+      okBtn.addEventListener("click", onOk);
+      cancelBtn.addEventListener("click", onCancel);
+      overlay.addEventListener("click", onOverlay);
+      document.addEventListener("keydown", onKey);
+    });
+  }
+
+  private async setPin() {
+    const pin = await this.showSetPinDialog();
+    if (!pin) return;
+    const saltBytes = this.randomBytes(16);
+    const salt = this.base64UrlEncode(saltBytes);
+    const encoded = new TextEncoder().encode(`${salt}:${pin}`);
+    const hash = await this.digestSha256Base64(encoded);
+    this.settings = {
+      ...this.settings,
+      security: {
+        ...this.settings.security,
+        pinSalt: salt,
+        pinHash: hash,
+      },
+    };
+    this.updateSecurityStatus();
+  }
+
+  private clearPin() {
+    this.settings = {
+      ...this.settings,
+      security: {
+        ...this.settings.security,
+        pinSalt: "",
+        pinHash: "",
+      },
+    };
+    this.updateSecurityStatus();
+  }
+
+  private webAuthnSupported(): boolean {
+    return typeof window !== "undefined" && "PublicKeyCredential" in window && !!navigator.credentials;
+  }
+
+  private async setupFingerprint() {
+    if (!this.webAuthnSupported()) {
+      this.securityFingerprintStatusEl.textContent = "Not supported on this platform";
+      return;
+    }
+    const challenge = this.randomBytes(32);
+    const userId = this.randomBytes(16);
+
+    const credential = (await navigator.credentials.create({
+      publicKey: {
+        rp: { name: "Athva" },
+        user: { id: userId, name: "athva", displayName: "Athva" },
+        challenge,
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7 },
+          { type: "public-key", alg: -257 },
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+          residentKey: "required",
+        },
+        attestation: "none",
+        timeout: 60_000,
+      },
+    })) as PublicKeyCredential | null;
+
+    if (!credential) return;
+    const rawId = new Uint8Array(credential.rawId);
+    const credentialId = this.base64UrlEncode(rawId);
+    this.settings = {
+      ...this.settings,
+      security: {
+        ...this.settings.security,
+        fingerprintCredentialId: credentialId,
+      },
+    };
+    this.updateSecurityStatus();
+  }
+
+  private clearFingerprint() {
+    this.settings = {
+      ...this.settings,
+      security: {
+        ...this.settings.security,
+        fingerprintCredentialId: "",
+      },
+    };
+    this.updateSecurityStatus();
   }
 
   private bindEvents() {
@@ -287,6 +528,15 @@ export class SettingsUI {
         sectionEl.classList.remove("expanded");
       });
     });
+
+    this.securitySetPinBtnEl.addEventListener("click", async () => {
+      await this.setPin();
+    });
+    this.securityClearPinBtnEl.addEventListener("click", () => this.clearPin());
+    this.securitySetupFingerprintBtnEl.addEventListener("click", async () => {
+      await this.setupFingerprint();
+    });
+    this.securityClearFingerprintBtnEl.addEventListener("click", () => this.clearFingerprint());
 
     // Save button
     this.saveBtnEl.addEventListener("click", async () => {
