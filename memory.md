@@ -139,6 +139,20 @@ This file is the reusable code registry for the current implementation. Entries 
   - sending selected code into the chat workflow
 - last_analyzed_at: 2026-04-04T08:29:52Z
 
+### Quality Analysis Engine
+
+- paths:
+  - `src/modules/quality-core.ts`
+  - `src/modules/quality-panel.ts`
+  - `src/modules/quality-panel.worker.ts`
+  - `cli/quality-panel.ts`
+- responsibility: static JS/TS project analysis for naming, imports, complexity, code quality, type safety, architecture, dependencies, and security; shared by the workspace panel and CLI report generator
+- reuse_when:
+  - generating structured code health reports
+  - adding new static-analysis rules or section plugins
+  - exporting quality reports for CI or local inspection
+- last_analyzed_at: 2026-04-18T09:30:22Z
+
 ## Update Rule
 
 Add a new entry when logic becomes reusable across features or when an existing reusable module changes materially.

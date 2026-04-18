@@ -3,5 +3,12 @@
     "description": "Task tracking for current session. Update as tasks progress.",
     "version": 1
   },
-  "tasks": []
+  "tasks": [
+    {
+      "id": "quality-panel-static-analysis",
+      "status": "completed",
+      "updated_at": "2026-04-18T09:30:22Z",
+      "summary": "Added a static quality analysis engine, workspace quality panel, and CLI JSON report entry point."
+    }
+  ]
 }

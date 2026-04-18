@@ -44,6 +44,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/snippet-store.ts`: merges built-in, global, and project snippets, persists custom snippets, and exposes custom snippet autocomplete data with explicit JSX/TSX category matching.
 - `src/modules/ai-completer.ts`: selected-code actions and typing-triggered, cursor-anchored idle AI suggestions.
 - `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports, resolves definitions/hover quick-info via TypeScript, and suggests installed package names plus object members in relevant contexts.
+- `src/modules/quality-core.ts`: reusable static-analysis engine that parses JS/TS files, computes naming/import/complexity/quality/type/architecture/dependency/security metrics, and returns a JSON quality report.
+- `src/modules/quality-panel.ts`: workspace-side quality dashboard that scans the current project, runs the quality engine in a worker, and renders actionable findings.
 - `src/modules/ts-lint.ts`: TypeScript worker bridge for editor diagnostics.
 
 ### Backend Modules
@@ -67,6 +69,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 3. Frontend sets current project state
 4. Explorer loads the root directory
 5. Quick-open, git status, source control, terminal, and script runner all receive the project path
+6. Quality Panel can scan the opened workspace on demand without executing project code
 
 ### File Editing
 
@@ -141,6 +144,7 @@ Primary reusable logic is tracked in `memory.md`. The current high-value reusabl
 - AI completer
 - exports tracker
 - custom autocomplete
+- quality analysis engine
 
 ## Setup Instructions
 
@@ -161,6 +165,12 @@ pnpm tauri dev
 
 ```bash
 pnpm build
+```
+
+### Quality Report CLI
+
+```bash
+pnpm quality:analyze <project-path> --output /tmp/quality-report.json
 ```
 
 ## Environment Requirements

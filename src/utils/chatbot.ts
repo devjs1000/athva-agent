@@ -27,10 +27,6 @@ export function buildAgentSystemPrompt(projectPath: string, access: AgentAccess,
         .map((t) => `- ${t.name}(${Object.keys(t.parameters).join(", ")}): ${t.description}`)
         .join("\n");
 
-    const contextSection = projectContext
-        ? `\n[Project Context]\n${capProjectContext(projectContext)}\n`
-        : "";
-
     //     return `You are Athva Agent. Project: ${projectPath}
     // ${contextSection}
     // Tools: ${toolDescriptions || "(none)"}

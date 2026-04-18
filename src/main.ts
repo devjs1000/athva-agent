@@ -14,6 +14,7 @@ import { TerminalPanel } from "./modules/terminal";
 import { ScriptRunner } from "./modules/script-runner";
 import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { CodeReviewPanel } from "./modules/code-review-panel";
+import { QualityPanel } from "./modules/quality-panel";
 import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
@@ -32,6 +33,7 @@ let terminal!: TerminalPanel;
 let scriptRunner!: ScriptRunner;
 let sourceControl!: SourceControl;
 let codeReviewPanel!: CodeReviewPanel;
+let qualityPanel!: QualityPanel;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
@@ -129,6 +131,7 @@ async function openProject(path: string) {
   scriptRunner.setProject(project.path);
   await snippetsPanel.setProjectPath(project.path);
   void codeReviewPanel.refreshIfOpen();
+  void qualityPanel.refresh_if_open();
   void chatbot.setProjectPath(project.path);
   await exportsTracker.onProjectOpen(project.path);
 }
@@ -353,6 +356,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     (content: string) => editor.setContent(content)
   );
 
+  // Init quality panel
+  qualityPanel = new QualityPanel(
+    () => editor.resize(),
+    () => currentProjectPath
+  );
+
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
     editor.openFile(path, name);
@@ -375,6 +384,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupResizeHandle("sidebar-resize", $("sidebar"), "left");
   setupResizeHandle("source-control-resize", $("source-control-panel"), "right");
   setupResizeHandle("review-resize", $("review-panel"), "right");
+  setupResizeHandle("quality-resize", $("quality-panel"), "right");
   setupResizeHandle("chat-resize", $("chat-panel"), "right");
 
   // ── Welcome page buttons ──
@@ -406,6 +416,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
   $("btn-ai-review").addEventListener("click", () => void codeReviewPanel.open());
+  $("btn-quality-panel").addEventListener("click", () => void qualityPanel.open());
   $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
   function setActiveTab(tab: "explorer" | "search") {
     $("sidebar-tab-explorer").classList.toggle("active", tab === "explorer");

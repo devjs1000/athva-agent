@@ -139,6 +139,9 @@
             <button id="btn-ai-review" class="btn-icon" title="Code Review">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5a.5.5 0 0 0-1 0v1.293L6.354 3.94a.5.5 0 1 0 .707.707L8 3.707l.939.94a.5.5 0 0 0 .707-.707L8.5 2.793V1.5zM3 5.5A1.5 1.5 0 0 1 4.5 4h7A1.5 1.5 0 0 1 13 5.5v6a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 11.5v-6zm1.5-.5a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-6a.5.5 0 0 0-.5-.5h-7z"/><path d="M5.5 7a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5z"/></svg>
             </button>
+            <button id="btn-quality-panel" class="btn-icon" title="Quality Panel">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 2A1.75 1.75 0 0 1 3.5.25h9A1.75 1.75 0 0 1 14.25 2v9A1.75 1.75 0 0 1 12.5 12.75H8.707l-2.853 2.854A.5.5 0 0 1 5 15.25v-2.5H3.5A1.75 1.75 0 0 1 1.75 11V2zm1.75-.75a.75.75 0 0 0-.75.75v9c0 .414.336.75.75.75H6v1.793l2.146-2.147A.5.5 0 0 1 8.5 11.25h4a.75.75 0 0 0 .75-.75V2a.75.75 0 0 0-.75-.75h-9z"/><path d="M4.5 4.5a.5.5 0 0 1 .5-.5h1v4h-1a.5.5 0 0 1-.5-.5v-3zm3 0a.5.5 0 0 1 .5-.5h1v4h-1a.5.5 0 0 1-.5-.5v-3zm3 0a.5.5 0 0 1 .5-.5h1v4h-1a.5.5 0 0 1-.5-.5v-3z"/></svg>
+            </button>
             <button id="btn-toggle-snippets" class="btn-icon" title="Snippets">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 0a.5.5 0 0 0-.5.5V2H3.5A1.5 1.5 0 0 0 2 3.5v10A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5v-10A1.5 1.5 0 0 0 12.5 2H11V.5a.5.5 0 0 0-1 0V2H6V.5a.5.5 0 0 0-.5-.5zM3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5V5H3V3.5zM3 6h10v7.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V6z"/><path d="M5 8h2v2H5V8zm4 0h2v2H9V8zm-4 3h2v2H5v-2z"/></svg>
             </button>
@@ -449,6 +452,42 @@
                 <span id="review-title">Code Review</span>
               </div>
               <div id="review-content" class="review-content"></div>
+            </div>
+          </div>
+
+          <!-- Quality Panel resize handle -->
+          <div id="quality-resize" class="resize-handle-v hidden"></div>
+
+          <!-- Quality Panel -->
+          <div id="quality-panel" class="quality-panel hidden">
+            <div class="quality-header">
+              <div class="quality-header-copy">
+                <span class="quality-header-title">QUALITY PANEL</span>
+                <span id="quality-subtitle" class="quality-header-subtitle">Static analysis for the current workspace</span>
+              </div>
+              <div class="quality-header-actions">
+                <button id="btn-quality-refresh" class="btn-icon btn-icon-sm" title="Run Quality Scan">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                </button>
+                <button id="btn-quality-copy" class="btn-icon btn-icon-sm" title="Copy JSON Report" disabled>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M10 1.75A1.75 1.75 0 0 0 8.25 0h-5.5A1.75 1.75 0 0 0 1 1.75v8.5C1 11.216 1.784 12 2.75 12H4v1.25C4 14.216 4.784 15 5.75 15h5.5A1.75 1.75 0 0 0 13 13.25v-8.5A1.75 1.75 0 0 0 11.25 3H10V1.75zm-1 1.25H5.75A1.75 1.75 0 0 0 4 4.75V11H2.75a.75.75 0 0 1-.75-.75v-8.5A.75.75 0 0 1 2.75 1h5.5a.75.75 0 0 1 .75.75V3zm3 1.75a.75.75 0 0 0-.75-.75h-5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h5.5a.75.75 0 0 0 .75-.75v-8.5z"/></svg>
+                </button>
+                <button id="btn-quality-download" class="btn-icon btn-icon-sm" title="Download JSON Report" disabled>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.6a.5.5 0 0 1 1 0v2.6A2 2 0 0 1 14 15H2a2 2 0 0 1-2-2.1v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 10.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 1 0-.708-.708L8.5 9.293V1.5a.5.5 0 0 0-1 0v7.793L5.354 7.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
+                </button>
+                <button id="btn-close-quality" class="btn-icon btn-icon-sm" title="Close">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div id="quality-status" class="quality-status quality-status-idle"></div>
+
+            <div class="quality-body">
+              <div class="quality-panel-title">
+                <span id="quality-title">Quality Panel</span>
+              </div>
+              <div id="quality-content" class="quality-content"></div>
             </div>
           </div>
 

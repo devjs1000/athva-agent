@@ -13,7 +13,8 @@
       "./modules/memory-settings-ui", "./modules/quick-open", "./modules/global-search",
       "./modules/git-status", "./modules/source-control", "./modules/terminal",
       "./modules/script-runner", "./modules/sidebar-time-widget",
-      "./modules/code-review-panel", "./modules/ai-completer", "./modules/token-usage"
+      "./modules/code-review-panel", "./modules/quality-panel",
+      "./modules/ai-completer", "./modules/token-usage"
     ]
   },
   "src/config/app-config.ts": {
@@ -112,6 +113,23 @@
       {"name": "CodeReviewPanel", "type": "class", "line": null}
     ],
     "imports": ["./settings", "./token-usage"]
+  },
+  "src/modules/quality-core.ts": {
+    "hash": null,
+    "exports": [
+      {"name": "merge_quality_config", "type": "function", "line": null},
+      {"name": "should_include_quality_file", "type": "function", "line": null},
+      {"name": "analyze_quality_project", "type": "function", "line": null},
+      {"name": "default_quality_plugins", "type": "function", "line": null}
+    ],
+    "imports": ["typescript"]
+  },
+  "src/modules/quality-panel.ts": {
+    "hash": null,
+    "exports": [
+      {"name": "QualityPanel", "type": "class", "line": null}
+    ],
+    "imports": ["./quality-core"]
   },
   "src/modules/script-runner.ts": {
     "hash": null,
