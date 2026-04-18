@@ -1285,7 +1285,7 @@ body {
   color: rgba(255, 255, 255, 0.38);
   background: transparent;
   border-right: 1px solid rgba(255, 255, 255, 0.04);
-  cursor: pointer;
+  cursor: grab;
   white-space: nowrap;
   transition:
     background 0.12s,
@@ -1294,13 +1294,10 @@ body {
   user-select: none;
 }
 
-.editor-tab[draggable="true"] {
-  cursor: grab;
-}
-
 .editor-tab.dragging {
   opacity: 0.55;
   cursor: grabbing;
+  user-select: none;
 }
 
 .editor-tab.drag-over-before::before,

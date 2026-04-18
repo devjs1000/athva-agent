@@ -49,5 +49,7 @@ commands.allow = [
   "close_web_window",
   "hide_web_window",
   "resize_web_window",
-  "report_web_media_state"
+  "report_web_media_state",
+  "touchid_authenticate",
+  "touchid_available"
 ]

@@ -1044,6 +1044,98 @@ fn report_web_media_state(
     Ok(())
 }
 
+// ── Touch ID (macOS) ──
+
+#[tauri::command]
+fn touchid_authenticate(reason: String) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Use swift one-liner via swiftc inline, or fallback to osascript
+        // We use a small Swift script executed via `swift -`
+        let script = format!(
+            r#"import LocalAuthentication
+let ctx = LAContext()
+var err: NSError?
+guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err) else {{
+    print("unavailable")
+    exit(1)
+}}
+let sema = DispatchSemaphore(value: 0)
+var ok = false
+ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "{reason}") {{ success, _ in
+    ok = success
+    sema.signal()
+}}
+sema.wait()
+print(ok ? "ok" : "fail")
+"#,
+            reason = reason.replace('"', "'")
+        );
+
+        let output = std::process::Command::new("swift")
+            .args(["-"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.take() {
+                    let mut stdin = stdin;
+                    let _ = stdin.write_all(script.as_bytes());
+                }
+                child.wait_with_output()
+            })
+            .map_err(|e| e.to_string())?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim() == "ok" {
+            return Ok(true);
+        }
+        if stdout.trim() == "unavailable" {
+            return Err("Touch ID is not available on this device".to_string());
+        }
+        return Ok(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Touch ID is only available on macOS".to_string())
+    }
+}
+
+#[tauri::command]
+fn touchid_available() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"import LocalAuthentication
+let ctx = LAContext()
+var err: NSError?
+let ok = ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err)
+print(ok ? "yes" : "no")
+"#;
+        let output = std::process::Command::new("swift")
+            .args(["-"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.take() {
+                    let mut stdin = stdin;
+                    let _ = stdin.write_all(script.as_bytes());
+                }
+                child.wait_with_output()
+            })
+            .ok();
+        output.map_or(false, |o| String::from_utf8_lossy(&o.stdout).trim() == "yes")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 // ── App entry ──
 
 // ── Agent Memory ──
@@ -1341,6 +1433,8 @@ pub fn run() {
             hide_web_window,
             resize_web_window,
             report_web_media_state,
+            touchid_authenticate,
+            touchid_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

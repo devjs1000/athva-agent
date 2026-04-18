@@ -442,45 +442,22 @@ export class SettingsUI {
     this.updateSecurityStatus();
   }
 
-  private webAuthnSupported(): boolean {
-    return typeof window !== "undefined" && "PublicKeyCredential" in window && !!navigator.credentials;
-  }
-
   private async setupFingerprint() {
-    if (!this.webAuthnSupported()) {
-      this.securityFingerprintStatusEl.textContent = "Not supported on this platform";
+    const available = await invoke<boolean>("touchid_available").catch(() => false);
+    if (!available) {
+      this.securityFingerprintStatusEl.textContent = "Touch ID not available on this device";
       return;
     }
-    const challenge = this.randomBytes(32);
-    const userId = this.randomBytes(16);
-
-    const credential = (await navigator.credentials.create({
-      publicKey: {
-        rp: { name: "Athva" },
-        user: { id: userId, name: "athva", displayName: "Athva" },
-        challenge,
-        pubKeyCredParams: [
-          { type: "public-key", alg: -7 },
-          { type: "public-key", alg: -257 },
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          userVerification: "required",
-          residentKey: "required",
-        },
-        attestation: "none",
-        timeout: 60_000,
-      },
-    })) as PublicKeyCredential | null;
-
-    if (!credential) return;
-    const rawId = new Uint8Array(credential.rawId);
-    const credentialId = this.base64UrlEncode(rawId);
+    const ok = await invoke<boolean>("touchid_authenticate", { reason: "Verify Touch ID to enable it for Athva" }).catch(() => false);
+    if (!ok) {
+      this.securityFingerprintStatusEl.textContent = "Touch ID verification failed";
+      return;
+    }
     this.settings = {
       ...this.settings,
       security: {
         ...this.settings.security,
-        fingerprintCredentialId: credentialId,
+        fingerprintCredentialId: "touchid-enabled",
       },
     };
     this.updateSecurityStatus();

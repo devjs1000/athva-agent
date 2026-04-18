@@ -48,7 +48,8 @@ function isEnvFileName(name: string): boolean {
 }
 
 function base64UrlToBytes(value: string): Uint8Array {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+  const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
   const binary = atob(padded);
   const out = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
@@ -89,12 +90,11 @@ async function ensureUnlocked(reason: string): Promise<boolean> {
   if (appUnlocked) return true;
   const pinConfigured = !!(security.pinSalt && security.pinHash);
   const fpConfigured = !!security.fingerprintCredentialId;
-  const fpSupported = "PublicKeyCredential" in window && !!navigator.credentials;
   const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
   const allowFp = security.method === "fingerprint" || security.method === "pin_or_fingerprint";
   const canUnlock =
     (allowPin && pinConfigured) ||
-    (allowFp && fpConfigured && fpSupported);
+    (allowFp && fpConfigured);
   if (!canUnlock) {
     await showConfirmDialog(
       "Unlock Not Configured",
@@ -120,21 +120,8 @@ async function verifyPin(pin: string): Promise<boolean> {
 
 async function verifyFingerprint(): Promise<boolean> {
   const security = appSettings.security;
-  const id = security.fingerprintCredentialId || "";
-  if (!id) return false;
-  if (!("PublicKeyCredential" in window) || !navigator.credentials?.get) return false;
-  const allowId = base64UrlToBytes(id);
-  const challenge = new Uint8Array(32);
-  crypto.getRandomValues(challenge);
-  const cred = await navigator.credentials.get({
-    publicKey: {
-      challenge,
-      allowCredentials: [{ type: "public-key", id: allowId }],
-      userVerification: "required",
-      timeout: 60_000,
-    },
-  });
-  return !!cred;
+  if (!security.fingerprintCredentialId) return false;
+  return invoke<boolean>("touchid_authenticate", { reason: "Unlock Athva" }).catch(() => false);
 }
 
 async function showUnlockDialog(reason: string): Promise<boolean> {
@@ -150,12 +137,11 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
   const security = appSettings.security;
   const pinConfigured = !!(security.pinSalt && security.pinHash);
   const fpConfigured = !!security.fingerprintCredentialId;
-  const fpSupported = "PublicKeyCredential" in window && !!navigator.credentials;
 
   const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
   const allowFp = security.method === "fingerprint" || security.method === "pin_or_fingerprint";
 
-  fpBtn.disabled = !(allowFp && fpConfigured && fpSupported);
+  fpBtn.disabled = !(allowFp && fpConfigured);
   okBtn.disabled = !(allowPin && pinConfigured);
 
   titleEl.textContent = "Unlock";

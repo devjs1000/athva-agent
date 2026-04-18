@@ -180,6 +180,7 @@ export class Editor {
   private protectedBannerEl: HTMLElement;
   private currentSettings: EditorSettings = { ...DEFAULT_EDITOR_SETTINGS };
   private lintTimeout: ReturnType<typeof setTimeout> | null = null;
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private minimap: Minimap | null = null;
   private customAutocomplete: CustomAutocomplete;
   private tabContextMenu: HTMLElement;
@@ -371,16 +372,16 @@ export class Editor {
     });
 
     // Auto-save and lint on change (debounced)
-    let saveTimeout: ReturnType<typeof setTimeout>;
     this.ace.on("change", () => {
       const tab = this.tabs.find((t) => t.path === this.activeTab);
-      if (tab) {
+      if (tab && !tab.lockedView) {
         tab.content = this.ace.getValue();
         tab.modified = true;
         this.renderTabs();
       }
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => this.saveCurrentFile(), 1000);
+      if (this.saveTimeout) clearTimeout(this.saveTimeout);
+      if (tab?.lockedView) return;
+      this.saveTimeout = setTimeout(() => this.saveCurrentFile(), 1000);
 
       // Debounced TS/TSX/JSX lint
       if (this.lintTimeout) clearTimeout(this.lintTimeout);
@@ -573,6 +574,9 @@ export class Editor {
     this.activeTab = path;
     const tab = this.tabs.find((t) => t.path === path);
     if (!tab) return;
+
+    // Cancel any pending save when switching tabs — especially important for locked (.env) tabs
+    if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
 
     this.emptyEl.style.display = "none";
 
@@ -1046,7 +1050,7 @@ export class Editor {
           const isWeb = tab.kind === "web";
           const isPlaying = isWeb && this.webTabMediaState.get(tab.path) === true;
           return `
-      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${tab.kind === "web" ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}" draggable="true">
+      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${tab.kind === "web" ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}">
         ${tab.pinned ? `<span class="editor-tab-pin">&#x2605;</span>` : ""}
         ${isWeb ? `<span class="editor-tab-web-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg></span>` : ""}
         <span class="editor-tab-label">
@@ -1072,50 +1076,61 @@ export class Editor {
         const path = (el as HTMLElement).dataset.path!;
         this.switchToTab(path);
       });
-      el.addEventListener("dragstart", (e) => {
-        const path = (el as HTMLElement).dataset.path!;
-        this.draggingTabPath = path;
-        el.classList.add("dragging");
-        try {
-          (e as DragEvent).dataTransfer?.setData("text/plain", path);
-          (e as DragEvent).dataTransfer?.setData("application/x-athva-tab", path);
-          (e as DragEvent).dataTransfer!.effectAllowed = "move";
-        } catch {
-          // Some webviews restrict dataTransfer for security reasons.
-        }
-      });
-      el.addEventListener("dragend", () => {
-        this.draggingTabPath = null;
-        el.classList.remove("dragging");
-        this.tabsContainer.querySelectorAll(".editor-tab.drag-over-before,.editor-tab.drag-over-after").forEach((node) => {
-          node.classList.remove("drag-over-before", "drag-over-after");
-        });
-      });
-      el.addEventListener("dragover", (e) => {
-        if (!this.draggingTabPath) return;
-        e.preventDefault();
-        const targetPath = (el as HTMLElement).dataset.path!;
-        if (!targetPath || targetPath === this.draggingTabPath) return;
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        const before = (e as DragEvent).clientX < rect.left + rect.width / 2;
-        el.classList.toggle("drag-over-before", before);
-        el.classList.toggle("drag-over-after", !before);
-        (e as DragEvent).dataTransfer && ((e as DragEvent).dataTransfer!.dropEffect = "move");
-      });
-      el.addEventListener("dragleave", () => {
-        el.classList.remove("drag-over-before", "drag-over-after");
-      });
-      el.addEventListener("drop", (e) => {
-        e.preventDefault();
-        const fromPath = this.draggingTabPath;
-        const targetPath = (el as HTMLElement).dataset.path!;
-        if (!fromPath || !targetPath || fromPath === targetPath) return;
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        const before = (e as DragEvent).clientX < rect.left + rect.width / 2;
-        this.moveTab(fromPath, targetPath, before);
-      });
       el.addEventListener("mousedown", (e) => {
-        if ((e as MouseEvent).button === 2) e.preventDefault();
+        const me = e as MouseEvent;
+        if (me.button === 2) { me.preventDefault(); return; }
+        if (me.button !== 0) return;
+        if ((me.target as HTMLElement).closest(".editor-tab-close")) return;
+
+        const fromPath = (el as HTMLElement).dataset.path!;
+        let dragging = false;
+        const startX = me.clientX;
+        const startY = me.clientY;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+          if (!dragging) {
+            if (Math.abs(moveEvent.clientX - startX) < 5 && Math.abs(moveEvent.clientY - startY) < 5) return;
+            dragging = true;
+            this.draggingTabPath = fromPath;
+            el.classList.add("dragging");
+          }
+          // Update drop indicator on hovered tab
+          this.tabsContainer.querySelectorAll(".editor-tab").forEach((t) => {
+            t.classList.remove("drag-over-before", "drag-over-after");
+          });
+          const target = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest(".editor-tab") as HTMLElement | null;
+          if (target && target !== el) {
+            const rect = target.getBoundingClientRect();
+            const before = moveEvent.clientX < rect.left + rect.width / 2;
+            target.classList.toggle("drag-over-before", before);
+            target.classList.toggle("drag-over-after", !before);
+          }
+        };
+
+        const onMouseUp = (upEvent: MouseEvent) => {
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onMouseUp);
+
+          if (!dragging) { this.draggingTabPath = null; return; }
+
+          el.classList.remove("dragging");
+          this.tabsContainer.querySelectorAll(".editor-tab").forEach((t) => {
+            t.classList.remove("drag-over-before", "drag-over-after");
+          });
+
+          const target = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest(".editor-tab") as HTMLElement | null;
+          const toPath = target?.dataset.path;
+          this.draggingTabPath = null;
+
+          if (toPath && toPath !== fromPath) {
+            const rect = target!.getBoundingClientRect();
+            const before = upEvent.clientX < rect.left + rect.width / 2;
+            this.moveTab(fromPath, toPath, before);
+          }
+        };
+
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
       });
       el.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -1169,7 +1184,7 @@ export class Editor {
 
   private async saveCurrentFile() {
     const tab = this.tabs.find((t) => t.path === this.activeTab);
-    if (!tab || !tab.modified) return;
+    if (!tab || !tab.modified || tab.lockedView) return;
 
     try {
       await invoke("write_file", { path: tab.path, content: tab.content });
