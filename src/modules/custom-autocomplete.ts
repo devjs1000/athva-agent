@@ -9,6 +9,7 @@ type CompletionItem = {
   snippet?: string;
   meta?: string;
   score?: number;
+  _athvaMemberCompletion?: boolean;
 };
 
 type CompletionProviderInstance = {
@@ -42,6 +43,17 @@ function getCompletionPrefix(editor: AceEditor): string {
 
 function getInsertLabel(item: CompletionItem): string {
   return String(item.caption || item.value || item.snippet || "").trim();
+}
+
+function isMemberAccessContext(editor: AceEditor): boolean {
+  const pos = editor.getCursorPosition();
+  const lineUpToCursor = editor.session.getLine(pos.row).slice(0, pos.column);
+  return /[A-Za-z_$][\w$.]*\.[\w$]*$/.test(lineUpToCursor)
+    || /[A-Za-z_$][\w$]*\[["'][\w$]*$/.test(lineUpToCursor);
+}
+
+function isMemberCompletion(item: CompletionItem): boolean {
+  return item._athvaMemberCompletion || (typeof item.score === "number" && item.score >= 1100);
 }
 
 function escapeHtml(value: string): string {
@@ -267,7 +279,10 @@ export class CustomAutocomplete {
 
         const latestPrefix = getCompletionPrefix(this.editor);
         const filtered = completions.filtered || [];
-        const nextItems = filtered.filter((item) => !!getInsertLabel(item));
+        let nextItems = filtered.filter((item) => !!getInsertLabel(item));
+        if (isMemberAccessContext(this.editor)) {
+          nextItems = nextItems.filter(isMemberCompletion);
+        }
 
         if (finished && this.shouldHide(nextItems, latestPrefix)) {
           this.hide();

@@ -30,8 +30,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 ### Frontend Modules
 
 - `src/main.ts`: bootstraps the workspace, wires page state, and connects modules together.
-- `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, AI completion hooks, and the custom completion surface wiring.
-- `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while replacing Ace's default autocomplete UI.
+- `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
+- `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while filtering member-access contexts to relevant object/property completions.
 - `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
 - `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI.
 - `src/modules/chatbot.ts`: manages chat sessions and provider API calls, including rolling agent-history compaction and capped project/session context to keep token use stable.
@@ -43,7 +43,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/snippets-panel.ts`: renders the snippets sidebar, supports custom snippet authoring, and inserts snippets with live tabstops.
 - `src/modules/snippet-store.ts`: merges built-in, global, and project snippets, persists custom snippets, and exposes custom snippet autocomplete data with explicit JSX/TSX category matching.
 - `src/modules/ai-completer.ts`: selected-code actions and idle-triggered AI suggestions.
-- `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports for ESM/CommonJS/default exports, and suggests installed package names inside import/require strings.
+- `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports, resolves definitions/hover quick-info via TypeScript, and suggests installed package names plus object members in relevant contexts.
 - `src/modules/ts-lint.ts`: TypeScript worker bridge for editor diagnostics.
 
 ### Backend Modules

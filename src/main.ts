@@ -546,6 +546,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     );
     fileExplorer.setActiveFile(target.path);
   });
+  editor.setOnHoverInfo(({ path, content, row, column }) =>
+    exportsTracker.resolveHoverInfo(path, content, row, column)
+  );
   editor.setOnSave((path: string, content: string) => {
     void exportsTracker.onFileSave(path, content);
   });

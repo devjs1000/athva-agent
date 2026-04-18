@@ -42,6 +42,12 @@ export interface DefinitionTarget {
   column: number;
 }
 
+export interface HoverInfo {
+  signature: string;
+  documentation?: string;
+  definition?: DefinitionTarget;
+}
+
 const RE_ESM_NAMED_DECL =
   /^\s*export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|var|function\*?|class|type|interface|enum|abstract\s+class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
 const RE_ESM_DEFAULT_DECL =
@@ -423,6 +429,29 @@ function extractNestedMember(chain: string[], content: string): string[] {
     if (m) members.push(m[1]);
   }
   return [...new Set(members)];
+}
+
+function parseMemberAccessContext(lineUpToCursor: string, prefix: string) {
+  const dotMatch = lineUpToCursor.match(/([A-Za-z_$][\w$.]*)\.([\w$]*)$/);
+  const bracketMatch = lineUpToCursor.match(/([A-Za-z_$][\w$]*)\[["']([\w$]*)$/);
+  const hit = dotMatch ?? bracketMatch;
+  if (!hit) return null;
+  return {
+    bracket: !!bracketMatch,
+    chain: hit[1].split("."),
+    memberPrefix: (hit[2] ?? prefix).toLowerCase(),
+  };
+}
+
+function compactCompletionMeta(kind: string, displayText: string): string {
+  const cleaned = displayText
+    .replace(/^\([^)]+\)\s*/, "")
+    .replace(/^[A-Za-z_$][A-Za-z0-9_$]*\s*/, "")
+    .replace(/^\??\s*:\s*/, "")
+    .trim();
+  if (!cleaned) return kind;
+  const shortText = cleaned.length > 72 ? `${cleaned.slice(0, 69)}...` : cleaned;
+  return `${kind} · ${shortText}`;
 }
 
 function resolveRelativeImport(fromFile: string, importPath: string): string {
@@ -830,6 +859,48 @@ export class ExportsTracker {
       .find((target): target is DefinitionTarget => !!target);
 
     return resolvedDefinition ?? null;
+  }
+
+  async resolveHoverInfo(
+    filePath: string,
+    content: string,
+    row: number,
+    column: number
+  ): Promise<HoverInfo | null> {
+    const normalizedFilePath = normalizePath(filePath);
+    if (!isSupportedSourceFile(normalizedFilePath) || !this.projectPath) return null;
+
+    await this.ensureSourceIndex();
+    this.setSourceFileContent(normalizedFilePath, content);
+
+    const languageService = this.getLanguageService();
+    const program = languageService.getProgram();
+    const sourceFile = program?.getSourceFile(normalizedFilePath);
+    if (!sourceFile) return null;
+
+    const position = ts.getPositionOfLineAndCharacter(sourceFile, row, column);
+    const quickInfo = languageService.getQuickInfoAtPosition(normalizedFilePath, position);
+    if (!quickInfo?.displayParts?.length) return null;
+
+    const definitions = languageService.getDefinitionAtPosition(normalizedFilePath, position) ?? [];
+    const preferredDefinitions = definitions.filter((definition) => this.isProjectFile(definition.fileName));
+    const definition = (preferredDefinitions.length > 0 ? preferredDefinitions : definitions)
+      .map((item) => this.definitionInfoToTarget(item, program))
+      .find((target): target is DefinitionTarget => !!target);
+
+    const documentation = [
+      ts.displayPartsToString(quickInfo.documentation),
+      ...(quickInfo.tags ?? []).map((tag) => {
+        const text = typeof tag.text === "string" ? tag.text : ts.displayPartsToString(tag.text);
+        return text ? `@${tag.name} ${text}` : `@${tag.name}`;
+      }),
+    ].filter(Boolean).join("\n");
+
+    return {
+      signature: ts.displayPartsToString(quickInfo.displayParts),
+      ...(documentation ? { documentation } : {}),
+      ...(definition ? { definition } : {}),
+    };
   }
 
   private async persist() {
@@ -1273,45 +1344,55 @@ export class ExportsTracker {
   }
 
   getMemberCompleter(): Ace.Completer {
+    const tracker = this;
     return {
       identifierRegexps: [/[a-zA-Z_$0-9]/],
 
       getCompletions(
-        _editor: Ace.Editor,
+        editor: Ace.Editor,
         session: Ace.EditSession,
         pos: Ace.Point,
         prefix: string,
         callback: Ace.CompleterCallback
       ) {
         const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
+        const context = parseMemberAccessContext(lineUpTo, prefix);
+        if (!context) { callback(null, []); return; }
 
-        // dot access:     a.b.c.prefix  — capture full chain before last dot
-        const dotMatch = lineUpTo.match(/([A-Za-z_$][\w$.]*)\.([\w$]*)$/);
-        // bracket string: identifier["prefix  or  identifier['prefix
-        const bracketMatch = lineUpTo.match(/([A-Za-z_$][\w$]*)\[["']([\w$]*)$/);
+        const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
+        const tsCompletionPromise = tracker.getTypeScriptMemberCompletions(
+          currentAbsPath,
+          session.getValue(),
+          pos.row,
+          pos.column,
+          context.memberPrefix,
+          context.bracket
+        );
 
-        const hit = dotMatch ?? bracketMatch;
-        if (!hit) { callback(null, []); return; }
+        void tsCompletionPromise
+          .then((tsResults) => {
+            if (tsResults.length > 0) {
+              callback(null, tsResults);
+              return;
+            }
 
-        const chain = hit[1].split(".");   // ["resolvers", "Query"] for resolvers.Query.h
-        const memberPrefix = (hit[2] ?? prefix).toLowerCase();
-        const content = session.getValue();
-        const members = chain.length === 1
-          ? extractMembersOf(chain[0], content)
-          : extractNestedMember(chain, content);
-        if (members.length === 0) { callback(null, []); return; }
-
-        const rootName = chain[0];
-        const results = members
-          .filter((m: string) => m.toLowerCase().startsWith(memberPrefix))
-          .map((m: string) => ({
-            caption: m,
-            value: bracketMatch ? `${m}"` : m,
-            meta: rootName,
-            score: 1100,
-          }));
-
-        callback(null, results);
+            const fallbackResults = tracker.getRegexMemberCompletions(
+              session.getValue(),
+              context.chain,
+              context.memberPrefix,
+              context.bracket
+            );
+            callback(null, fallbackResults);
+          })
+          .catch(() => {
+            const fallbackResults = tracker.getRegexMemberCompletions(
+              session.getValue(),
+              context.chain,
+              context.memberPrefix,
+              context.bracket
+            );
+            callback(null, fallbackResults);
+          });
       },
 
       insertMatch(editor: Ace.Editor, data: any) {
@@ -1330,5 +1411,81 @@ export class ExportsTracker {
         );
       },
     };
+  }
+
+  private async getTypeScriptMemberCompletions(
+    filePath: string,
+    content: string,
+    row: number,
+    column: number,
+    memberPrefix: string,
+    bracket: boolean
+  ): Promise<any[]> {
+    const normalizedFilePath = normalizePath(filePath);
+    if (!isSupportedSourceFile(normalizedFilePath) || !this.projectPath) return [];
+
+    await this.ensureSourceIndex();
+    this.setSourceFileContent(normalizedFilePath, content);
+
+    const languageService = this.getLanguageService();
+    const program = languageService.getProgram();
+    const sourceFile = program?.getSourceFile(normalizedFilePath);
+    if (!sourceFile) return [];
+
+    const position = ts.getPositionOfLineAndCharacter(sourceFile, row, column);
+    const completions = languageService.getCompletionsAtPosition(normalizedFilePath, position, {
+      includeCompletionsForModuleExports: false,
+      includeCompletionsWithInsertText: true,
+      includeCompletionsWithSnippetText: true,
+    });
+    if (!completions?.entries?.length) return [];
+
+    const lowerPrefix = memberPrefix.toLowerCase();
+    const entries = completions.entries
+      .filter((entry) => entry.name.toLowerCase().startsWith(lowerPrefix))
+      .slice(0, 40);
+
+    return entries.map((entry) => {
+      const details = languageService.getCompletionEntryDetails(
+        normalizedFilePath,
+        position,
+        entry.name,
+        {},
+        entry.source,
+        {},
+        entry.data
+      );
+      const displayText = details?.displayParts ? ts.displayPartsToString(details.displayParts) : "";
+      return {
+        caption: entry.name,
+        value: bracket ? `${entry.name}"` : entry.name,
+        meta: displayText ? compactCompletionMeta(entry.kind, displayText) : entry.kind,
+        score: 2200,
+        _athvaMemberCompletion: true,
+      };
+    });
+  }
+
+  private getRegexMemberCompletions(
+    content: string,
+    chain: string[],
+    memberPrefix: string,
+    bracket: boolean
+  ): any[] {
+    const members = chain.length === 1
+      ? extractMembersOf(chain[0], content)
+      : extractNestedMember(chain, content);
+    if (members.length === 0) return [];
+
+    const rootName = chain[0];
+    return members
+      .filter((m: string) => m.toLowerCase().startsWith(memberPrefix))
+      .map((m: string) => ({
+        caption: m,
+        value: bracket ? `${m}"` : m,
+        meta: rootName,
+        score: 1100,
+        _athvaMemberCompletion: true,
+      }));
   }
 }

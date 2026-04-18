@@ -109,6 +109,18 @@ export interface EditorNavigationRequest {
   column: number;
 }
 
+export interface EditorHoverInfo {
+  signature: string;
+  documentation?: string;
+  definition?: {
+    path: string;
+    line: number;
+    column: number;
+  };
+}
+
+export interface EditorHoverRequest extends EditorNavigationRequest {}
+
 const EXT_MODE_MAP: Record<string, string> = {
   js: "javascript",
   jsx: "jsx",
@@ -143,9 +155,16 @@ export class Editor {
   private customAutocomplete: CustomAutocomplete;
   private tabContextMenu: HTMLElement;
   private editorContextMenu: HTMLElement;
+  private hoverTooltipEl: HTMLDivElement;
+  private hoverTimeout: ReturnType<typeof setTimeout> | null = null;
+  private hoverRequestId = 0;
+  private hoverAnchorKey = "";
+  private hoverMouseX = 0;
+  private hoverMouseY = 0;
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
   private onSaveCallback: ((path: string, content: string) => void) | null = null;
   private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
+  private onHoverInfo: ((request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -219,6 +238,10 @@ export class Editor {
     this.editorContextMenu.className = "context-menu editor-context-menu hidden";
     document.body.appendChild(this.editorContextMenu);
 
+    this.hoverTooltipEl = document.createElement("div");
+    this.hoverTooltipEl.className = "editor-hover-tooltip hidden";
+    document.body.appendChild(this.hoverTooltipEl);
+
     document.addEventListener("click", () => {
       this.tabContextMenu.classList.add("hidden");
       this.editorContextMenu.classList.add("hidden");
@@ -241,6 +264,12 @@ export class Editor {
       if (!(e.metaKey || e.ctrlKey)) return;
       void this.handleModifierClick(e as MouseEvent);
     });
+    this.editorEl.addEventListener("mousemove", this.onEditorMouseMove);
+    this.editorEl.addEventListener("mouseleave", this.hideHoverTooltip);
+    this.editorEl.addEventListener("mousedown", this.hideHoverTooltip);
+    this.ace.on("changeSelection", this.hideHoverTooltip);
+    this.ace.session.on("changeScrollTop", this.hideHoverTooltip);
+    this.ace.session.on("changeScrollLeft", this.hideHoverTooltip);
 
     // Attach AI ghost text completer
     attachAICompleter(this.ace);
@@ -397,6 +426,10 @@ export class Editor {
 
   setOnNavigate(callback: (request: EditorNavigationRequest) => Promise<void>) {
     this.onNavigate = callback;
+  }
+
+  setOnHoverInfo(callback: (request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) {
+    this.onHoverInfo = callback;
   }
 
   private switchToTab(path: string) {
@@ -583,6 +616,125 @@ export class Editor {
 
   private escapeAttr(str: string): string {
     return str.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  private clearHoverTimeout() {
+    if (!this.hoverTimeout) return;
+    clearTimeout(this.hoverTimeout);
+    this.hoverTimeout = null;
+  }
+
+  private hideHoverTooltip = () => {
+    this.clearHoverTimeout();
+    this.hoverRequestId++;
+    this.hoverAnchorKey = "";
+    this.hoverTooltipEl.classList.add("hidden");
+    this.hoverTooltipEl.innerHTML = "";
+  };
+
+  private onEditorMouseMove = (event: MouseEvent) => {
+    if (!this.activeTab || !this.onHoverInfo || this.customAutocomplete.hasOpenPopup()) {
+      this.hideHoverTooltip();
+      return;
+    }
+
+    const target = this.getHoverTarget(event);
+    if (!target) {
+      this.hideHoverTooltip();
+      return;
+    }
+
+    this.hoverMouseX = event.clientX;
+    this.hoverMouseY = event.clientY;
+
+    if (target.key === this.hoverAnchorKey) {
+      if (!this.hoverTooltipEl.classList.contains("hidden")) {
+        this.positionHoverTooltip(this.hoverMouseX, this.hoverMouseY);
+      }
+      return;
+    }
+
+    this.clearHoverTimeout();
+    this.hoverTooltipEl.classList.add("hidden");
+    this.hoverAnchorKey = target.key;
+    this.hoverTimeout = setTimeout(() => {
+      void this.showHoverTooltip(target);
+    }, 2500);
+  };
+
+  private getHoverTarget(event: MouseEvent): { key: string; row: number; column: number } | null {
+    const pos = this.ace.renderer.screenToTextCoordinates(event.clientX, event.clientY);
+    if (pos.row < 0 || pos.row >= this.ace.session.getLength()) return null;
+
+    const line = this.ace.session.getLine(pos.row);
+    const rawColumn = Math.max(0, Math.min(pos.column, line.length));
+    const charAt = line[rawColumn] ?? "";
+    const charBefore = line[rawColumn - 1] ?? "";
+    if (!/[\w$]/.test(charAt) && !/[\w$]/.test(charBefore)) return null;
+
+    const symbolColumn = /[\w$]/.test(charAt) ? rawColumn : rawColumn - 1;
+    let start = symbolColumn;
+    let end = symbolColumn + 1;
+    while (start > 0 && /[\w$]/.test(line[start - 1])) start--;
+    while (end < line.length && /[\w$]/.test(line[end])) end++;
+
+    const symbol = line.slice(start, end);
+    if (!symbol) return null;
+
+    return {
+      key: `${this.activeTab}:${pos.row}:${start}:${end}:${symbol}`,
+      row: pos.row,
+      column: Math.max(start, Math.min(symbolColumn, end - 1)),
+    };
+  }
+
+  private async showHoverTooltip(target: { key: string; row: number; column: number }) {
+    this.clearHoverTimeout();
+    if (!this.activeTab || !this.onHoverInfo) return;
+
+    const requestId = ++this.hoverRequestId;
+    const info = await this.onHoverInfo({
+      path: this.activeTab,
+      content: this.ace.getValue(),
+      row: target.row,
+      column: target.column,
+    }).catch(() => null);
+
+    if (requestId !== this.hoverRequestId || target.key !== this.hoverAnchorKey || !info) return;
+
+    const documentation = info.documentation
+      ? `<div class="editor-hover-doc">${this.escapeHtml(info.documentation)}</div>`
+      : "";
+    const definition = info.definition
+      ? `<div class="editor-hover-definition">Defined in ${this.escapeHtml(info.definition.path)}:${info.definition.line}:${info.definition.column}</div>`
+      : "";
+
+    this.hoverTooltipEl.innerHTML = `
+      <pre class="editor-hover-signature">${this.escapeHtml(info.signature)}</pre>
+      ${documentation}
+      ${definition}
+    `;
+    this.hoverTooltipEl.classList.remove("hidden");
+    this.positionHoverTooltip(this.hoverMouseX, this.hoverMouseY);
+  }
+
+  private positionHoverTooltip(clientX: number, clientY: number) {
+    const margin = 12;
+    const offset = 16;
+    this.hoverTooltipEl.style.left = `${clientX + offset}px`;
+    this.hoverTooltipEl.style.top = `${clientY + offset}px`;
+
+    requestAnimationFrame(() => {
+      const rect = this.hoverTooltipEl.getBoundingClientRect();
+      const left = rect.right > window.innerWidth - margin
+        ? Math.max(margin, window.innerWidth - rect.width - margin)
+        : clientX + offset;
+      const top = rect.bottom > window.innerHeight - margin
+        ? Math.max(margin, clientY - rect.height - offset)
+        : clientY + offset;
+      this.hoverTooltipEl.style.left = `${left}px`;
+      this.hoverTooltipEl.style.top = `${top}px`;
+    });
   }
 
   private async handleModifierClick(e: MouseEvent) {

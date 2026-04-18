@@ -5189,3 +5189,45 @@ body {
   font-family: inherit;
   white-space: pre;
 }
+
+.editor-hover-tooltip {
+  position: fixed;
+  z-index: 1300;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 12px 13px;
+  border-radius: 10px;
+  color: #e8edf4;
+  background: linear-gradient(180deg, rgba(25, 29, 37, 0.98), rgba(16, 19, 25, 0.98));
+  border: 1px solid rgba(142, 200, 255, 0.2);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42), 0 3px 14px rgba(0, 120, 212, 0.16);
+  pointer-events: none;
+}
+
+.editor-hover-signature {
+  margin: 0;
+  max-height: 180px;
+  overflow: hidden;
+  color: #dcecff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.editor-hover-doc {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(232, 237, 244, 0.78);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.editor-hover-definition {
+  margin-top: 9px;
+  color: rgba(142, 200, 255, 0.78);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
