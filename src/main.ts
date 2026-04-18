@@ -22,6 +22,7 @@ import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 import { ExportsTracker } from "./modules/exports-tracker";
+import { applyTheme, registerAceThemeSetter } from "./modules/theme-engine";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -63,7 +64,7 @@ function base64Encode(bytes: Uint8Array): string {
 }
 
 async function sha256Base64(input: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", input);
+  const hash = await crypto.subtle.digest("SHA-256", input as any);
   return base64Encode(new Uint8Array(hash));
 }
 
@@ -128,6 +129,7 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
   const overlay = document.getElementById("unlock-dialog")!;
   const titleEl = document.getElementById("unlock-dialog-title")!;
   const msgEl = document.getElementById("unlock-dialog-message")!;
+  const pinField = document.getElementById("unlock-pin-field")!;
   const pinEl = document.getElementById("unlock-dialog-pin") as HTMLInputElement;
   const errorEl = document.getElementById("unlock-dialog-error")!;
   const okBtn = document.getElementById("unlock-dialog-ok") as HTMLButtonElement;
@@ -141,6 +143,11 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
   const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
   const allowFp = security.method === "fingerprint" || security.method === "pin_or_fingerprint";
 
+  // Show/hide elements based on method
+  pinField.classList.toggle("hidden", !allowPin);
+  okBtn.classList.toggle("hidden", !allowPin);
+  fpBtn.classList.toggle("hidden", !allowFp);
+
   fpBtn.disabled = !(allowFp && fpConfigured);
   okBtn.disabled = !(allowPin && pinConfigured);
 
@@ -151,21 +158,8 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
   pinEl.value = "";
 
   overlay.classList.remove("hidden");
-  (okBtn.disabled ? (fpBtn.disabled ? cancelBtn : fpBtn) : pinEl).focus();
 
   return await new Promise((resolve) => {
-    function onOkClick() { void onOk(); }
-    function onFingerprintClick() { void onFingerprint(); }
-
-    const cleanup = () => {
-      overlay.classList.add("hidden");
-      okBtn.removeEventListener("click", onOkClick);
-      fpBtn.removeEventListener("click", onFingerprintClick);
-      cancelBtn.removeEventListener("click", onCancel);
-      overlay.removeEventListener("click", onOverlay);
-      document.removeEventListener("keydown", onKey);
-    };
-
     const fail = (message: string) => {
       errorEl.textContent = message;
       errorEl.classList.remove("hidden");
@@ -190,26 +184,37 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
       resolve(true);
     };
 
-    const onCancel = () => {
-      cleanup();
-      resolve(false);
-    };
-
-    const onOverlay = (e: MouseEvent) => {
-      if (e.target === overlay) onCancel();
-    };
-
+    const onCancel = () => { cleanup(); resolve(false); };
+    const onOverlay = (e: MouseEvent) => { if (e.target === overlay) onCancel(); };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); onCancel(); }
       if (e.key === "Enter") {
         e.preventDefault();
-        if (!okBtn.disabled) void onOk();
-        else if (!fpBtn.disabled) void onFingerprint();
+        if (!okBtn.disabled && !okBtn.classList.contains("hidden")) void onOk();
+        else if (!fpBtn.disabled && !fpBtn.classList.contains("hidden")) void onFingerprint();
       }
     };
+    const onOkClick = () => void onOk();
+    const onFpClick = () => void onFingerprint();
+
+    function cleanup() {
+      overlay.classList.add("hidden");
+      okBtn.removeEventListener("click", onOkClick);
+      fpBtn.removeEventListener("click", onFpClick);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("click", onOverlay);
+      document.removeEventListener("keydown", onKey);
+    }
+
+    // Auto-trigger fingerprint if that's the only method
+    if (allowFp && !allowPin && fpConfigured) {
+      setTimeout(() => void onFingerprint(), 120);
+    } else {
+      (allowPin && pinConfigured ? pinEl : cancelBtn).focus();
+    }
 
     okBtn.addEventListener("click", onOkClick);
-    fpBtn.addEventListener("click", onFingerprintClick);
+    fpBtn.addEventListener("click", onFpClick);
     cancelBtn.addEventListener("click", onCancel);
     overlay.addEventListener("click", onOverlay);
     document.addEventListener("keydown", onKey);
@@ -398,6 +403,7 @@ function onSettingsChange(settings: AppSettings) {
   setTailwindEnabled(!!settings.editor.tailwindAutocomplete);
   syncChatAutoApproveToggle();
   refreshSecuritySession(settings);
+  applyTheme(settings.appearance);
 }
 
 async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
@@ -430,11 +436,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Load settings
   appSettings = await loadSettings();
   refreshSecuritySession(appSettings);
+  applyTheme(appSettings.appearance);
 
   // Init editor
   editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);
+  registerAceThemeSetter((theme) => editor.setAceTheme(theme));
 
   // Init snippets panel
   snippetsPanel = new SnippetsPanel("snippets-panel");
@@ -475,12 +483,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     () => appSettings.ai,
     () => currentProjectPath
   );
-  await agentMemory.init().catch(() => {});
+  await agentMemory.init().catch(() => { });
 
   const memorySettingsUI = new MemorySettingsUI(
     agentMemory,
     () => appSettings,
-    async () => {}
+    async () => { }
   );
 
   // Init chatbot

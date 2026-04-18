@@ -395,6 +395,10 @@ export class Editor {
     this.renderTabs();
   }
 
+  setAceTheme(theme: string) {
+    this.ace.setTheme(`ace/theme/${theme}`);
+  }
+
   applySettings(settings: EditorSettings) {
     this.currentSettings = { ...settings };
 

@@ -24,6 +24,13 @@
   --chat-width: 320px;
   --titlebar-height: 36px;
 
+  /* Theme-controlled variables (overridden at runtime by theme-engine) */
+  --top-bar-bg: #252526;
+  --bottom-bar-bg: #007acc;
+  --left-sidebar-bg: #252526;
+  --right-panels-bg: #252526;
+  --editor-bg: #1e1e1e;
+
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
     Cantarell, sans-serif;
@@ -499,6 +506,45 @@ body {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
+.btn-ghost {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dialog-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  margin: 8px 0;
+}
+
+.dialog-input:focus {
+  border-color: var(--accent);
+}
+
 .btn-icon {
   padding: 4px 8px;
   background: transparent;
@@ -547,7 +593,7 @@ body {
   padding: 0 10px;
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
-  background: linear-gradient(180deg, #2c2e33 0%, #252729 100%);
+  background: var(--top-bar-bg);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -585,7 +631,7 @@ body {
   width: var(--sidebar-width);
   min-width: 160px;
   max-width: 500px;
-  background: linear-gradient(180deg, #272a2e 0%, #232528 100%);
+  background: var(--left-sidebar-bg);
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
@@ -2115,7 +2161,7 @@ body {
   width: var(--chat-width);
   min-width: 240px;
   max-width: 600px;
-  background: var(--bg-secondary);
+  background: var(--right-panels-bg);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -2130,13 +2176,7 @@ body {
   width: var(--review-width);
   min-width: 280px;
   max-width: 620px;
-  background:
-    radial-gradient(
-      circle at top right,
-      rgba(0, 120, 212, 0.14),
-      transparent 34%
-    ),
-    linear-gradient(180deg, #26282d 0%, #202226 100%);
+  background: var(--right-panels-bg);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -3835,7 +3875,7 @@ body {
   width: 300px;
   min-width: 240px;
   max-width: 500px;
-  background: linear-gradient(180deg, #26282d 0%, #202226 100%);
+  background: var(--right-panels-bg);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -4181,7 +4221,7 @@ body {
   width: 280px;
   min-width: 220px;
   max-width: 420px;
-  background: linear-gradient(180deg, #26282d 0%, #202226 100%);
+  background: var(--right-panels-bg);
   border-left: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
@@ -4458,7 +4498,7 @@ body {
   height: 24px;
   min-height: 24px;
   padding: 0 2px;
-  background: linear-gradient(90deg, #0e639c 0%, #1177bb 50%, #0e639c 100%);
+  background: var(--bottom-bar-bg);
   color: rgba(255, 255, 255, 0.85);
   font-size: 12px;
 }
@@ -5746,13 +5786,8 @@ body {
   min-width: 320px;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(
-    180deg,
-    rgba(29, 32, 37, 0.98),
-    rgba(20, 22, 27, 0.98)
-  );
+  background: var(--right-panels-bg);
   border-left: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(14px);
 }
 
 .quality-header {
@@ -6481,4 +6516,238 @@ body {
   .quality-bar-row {
     grid-template-columns: 58px 1fr 28px;
   }
+}
+
+/* ── Appearance Settings ── */
+.appearance-theme-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 0 12px;
+}
+
+.appearance-theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  background: var(--bg-tertiary);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+  min-width: 76px;
+}
+
+.appearance-theme-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.appearance-theme-card.active {
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
+
+.appearance-theme-swatches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  width: 48px;
+  height: 36px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.appearance-theme-swatches .swatch {
+  width: 100%;
+  height: 100%;
+}
+
+.appearance-theme-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  white-space: nowrap;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.appearance-theme-card.active .appearance-theme-name {
+  color: var(--text-primary);
+}
+
+.appearance-theme-delete {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.appearance-theme-card.custom:hover .appearance-theme-delete {
+  display: flex;
+}
+
+.appearance-actions-row {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.appearance-color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.appearance-color-picker {
+  width: 40px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.appearance-reset-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.appearance-reset-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.appearance-reset-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.appearance-bg-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.appearance-bg-group:last-child {
+  border-bottom: none;
+}
+
+.appearance-bg-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.appearance-image-preview-wrap {
+  width: 100%;
+  height: 120px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  overflow: hidden;
+  background-color: var(--bg-tertiary);
+  position: relative;
+}
+
+.appearance-image-preview {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.appearance-image-preview.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.appearance-image-preview.empty::after {
+  content: "No image selected";
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.appearance-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.appearance-slider-row label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  width: 52px;
+  flex-shrink: 0;
+}
+
+.appearance-slider-row .appearance-opacity-slider {
+  flex: 1;
+}
+
+.appearance-slider-val {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.appearance-bg-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.appearance-opacity-slider {
+  width: 100%;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* Ensure editor and workspace main are positioned for BG layer */
+#editor-area {
+  position: relative;
+}
+
+#workspace-main {
+  position: relative;
+}
+
+/* Ensure content stays above BG layer */
+#editor-area > *:not(#editor-bg-layer),
+#workspace-main > *:not(#workspace-bg-layer) {
+  position: relative;
+  z-index: 1;
 }

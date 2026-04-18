@@ -106,14 +106,14 @@
         <div class="dialog dialog-sm">
           <h2 id="unlock-dialog-title">Unlock</h2>
           <p id="unlock-dialog-message" class="confirm-msg">Enter PIN or use fingerprint to continue.</p>
-          <div class="dialog-field">
+          <div id="unlock-pin-field" class="dialog-field">
             <label for="unlock-dialog-pin">PIN</label>
             <input id="unlock-dialog-pin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="••••" />
-            <p id="unlock-dialog-error" class="hint hidden"></p>
           </div>
+          <p id="unlock-dialog-error" class="hint hidden"></p>
           <div class="dialog-actions">
             <button id="unlock-dialog-cancel" class="btn-secondary">Cancel</button>
-            <button id="unlock-dialog-fingerprint" class="btn-secondary">Fingerprint</button>
+            <button id="unlock-dialog-fingerprint" class="btn-secondary">Use Fingerprint</button>
             <button id="unlock-dialog-ok" class="btn-primary">Unlock</button>
           </div>
         </div>
@@ -638,6 +638,7 @@
                   <button class="settings-tab-btn" data-settings-tab="access">Access</button>
                   <button class="settings-tab-btn" data-settings-tab="security">Security</button>
                   <button class="settings-tab-btn" data-settings-tab="memory">Memory</button>
+                  <button class="settings-tab-btn" data-settings-tab="appearance">Appearance</button>
                 </div>
               </div>
 
@@ -847,7 +848,8 @@
 	                    <input id="setting-security-enabled" type="checkbox" />
 	                  </div>
 
-	                  <div class="setting-row">
+	                  <!-- Shown only when security is enabled -->
+	                  <div id="security-method-row" class="setting-row hidden">
 	                    <div class="setting-label-group">
 	                      <label for="setting-security-method">Unlock Method</label>
 	                      <span class="setting-hint">Choose PIN and/or fingerprint</span>
@@ -859,7 +861,8 @@
 	                    </select>
 	                  </div>
 
-	                  <div class="setting-row">
+	                  <!-- Shown when method includes PIN -->
+	                  <div id="security-pin-row" class="setting-row hidden">
 	                    <div class="setting-label-group">
 	                      <label>PIN</label>
 	                      <span id="setting-security-pin-status" class="setting-hint">Not set</span>
@@ -870,7 +873,8 @@
 	                    </div>
 	                  </div>
 
-	                  <div class="setting-row">
+	                  <!-- Shown when method includes Fingerprint -->
+	                  <div id="security-fingerprint-row" class="setting-row hidden">
 	                    <div class="setting-label-group">
 	                      <label>Fingerprint</label>
 	                      <span id="setting-security-fingerprint-status" class="setting-hint">Not set</span>
@@ -881,7 +885,8 @@
 	                    </div>
 	                  </div>
 
-	                  <div class="setting-row">
+	                  <!-- Shown only when security is enabled -->
+	                  <div id="security-lock-project-row" class="setting-row hidden">
 	                    <div class="setting-label-group">
 	                      <label for="setting-security-lock-project-open">Lock Before Opening Projects</label>
 	                      <span class="setting-hint">Require unlock before opening any project folder</span>
@@ -889,7 +894,7 @@
 	                    <input id="setting-security-lock-project-open" type="checkbox" />
 	                  </div>
 
-	                  <div class="setting-row">
+	                  <div id="security-protect-env-row" class="setting-row hidden">
 	                    <div class="setting-label-group">
 	                      <label for="setting-security-protect-env">Protect .env Files</label>
 	                      <span class="setting-hint">Mask secrets and require unlock to reveal</span>
@@ -935,6 +940,138 @@
                   <div id="memory-settings-container"></div>
                 </div>
               </section>
+
+              <!-- Appearance -->
+              <section class="settings-section expanded" data-settings-category="appearance">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">Themes</h3>
+                    <p class="setting-description">Choose a preset theme or customize individual colors.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <div id="appearance-theme-cards" class="appearance-theme-cards"></div>
+
+                  <div class="appearance-actions-row">
+                    <button id="appearance-save-theme" class="btn-secondary">Save as New Theme</button>
+                    <button id="appearance-restore-defaults" class="btn-ghost">Restore Defaults</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-section expanded" data-settings-category="appearance">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">Custom Colors</h3>
+                    <p class="setting-description">Override individual area colors. Click ↺ to reset to theme default.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <div class="setting-row">
+                    <label>Top Bar</label>
+                    <div class="appearance-color-row">
+                      <input id="appearance-color-top-bar" type="color" class="appearance-color-picker" />
+                      <button id="appearance-reset-top-bar" class="appearance-reset-btn" title="Reset to theme default">↺</button>
+                    </div>
+                  </div>
+                  <div class="setting-row">
+                    <label>Bottom Bar</label>
+                    <div class="appearance-color-row">
+                      <input id="appearance-color-bottom-bar" type="color" class="appearance-color-picker" />
+                      <button id="appearance-reset-bottom-bar" class="appearance-reset-btn" title="Reset to theme default">↺</button>
+                    </div>
+                  </div>
+                  <div class="setting-row">
+                    <label>Left Sidebar</label>
+                    <div class="appearance-color-row">
+                      <input id="appearance-color-left-sidebar" type="color" class="appearance-color-picker" />
+                      <button id="appearance-reset-left-sidebar" class="appearance-reset-btn" title="Reset to theme default">↺</button>
+                    </div>
+                  </div>
+                  <div class="setting-row">
+                    <label>Right Panels</label>
+                    <div class="appearance-color-row">
+                      <input id="appearance-color-right-panels" type="color" class="appearance-color-picker" />
+                      <button id="appearance-reset-right-panels" class="appearance-reset-btn" title="Reset to theme default">↺</button>
+                    </div>
+                  </div>
+                  <div class="setting-row">
+                    <label>Accent Color</label>
+                    <div class="appearance-color-row">
+                      <input id="appearance-color-accent" type="color" class="appearance-color-picker" />
+                      <button id="appearance-reset-accent" class="appearance-reset-btn" title="Reset to theme default">↺</button>
+                    </div>
+                  </div>
+                  <div class="setting-row">
+                    <label>Editor Background</label>
+                    <div class="appearance-color-row">
+                      <input id="appearance-color-editor-bg" type="color" class="appearance-color-picker" />
+                      <button id="appearance-reset-editor-bg" class="appearance-reset-btn" title="Reset to theme default">↺</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-section expanded" data-settings-category="appearance">
+                <button class="settings-section-header" type="button">
+                  <div class="settings-section-heading">
+                    <h3 class="settings-section-title">Background Image</h3>
+                    <p class="setting-description">Set a custom background image for the editor or the full workspace.</p>
+                  </div>
+                  <span class="settings-section-chevron" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </span>
+                </button>
+                <div class="settings-section-content">
+                  <div class="appearance-bg-group">
+                    <span class="appearance-bg-label">Editor Background</span>
+                    <div class="appearance-image-preview-wrap">
+                      <div id="appearance-editor-image-preview" class="appearance-image-preview empty"></div>
+                    </div>
+                    <div class="appearance-bg-controls">
+                      <button id="appearance-editor-image-btn" class="btn-secondary">Choose Image</button>
+                      <button id="appearance-editor-image-clear" class="btn-ghost" disabled>Clear</button>
+                    </div>
+                    <div class="appearance-slider-row">
+                      <label>Opacity</label>
+                      <input id="appearance-editor-opacity" type="range" min="0" max="100" value="30" class="appearance-opacity-slider" />
+                      <span id="appearance-editor-opacity-val" class="appearance-slider-val">30%</span>
+                    </div>
+                    <div class="appearance-slider-row">
+                      <label>Blur</label>
+                      <input id="appearance-editor-blur" type="range" min="0" max="20" value="0" class="appearance-opacity-slider" />
+                      <span id="appearance-editor-blur-val" class="appearance-slider-val">0px</span>
+                    </div>
+                  </div>
+
+                  <div class="appearance-bg-group">
+                    <span class="appearance-bg-label">Workspace Background</span>
+                    <div class="appearance-image-preview-wrap">
+                      <div id="appearance-workspace-image-preview" class="appearance-image-preview empty"></div>
+                    </div>
+                    <div class="appearance-bg-controls">
+                      <button id="appearance-workspace-image-btn" class="btn-secondary">Choose Image</button>
+                      <button id="appearance-workspace-image-clear" class="btn-ghost" disabled>Clear</button>
+                    </div>
+                    <div class="appearance-slider-row">
+                      <label>Opacity</label>
+                      <input id="appearance-workspace-opacity" type="range" min="0" max="100" value="20" class="appearance-opacity-slider" />
+                      <span id="appearance-workspace-opacity-val" class="appearance-slider-val">20%</span>
+                    </div>
+                    <div class="appearance-slider-row">
+                      <label>Blur</label>
+                      <input id="appearance-workspace-blur" type="range" min="0" max="20" value="0" class="appearance-opacity-slider" />
+                      <span id="appearance-workspace-blur-val" class="appearance-slider-val">0px</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
 
             <!-- Save Button -->
@@ -942,6 +1079,19 @@
               <button id="btn-save-settings" class="btn-primary">Save Settings</button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Appearance: Save as New Theme dialog -->
+    <div id="appearance-name-dialog" class="dialog-overlay hidden">
+      <div class="dialog-box">
+        <h3 class="dialog-title">Save as New Theme</h3>
+        <p class="dialog-message">Enter a name for your custom theme:</p>
+        <input id="appearance-name-input" type="text" class="dialog-input" placeholder="My Theme" maxlength="40" autocomplete="off" spellcheck="false" />
+        <div class="dialog-actions">
+          <button id="appearance-name-cancel" class="btn-secondary">Cancel</button>
+          <button id="appearance-name-ok" class="btn-primary">Save</button>
         </div>
       </div>
     </div>
