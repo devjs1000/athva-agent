@@ -850,7 +850,7 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
 
 // ── Embedded web tab (child webview inside main window) ──
 
-const WEB_TAB_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const WEB_TAB_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -969,6 +969,26 @@ fn open_web_window(
 
     let builder = WebviewBuilder::new(&label, parsed)
         .user_agent(WEB_TAB_USER_AGENT)
+        .initialization_script(
+            r#"
+            // Mask WKWebView signals that Google uses to block embedded browser sign-in
+            Object.defineProperty(navigator, 'userAgent', {
+                get: () => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                configurable: false
+            });
+            Object.defineProperty(navigator, 'vendor', {
+                get: () => 'Google Inc.',
+                configurable: false
+            });
+            Object.defineProperty(navigator, 'platform', {
+                get: () => 'MacIntel',
+                configurable: false
+            });
+            // Remove window.webkit which signals WKWebView to Google
+            try { delete window.webkit; } catch(_) {}
+            try { Object.defineProperty(window, 'webkit', { get: () => undefined, configurable: false }); } catch(_) {}
+            "#,
+        )
         .on_page_load(move |webview, payload| match payload.event() {
             PageLoadEvent::Started => {
                 emit_web_media_state(&page_load_app, &page_load_label, false);
