@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use tauri::{WebviewUrl, WebviewBuilder, Manager, LogicalPosition, LogicalSize, Rect};
+use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
+use tauri::webview::PageLoadEvent;
 
 // ── Project management ──
 
@@ -774,6 +775,91 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
 
 const WEB_TAB_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WebMediaStateEvent {
+    label: String,
+    is_playing: bool,
+}
+
+fn emit_web_media_state(app: &tauri::AppHandle, label: &str, is_playing: bool) {
+    let _ = app.emit(
+        "web-media-state",
+        WebMediaStateEvent {
+            label: label.to_string(),
+            is_playing,
+        },
+    );
+}
+
+fn build_web_media_observer_script(label: &str) -> String {
+    let label_json = serde_json::to_string(label).unwrap_or_else(|_| "\"\"".to_string());
+    r#"(function () {
+  const label = __ATHVA_LABEL__;
+  const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+  if (!invoke) return;
+
+  const storeKey = "__ATHVA_MEDIA_MONITOR__";
+  if (window[storeKey] && typeof window[storeKey].cleanup === "function") {
+    window[storeKey].cleanup();
+  }
+  window[storeKey] = { last: undefined };
+
+  const reportState = () => {
+    let isPlaying = false;
+    try {
+      isPlaying = Array.from(document.querySelectorAll("audio,video")).some((media) => {
+        return !media.paused && !media.ended && media.readyState > 2;
+      });
+      if (!isPlaying && navigator.mediaSession && navigator.mediaSession.playbackState === "playing") {
+        isPlaying = true;
+      }
+    } catch (_) {
+      isPlaying = false;
+    }
+
+    if (window[storeKey] && window[storeKey].last === isPlaying) {
+      return;
+    }
+    window[storeKey].last = isPlaying;
+    invoke("report_web_media_state", { label, isPlaying }).catch(() => {});
+  };
+
+  const mediaEvents = ["play", "playing", "pause", "ended", "emptied", "loadstart", "canplay", "seeked", "volumechange"];
+  const onMediaEvent = () => {
+    window.setTimeout(reportState, 0);
+  };
+
+  mediaEvents.forEach((eventName) => {
+    document.addEventListener(eventName, onMediaEvent, true);
+  });
+  document.addEventListener("visibilitychange", onMediaEvent, true);
+
+  const mutationObserver = new MutationObserver(() => {
+    window.setTimeout(reportState, 0);
+  });
+  if (document.documentElement) {
+    mutationObserver.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
+  }
+
+  const intervalId = window.setInterval(reportState, 1500);
+  reportState();
+
+  window[storeKey] = {
+    last: window[storeKey] ? window[storeKey].last : undefined,
+    cleanup() {
+      mutationObserver.disconnect();
+      window.clearInterval(intervalId);
+      mediaEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, onMediaEvent, true);
+      });
+      document.removeEventListener("visibilitychange", onMediaEvent, true);
+    },
+  };
+})();"#
+        .replace("__ATHVA_LABEL__", &label_json)
+}
+
 #[tauri::command]
 fn open_web_window(
     app: tauri::AppHandle,
@@ -801,9 +887,20 @@ fn open_web_window(
     }
 
     let main_window = app.get_window("main").ok_or("main window not found")?;
+    let page_load_label = label.clone();
+    let page_load_app = app.clone();
 
     let builder = WebviewBuilder::new(&label, parsed)
         .user_agent(WEB_TAB_USER_AGENT)
+        .on_page_load(move |webview, payload| match payload.event() {
+            PageLoadEvent::Started => {
+                emit_web_media_state(&page_load_app, &page_load_label, false);
+            }
+            PageLoadEvent::Finished => {
+                emit_web_media_state(&page_load_app, &page_load_label, false);
+                let _ = webview.eval(build_web_media_observer_script(&page_load_label));
+            }
+        })
         .auto_resize();
 
     main_window
@@ -857,6 +954,16 @@ fn resize_web_window(
         })
         .map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+#[tauri::command]
+fn report_web_media_state(
+    app: tauri::AppHandle,
+    label: String,
+    is_playing: bool,
+) -> Result<(), String> {
+    emit_web_media_state(&app, &label, is_playing);
     Ok(())
 }
 
@@ -1153,6 +1260,7 @@ pub fn run() {
             close_web_window,
             hide_web_window,
             resize_web_window,
+            report_web_media_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

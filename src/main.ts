@@ -367,6 +367,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     editor.openFile(path, name);
     fileExplorer.setActiveFile(path);
   });
+  editor.setOnCreateEditorTab(() => {
+    if (!currentProjectPath) return;
+    quickOpen.open();
+  });
 
   // Init global search
   globalSearch = new GlobalSearch(
@@ -482,6 +486,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       e.preventDefault();
       if (isWorkspace && currentProjectPath) {
         quickOpen.open();
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + N → New tab picker
+    if (isMod && e.key === "n" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      if (isWorkspace) {
+        editor.openNewTabPicker();
       }
       return;
     }

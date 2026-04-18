@@ -1294,6 +1294,18 @@ body {
   user-select: none;
 }
 
+.editor-tab-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.editor-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .editor-tab:hover {
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.65);
@@ -1358,11 +1370,10 @@ body {
   line-height: 1;
 }
 
-/* ── Web tab add button ── */
-.editor-tab-add-web {
+/* ── New tab add button ── */
+.editor-tab-add {
   display: flex;
   align-items: center;
-  gap: 2px;
   padding: 0 10px;
   height: 100%;
   color: rgba(255, 255, 255, 0.36);
@@ -1374,7 +1385,7 @@ body {
   flex-shrink: 0;
 }
 
-.editor-tab-add-web:hover {
+.editor-tab-add:hover {
   color: rgba(255, 255, 255, 0.72);
   background: rgba(255, 255, 255, 0.05);
 }
@@ -1391,25 +1402,33 @@ body {
   opacity: 1;
 }
 
-/* ── Web picker dropdown ── */
-.web-tab-picker {
+.editor-tab-media-indicator {
+  display: flex;
+  align-items: center;
+  color: #f59e0b;
+  opacity: 0.92;
+  flex-shrink: 0;
+}
+
+/* ── New tab picker dropdown ── */
+.tab-picker {
   position: fixed;
   z-index: 9999;
-  width: 248px;
+  width: 288px;
   background: #1e2129;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   padding: 8px 0 10px;
-  animation: web-picker-in 0.12s ease;
+  animation: tab-picker-in 0.12s ease;
 }
 
-@keyframes web-picker-in {
+@keyframes tab-picker-in {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.web-picker-head {
+.tab-picker-head {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1418,13 +1437,92 @@ body {
   padding: 0 12px 6px;
 }
 
-.web-picker-presets {
+.tab-picker-types {
   display: grid;
-  gap: 2px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+
+.tab-picker-type {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+
+.tab-picker-type.active,
+.tab-picker-type:hover {
+  background: rgba(96, 165, 250, 0.16);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #fff;
+}
+
+.tab-picker-panel {
   padding: 0 6px;
 }
 
-.web-picker-preset {
+.tab-picker-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 7px;
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.tab-picker-action:hover,
+.tab-picker-preset:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.tab-picker-action > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tab-picker-action strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tab-picker-action small {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.tab-picker-action-icon,
+.tab-picker-preset-icon {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.tab-picker-presets {
+  display: grid;
+  gap: 2px;
+}
+
+.tab-picker-preset {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1439,31 +1537,19 @@ body {
   transition: background 0.12s;
 }
 
-.web-picker-preset:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
-}
-
-.web-picker-preset-icon {
-  font-size: 15px;
-  width: 20px;
-  text-align: center;
-  opacity: 0.75;
-}
-
-.web-picker-divider {
+.tab-picker-divider {
   height: 1px;
   background: rgba(255, 255, 255, 0.07);
   margin: 8px 0;
 }
 
-.web-picker-custom {
+.tab-picker-custom {
   display: flex;
   gap: 6px;
   padding: 0 8px;
 }
 
-.web-picker-input {
+.tab-picker-input {
   flex: 1;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1475,16 +1561,16 @@ body {
   min-width: 0;
 }
 
-.web-picker-input:focus {
+.tab-picker-input:focus {
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.08);
 }
 
-.web-picker-input::placeholder {
+.tab-picker-input::placeholder {
   color: rgba(255, 255, 255, 0.28);
 }
 
-.web-picker-go {
+.tab-picker-go {
   background: var(--accent);
   border: none;
   border-radius: 6px;
@@ -1497,7 +1583,7 @@ body {
   flex-shrink: 0;
 }
 
-.web-picker-go:hover {
+.tab-picker-go:hover {
   opacity: 0.85;
 }
 

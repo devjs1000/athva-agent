@@ -46,5 +46,6 @@ commands.allow = [
   "focus_web_window",
   "close_web_window",
   "hide_web_window",
-  "resize_web_window"
+  "resize_web_window",
+  "report_web_media_state"
 ]

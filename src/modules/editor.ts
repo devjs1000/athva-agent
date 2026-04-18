@@ -39,6 +39,7 @@ import "ace-builds/src-min-noconflict/snippets/sh";
 import "ace-builds/src-min-noconflict/snippets/yaml";
 import "ace-builds/src-min-noconflict/snippets/markdown";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { lintTypeScript, shouldUseTsLint, getTsFileName } from "./ts-lint";
 import { Minimap } from "./minimap";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
@@ -102,6 +103,11 @@ interface OpenTab {
   pinned: boolean;
   kind?: "file" | "web";
   url?: string;
+}
+
+interface WebMediaStatePayload {
+  label: string;
+  isPlaying: boolean;
 }
 
 export interface EditorNavigationRequest {
@@ -183,11 +189,14 @@ export class Editor {
   private hoverMouseY = 0;
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
   private onSaveCallback: ((path: string, content: string) => void) | null = null;
+  private onCreateEditorTab: (() => void) | null = null;
   private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
   private onHoverInfo: ((request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) | null = null;
   private webFrameEl: HTMLIFrameElement;
-  private webPickerDropdown: HTMLElement;
+  private tabPickerDropdown: HTMLElement;
   private webTabLabels: Map<string, string> = new Map(); // path -> webview label
+  private webTabPathsByLabel: Map<string, string> = new Map();
+  private webTabMediaState: Map<string, boolean> = new Map();
   private activeWebLabel: string | null = null;
   private webResizeObserver: ResizeObserver | null = null;
 
@@ -291,29 +300,17 @@ export class Editor {
     // Also sync on window resize
     window.addEventListener("resize", () => this.syncActiveWebTabBounds());
 
-    // Web tab picker dropdown
-    this.webPickerDropdown = document.createElement("div");
-    this.webPickerDropdown.className = "web-tab-picker hidden";
-    this.webPickerDropdown.innerHTML = this.buildWebPickerHTML();
-    document.body.appendChild(this.webPickerDropdown);
-    this.setupWebPickerListeners();
+    // New tab picker dropdown
+    this.tabPickerDropdown = document.createElement("div");
+    this.tabPickerDropdown.className = "tab-picker hidden";
+    this.tabPickerDropdown.innerHTML = this.buildTabPickerHTML();
+    document.body.appendChild(this.tabPickerDropdown);
+    this.setupTabPickerListeners();
 
     document.addEventListener("click", () => {
       this.tabContextMenu.classList.add("hidden");
       this.editorContextMenu.classList.add("hidden");
-      const pickerWasVisible = !this.webPickerDropdown.classList.contains("hidden");
-      this.webPickerDropdown.classList.add("hidden");
-      if (pickerWasVisible && this.activeWebLabel) {
-        const bounds = this.getEditorContainerBounds();
-        void invoke("open_web_window", {
-          url: "",
-          label: this.activeWebLabel,
-          x: bounds.x,
-          y: bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-        });
-      }
+      this.setTabPickerVisible(false);
     });
     document.addEventListener("contextmenu", (e) => {
       if (!this.tabContextMenu.contains(e.target as Node)) {
@@ -344,6 +341,10 @@ export class Editor {
     attachAICompleter(this.ace);
 
     this.applySettings(DEFAULT_EDITOR_SETTINGS);
+
+    void listen<WebMediaStatePayload>("web-media-state", ({ payload }) => {
+      this.handleWebMediaState(payload);
+    });
 
     // Auto-save and lint on change (debounced)
     let saveTimeout: ReturnType<typeof setTimeout>;
@@ -454,8 +455,10 @@ export class Editor {
       if (label) {
         void invoke("close_web_window", { label });
         this.webTabLabels.delete(path);
+        this.webTabPathsByLabel.delete(label);
         if (this.activeWebLabel === label) this.activeWebLabel = null;
       }
+      this.webTabMediaState.delete(path);
     }
 
     this.tabs.splice(idx, 1);
@@ -504,6 +507,10 @@ export class Editor {
   /** Add a custom completer to the Ace editor */
   addCompleter(completer: ace.Ace.Completer) {
     this.customAutocomplete.addCompleter(completer);
+  }
+
+  setOnCreateEditorTab(callback: () => void) {
+    this.onCreateEditorTab = callback;
   }
 
   setOnNavigate(callback: (request: EditorNavigationRequest) => Promise<void>) {
@@ -756,40 +763,78 @@ export class Editor {
     }
     const tab: OpenTab = { path: id, name: title, content: "", modified: false, pinned: false, kind: "web", url };
     this.webTabLabels.set(id, label);
+    this.webTabPathsByLabel.set(label, id);
+    this.webTabMediaState.set(id, false);
     this.tabs.push(tab);
     this.switchToTab(id);
   }
 
-  private toggleWebPicker(e: MouseEvent) {
-    const btn = (e.currentTarget ?? e.target) as HTMLElement;
-    const rect = btn.getBoundingClientRect();
-    const isHidden = this.webPickerDropdown.classList.contains("hidden");
-    this.webPickerDropdown.classList.toggle("hidden", !isHidden);
-    if (isHidden) {
-      this.webPickerDropdown.style.top = `${rect.bottom + 4}px`;
-      const left = Math.min(rect.left, window.innerWidth - 260);
-      this.webPickerDropdown.style.left = `${Math.max(4, left)}px`;
-      // Hide the native webview so it doesn't cover the dropdown
+  openNewTabPicker(anchor?: HTMLElement | null) {
+    const target = anchor ?? this.tabsContainer.querySelector("#btn-add-tab") ?? this.tabsContainer;
+    const rect = target.getBoundingClientRect();
+    this.positionTabPicker(rect);
+    this.setTabPickerKind("editor");
+    this.setTabPickerVisible(true);
+  }
+
+  private toggleTabPicker(anchor: HTMLElement) {
+    const isHidden = this.tabPickerDropdown.classList.contains("hidden");
+    if (!isHidden) {
+      this.setTabPickerVisible(false);
+      return;
+    }
+    this.openNewTabPicker(anchor);
+  }
+
+  private positionTabPicker(rect: DOMRect) {
+    this.tabPickerDropdown.style.top = `${rect.bottom + 4}px`;
+    const left = Math.min(rect.left, window.innerWidth - 300);
+    this.tabPickerDropdown.style.left = `${Math.max(4, left)}px`;
+  }
+
+  private setTabPickerVisible(visible: boolean, restoreActiveWebView = true) {
+    const wasVisible = !this.tabPickerDropdown.classList.contains("hidden");
+    if (wasVisible === visible) return;
+    this.tabPickerDropdown.classList.toggle("hidden", !visible);
+    if (visible) {
       if (this.activeWebLabel) {
         void invoke("hide_web_window", { label: this.activeWebLabel });
       }
-    } else {
-      // Picker closed without selecting — restore the active web tab
-      if (this.activeWebLabel) {
-        const bounds = this.getEditorContainerBounds();
-        void invoke("open_web_window", {
-          url: "",
-          label: this.activeWebLabel,
-          x: bounds.x,
-          y: bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-        });
-      }
+      this.focusActiveTabPickerControl();
+      return;
+    }
+    if (restoreActiveWebView && this.activeWebLabel) {
+      const bounds = this.getEditorContainerBounds();
+      void invoke("open_web_window", {
+        url: "",
+        label: this.activeWebLabel,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      });
     }
   }
 
-  private buildWebPickerHTML(): string {
+  private focusActiveTabPickerControl() {
+    requestAnimationFrame(() => {
+      const activeType = this.tabPickerDropdown.querySelector(".tab-picker-type.active") as HTMLElement | null;
+      const targetSelector = activeType?.dataset.kind === "web" ? ".tab-picker-input" : ".tab-picker-action";
+      (this.tabPickerDropdown.querySelector(targetSelector) as HTMLElement | null)?.focus();
+    });
+  }
+
+  private setTabPickerKind(kind: "editor" | "web") {
+    this.tabPickerDropdown.querySelectorAll<HTMLElement>(".tab-picker-type").forEach((button) => {
+      button.classList.toggle("active", button.dataset.kind === kind);
+    });
+    this.tabPickerDropdown.querySelectorAll<HTMLElement>(".tab-picker-panel").forEach((panel) => {
+      panel.classList.toggle("hidden", panel.dataset.panel !== kind);
+    });
+    this.focusActiveTabPickerControl();
+  }
+
+  private buildTabPickerHTML(): string {
     const presets = [
       { label: "YouTube", url: "https://www.youtube.com", icon: "▶" },
       { label: "YouTube Music", url: "https://music.youtube.com", icon: "♪" },
@@ -798,75 +843,100 @@ export class Editor {
     ];
 
     return `
-      <div class="web-picker-head">Open web tab</div>
-      <div class="web-picker-presets">
+      <div class="tab-picker-head">Open new tab</div>
+      <div class="tab-picker-types">
+        <button class="tab-picker-type active" data-kind="editor" type="button">Editor</button>
+        <button class="tab-picker-type" data-kind="web" type="button">Web</button>
+      </div>
+      <div class="tab-picker-panel" data-panel="editor">
+        <button class="tab-picker-action" type="button">
+          <span class="tab-picker-action-icon">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 13.5 2h-11zm0 1h11a.5.5 0 0 1 .5.5V5H2V3.5a.5.5 0 0 1 .5-.5zm-.5 3h12v6.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V6z"/></svg>
+          </span>
+          <span>
+            <strong>Open file in editor</strong>
+            <small>Use Quick Open to choose a workspace file</small>
+          </span>
+        </button>
+      </div>
+      <div class="tab-picker-panel hidden" data-panel="web">
+        <div class="tab-picker-presets">
         ${presets.map((p) => `
-          <button class="web-picker-preset" data-url="${p.url}" data-label="${p.label}">
-            <span class="web-picker-preset-icon">${p.icon}</span>
+          <button class="tab-picker-preset" data-url="${p.url}" data-label="${p.label}" type="button">
+            <span class="tab-picker-preset-icon">${p.icon}</span>
             <span>${p.label}</span>
           </button>
         `).join("")}
-      </div>
-      <div class="web-picker-divider"></div>
-      <div class="web-picker-custom">
-        <input class="web-picker-input" type="url" placeholder="https://..." spellcheck="false" />
-        <button class="web-picker-go">Open</button>
+        </div>
+        <div class="tab-picker-divider"></div>
+        <div class="tab-picker-custom">
+          <input class="tab-picker-input" type="url" placeholder="https://..." spellcheck="false" />
+          <button class="tab-picker-go" type="button">Open</button>
+        </div>
       </div>
     `;
   }
 
-  private setupWebPickerListeners() {
-    this.webPickerDropdown.addEventListener("click", (e) => {
+  private setupTabPickerListeners() {
+    this.tabPickerDropdown.addEventListener("click", (e) => {
       e.stopPropagation();
-      const preset = (e.target as HTMLElement).closest(".web-picker-preset") as HTMLElement | null;
+      const typeButton = (e.target as HTMLElement).closest(".tab-picker-type") as HTMLElement | null;
+      if (typeButton?.dataset.kind === "editor" || typeButton?.dataset.kind === "web") {
+        this.setTabPickerKind(typeButton.dataset.kind as "editor" | "web");
+        return;
+      }
+      const openEditorAction = (e.target as HTMLElement).closest(".tab-picker-action");
+      if (openEditorAction) {
+        this.setTabPickerVisible(false, false);
+        this.onCreateEditorTab?.();
+        return;
+      }
+      const preset = (e.target as HTMLElement).closest(".tab-picker-preset") as HTMLElement | null;
       if (preset) {
         const url = preset.dataset.url!;
         const label = preset.dataset.label!;
-        this.webPickerDropdown.classList.add("hidden");
+        this.setTabPickerVisible(false, false);
         this.openWebTab(url, label);
         return;
       }
-      const goBtn = (e.target as HTMLElement).closest(".web-picker-go");
+      const goBtn = (e.target as HTMLElement).closest(".tab-picker-go");
       if (goBtn) {
-        const input = this.webPickerDropdown.querySelector(".web-picker-input") as HTMLInputElement;
+        const input = this.tabPickerDropdown.querySelector(".tab-picker-input") as HTMLInputElement;
         let url = input.value.trim();
         if (!url) return;
         if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
         const label = new URL(url).hostname.replace(/^www\./, "");
-        this.webPickerDropdown.classList.add("hidden");
+        this.setTabPickerVisible(false, false);
         input.value = "";
         this.openWebTab(url, label);
       }
     });
 
-    this.webPickerDropdown.addEventListener("keydown", (e) => {
+    this.tabPickerDropdown.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        const input = this.webPickerDropdown.querySelector(".web-picker-input") as HTMLInputElement;
+        const input = this.tabPickerDropdown.querySelector(".tab-picker-input") as HTMLInputElement;
         if (document.activeElement === input) {
           let url = input.value.trim();
           if (!url) return;
           if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
           const label = new URL(url).hostname.replace(/^www\./, "");
-          this.webPickerDropdown.classList.add("hidden");
+          this.setTabPickerVisible(false, false);
           input.value = "";
           this.openWebTab(url, label);
         }
       }
       if (e.key === "Escape") {
-        this.webPickerDropdown.classList.add("hidden");
-        if (this.activeWebLabel) {
-          const bounds = this.getEditorContainerBounds();
-          void invoke("open_web_window", {
-            url: "",
-            label: this.activeWebLabel,
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width,
-            height: bounds.height,
-          });
-        }
+        this.setTabPickerVisible(false);
       }
     });
+  }
+
+  private handleWebMediaState(payload: WebMediaStatePayload) {
+    const path = this.webTabPathsByLabel.get(payload.label);
+    if (!path) return;
+    if (this.webTabMediaState.get(path) === payload.isPlaying) return;
+    this.webTabMediaState.set(path, payload.isPlaying);
+    this.renderTabs();
   }
 
   private showTabContextMenu(e: MouseEvent, path: string) {
@@ -916,23 +986,29 @@ export class Editor {
   private renderTabs() {
     const tabsHTML = this.tabs
       .map(
-        (tab) => `
+        (tab) => {
+          const isWeb = tab.kind === "web";
+          const isPlaying = isWeb && this.webTabMediaState.get(tab.path) === true;
+          return `
       <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${tab.kind === "web" ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}">
         ${tab.pinned ? `<span class="editor-tab-pin">&#x2605;</span>` : ""}
-        ${tab.kind === "web" ? `<span class="editor-tab-web-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg></span>` : ""}
-        <span>${this.escapeHtml(tab.name)}${tab.modified ? " \u2022" : ""}</span>
+        ${isWeb ? `<span class="editor-tab-web-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg></span>` : ""}
+        <span class="editor-tab-label">
+          <span class="editor-tab-title">${this.escapeHtml(tab.name)}${tab.modified ? " \u2022" : ""}</span>
+          ${isPlaying ? `<span class="editor-tab-media-indicator" title="Media playing" aria-label="Media playing"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 6.25a.75.75 0 0 1 1.28-.53L7.06 8l-2.28 2.28A.75.75 0 1 1 3.72 9.22L4.94 8 3.72 6.78a.75.75 0 0 1-.22-.53zm4-.78a.75.75 0 0 1 .75.75v3.56a.75.75 0 1 1-1.5 0V6.22a.75.75 0 0 1 .75-.75zm2.7 1.07a.75.75 0 0 1 1.06 0 2.75 2.75 0 0 1 0 3.89.75.75 0 1 1-1.06-1.06 1.25 1.25 0 0 0 0-1.77.75.75 0 0 1 0-1.06zm2.06-1.9a.75.75 0 0 1 1.06 0 5.43 5.43 0 0 1 0 7.68.75.75 0 0 1-1.06-1.06 3.93 3.93 0 0 0 0-5.56.75.75 0 0 1 0-1.06z"/></svg></span>` : ""}
+        </span>
         <button class="editor-tab-close" data-close="${this.escapeAttr(tab.path)}">\u00D7</button>
       </div>
     `
+        }
       )
       .join("");
 
-    const addWebBtn = `<button class="editor-tab-add-web" id="btn-add-web-tab" title="Open web tab">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg>
-      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" style="margin-left:1px"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
+    const addTabBtn = `<button class="editor-tab-add" id="btn-add-tab" title="Open new tab">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14H8v-1H2.5a.5.5 0 0 1-.5-.5V6h12v2.5h1V3.5A1.5 1.5 0 0 0 13.5 2h-11zm0 1h11a.5.5 0 0 1 .5.5V5H2V3.5a.5.5 0 0 1 .5-.5zm9.75 6a.5.5 0 0 1 .5.5V12h2.5a.5.5 0 0 1 0 1h-2.5v2.5a.5.5 0 0 1-1 0V13h-2.5a.5.5 0 0 1 0-1h2.5V9.5a.5.5 0 0 1 .5-.5z"/></svg>
     </button>`;
 
-    this.tabsContainer.innerHTML = tabsHTML + addWebBtn;
+    this.tabsContainer.innerHTML = tabsHTML + addTabBtn;
 
     this.tabsContainer.querySelectorAll(".editor-tab").forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -959,10 +1035,10 @@ export class Editor {
       });
     });
 
-    const addWebBtnEl = this.tabsContainer.querySelector("#btn-add-web-tab");
-    addWebBtnEl?.addEventListener("click", (e) => {
+    const addTabBtnEl = this.tabsContainer.querySelector("#btn-add-tab");
+    addTabBtnEl?.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.toggleWebPicker(e as MouseEvent);
+      this.toggleTabPicker((e.currentTarget ?? e.target) as HTMLElement);
     });
   }
 
