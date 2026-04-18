@@ -30,7 +30,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 ### Frontend Modules
 
 - `src/main.ts`: bootstraps the workspace, wires page state, and connects modules together.
-- `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
+- `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, HTML/JSX/TSX Emmet expansion, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
 - `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while filtering member-access contexts to relevant object/property completions.
 - `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
 - `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI.
@@ -39,7 +39,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/quick-open.ts`: keyboard-driven file search overlay.
 - `src/modules/source-control.ts`: git UI for stage/unstage/discard/diff/commit and AI commit messages.
 - `src/modules/terminal.ts`: xterm-based command runner with command history and basic shell conveniences.
-- `src/modules/script-runner.ts`: lists package scripts and executes them through the terminal.
+- `src/modules/script-runner.ts`: lists package scripts plus built-in run options such as Live Server, and executes them through the terminal.
 - `src/modules/snippets-panel.ts`: renders the snippets sidebar, supports custom snippet authoring, and inserts snippets with live tabstops.
 - `src/modules/snippet-store.ts`: merges built-in, global, and project snippets, persists custom snippets, and exposes custom snippet autocomplete data with explicit JSX/TSX category matching.
 - `src/modules/ai-completer.ts`: selected-code actions and typing-triggered, cursor-anchored idle AI suggestions.

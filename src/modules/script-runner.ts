@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { TerminalPanel } from "./terminal";
 
+type RunnerItem =
+  | { type: "script"; name: string; command: string; pm: string }
+  | { type: "builtin"; name: string; command: string; description: string };
+
 export class ScriptRunner {
   private overlay: HTMLElement;
   private listEl: HTMLElement;
@@ -36,35 +40,34 @@ export class ScriptRunner {
     if (!this.projectPath) return;
 
     const scripts = await this.readScripts();
-    if (!scripts || Object.keys(scripts).length === 0) {
-      this.listEl.innerHTML = `<div class="quick-open-empty">No scripts found in package.json</div>`;
+    const pm = await this.detectPackageManager();
+    const items = this.getRunnerItems(scripts || {}, pm);
+
+    if (items.length === 0) {
+      this.listEl.innerHTML = `<div class="quick-open-empty">No run options available</div>`;
       this.overlay.classList.remove("hidden");
       return;
     }
 
-    // Detect package manager
-    const pm = await this.detectPackageManager();
-
-    this.listEl.innerHTML = Object.entries(scripts)
+    this.listEl.innerHTML = items
       .map(
-        ([name, cmd]) => `
-        <div class="quick-open-item script-item" data-script="${this.escapeAttr(name)}" data-pm="${pm}">
+        (item, index) => `
+        <div class="quick-open-item script-item" data-index="${index}">
           <span class="script-item-icon">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2a.5.5 0 0 1 .812-.39l8 5.5a.5.5 0 0 1 0 .78l-8 5.5A.5.5 0 0 1 4 13V2z"/></svg>
           </span>
-          <span class="quick-open-item-name">${this.escapeHtml(name)}</span>
-          <span class="quick-open-item-path">${this.escapeHtml(String(cmd))}</span>
+          <span class="quick-open-item-name">${this.escapeHtml(item.name)}</span>
+          <span class="quick-open-item-path">${this.escapeHtml(item.type === "script" ? item.command : item.description)}</span>
         </div>`
       )
       .join("");
 
-    // Bind clicks
     this.listEl.querySelectorAll(".script-item").forEach((el) => {
       el.addEventListener("click", () => {
-        const scriptName = (el as HTMLElement).dataset.script!;
-        const pmName = (el as HTMLElement).dataset.pm!;
+        const item = items[Number((el as HTMLElement).dataset.index)];
+        if (!item) return;
         this.close();
-        this.runScript(pmName, scriptName);
+        this.runItem(item);
       });
     });
 
@@ -109,8 +112,34 @@ export class ScriptRunner {
     return "npm";
   }
 
-  private runScript(pm: string, scriptName: string) {
-    const command = `${pm} run ${scriptName}`;
+  private getRunnerItems(scripts: Record<string, string>, pm: string): RunnerItem[] {
+    const scriptItems: RunnerItem[] = Object.entries(scripts).map(([name, command]) => ({
+      type: "script",
+      name,
+      command,
+      pm,
+    }));
+
+    return [
+      {
+        type: "builtin",
+        name: "Live Server",
+        command: this.getServeCommand(pm),
+        description: "Serve this project folder locally with serve",
+      },
+      ...scriptItems,
+    ];
+  }
+
+  private getServeCommand(pm: string): string {
+    if (pm === "pnpm") return "pnpm dlx serve .";
+    if (pm === "yarn") return "yarn dlx serve .";
+    if (pm === "bun") return "bunx serve .";
+    return "npx serve .";
+  }
+
+  private runItem(item: RunnerItem) {
+    const command = item.type === "script" ? `${item.pm} run ${item.name}` : item.command;
     this.terminal.runCommand(command);
   }
 
@@ -120,7 +149,4 @@ export class ScriptRunner {
     return div.innerHTML;
   }
 
-  private escapeAttr(str: string): string {
-    return str.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
 }

@@ -142,6 +142,24 @@ const EXT_MODE_MAP: Record<string, string> = {
   zsh: "sh",
 };
 
+const EMMET_EXTS = new Set(["html", "htm", "jsx", "tsx"]);
+const HTML_TAGS = new Set([
+  "a", "article", "aside", "button", "canvas", "div", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
+  "header", "hr", "img", "input", "label", "li", "link", "main", "meta", "nav", "ol", "option", "p", "section",
+  "select", "small", "span", "strong", "style", "svg", "table", "tbody", "td", "textarea", "th", "thead", "tr",
+  "ul", "video",
+]);
+const VOID_HTML_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+
+interface EmmetNode {
+  tag: string;
+  id?: string;
+  classes: string[];
+  attrs: { name: string; value?: string }[];
+  text?: string;
+  repeat: number;
+}
+
 export class Editor {
   private ace: ace.Ace.Editor;
   private tabs: OpenTab[] = [];
@@ -224,6 +242,9 @@ export class Editor {
       bindKey: { win: "Tab", mac: "Tab" },
       exec: (editor: ace.Ace.Editor) => {
         if (this.customAutocomplete.acceptSelected()) {
+          return;
+        }
+        if (this.expandEmmetAtCursor()) {
           return;
         }
         if ((editor as any).expandSnippet?.()) {
@@ -477,6 +498,124 @@ export class Editor {
     this.renderTabs();
     this.ace.focus();
     this.ace.resize();
+  }
+
+  private expandEmmetAtCursor(): boolean {
+    const tab = this.tabs.find((t) => t.path === this.activeTab);
+    const ext = tab?.name.split(".").pop()?.toLowerCase() || "";
+    if (!EMMET_EXTS.has(ext)) return false;
+
+    const cursor = this.ace.getCursorPosition();
+    const line = this.ace.session.getLine(cursor.row);
+    const beforeCursor = line.slice(0, cursor.column);
+    const match = beforeCursor.match(/([A-Za-z][A-Za-z0-9:_-]*(?:[A-Za-z0-9:_\-#.>\[\]="'\{\}*+$@])*|[.#][A-Za-z0-9_-][A-Za-z0-9:_\-#.>\[\]="'\{\}*+$@]*)$/);
+    const abbreviation = match?.[1];
+    if (!abbreviation || abbreviation.length < 1) return false;
+    if (!/[.#>\[*{]/.test(abbreviation) && !HTML_TAGS.has(abbreviation) && !abbreviation.includes("-")) {
+      return false;
+    }
+
+    const snippet = this.expandEmmetAbbreviation(abbreviation, ext === "jsx" || ext === "tsx");
+    if (!snippet) return false;
+
+    const startColumn = cursor.column - abbreviation.length;
+    this.ace.session.replace(
+      { start: { row: cursor.row, column: startColumn }, end: cursor } as any,
+      ""
+    );
+    (this.ace as any).insertSnippet(snippet);
+    return true;
+  }
+
+  private expandEmmetAbbreviation(abbreviation: string, jsx: boolean): string | null {
+    const parts = abbreviation.split(">").map((part) => part.trim()).filter(Boolean);
+    if (!parts.length) return null;
+
+    const nodes = parts.map((part) => this.parseEmmetNode(part));
+    if (nodes.some((node) => !node)) return null;
+
+    let inner = "$0";
+    for (let index = nodes.length - 1; index >= 0; index--) {
+      inner = this.renderEmmetNode(nodes[index]!, inner, jsx);
+    }
+    return inner;
+  }
+
+  private parseEmmetNode(part: string): EmmetNode | null {
+    const repeatMatch = part.match(/\*(\d+)$/);
+    const repeat = repeatMatch ? Math.max(1, Math.min(50, Number(repeatMatch[1]))) : 1;
+    let source = repeatMatch ? part.slice(0, -repeatMatch[0].length) : part;
+
+    let text: string | undefined;
+    source = source.replace(/\{([^}]*)\}/, (_match, value: string) => {
+      text = value;
+      return "";
+    });
+
+    const attrs: EmmetNode["attrs"] = [];
+    source = source.replace(/\[([^\]]+)\]/g, (_match, rawAttrs: string) => {
+      rawAttrs.trim().split(/\s+/).filter(Boolean).forEach((rawAttr) => {
+        const [name, rawValue] = rawAttr.split("=");
+        if (!name) return;
+        attrs.push({ name, value: rawValue?.replace(/^['"]|['"]$/g, "") });
+      });
+      return "";
+    });
+
+    const tagMatch = source.match(/^[A-Za-z][A-Za-z0-9:_-]*/);
+    let tag = tagMatch?.[0] || "div";
+    if (source.startsWith(".")) tag = "div";
+    if (source.startsWith("#")) tag = "div";
+
+    const id = source.match(/#([A-Za-z0-9_-]+)/)?.[1];
+    const classes = [...source.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1]);
+
+    if (!tag || (!tagMatch && !source.startsWith(".") && !source.startsWith("#"))) return null;
+    return { tag, id, classes, attrs, text, repeat };
+  }
+
+  private renderEmmetNode(node: EmmetNode, inner: string, jsx: boolean): string {
+    const rendered = Array.from({ length: node.repeat }, (_, index) => {
+      const attrs = this.renderEmmetAttrs(node, jsx, index);
+      const content = node.text ?? inner;
+      const multiline = content.includes("\n") || content === "$0" || node.repeat > 1;
+      if (this.isVoidHtmlTag(node.tag)) {
+        return `<${node.tag}${attrs} />`;
+      }
+      if (!multiline) {
+        return `<${node.tag}${attrs}>${content}</${node.tag}>`;
+      }
+      const indented = content.split("\n").map((line) => `  ${line}`).join("\n");
+      return `<${node.tag}${attrs}>\n${indented}\n</${node.tag}>`;
+    });
+
+    return rendered.join("\n");
+  }
+
+  private renderEmmetAttrs(node: EmmetNode, jsx: boolean, index: number): string {
+    const attrs: string[] = [];
+    if (node.id) attrs.push(`id="${this.applyEmmetIndex(node.id, index)}"`);
+    if (node.classes.length) {
+      const attrName = jsx ? "className" : "class";
+      attrs.push(`${attrName}="${node.classes.map((name) => this.applyEmmetIndex(name, index)).join(" ")}"`);
+    }
+    for (const attr of node.attrs) {
+      const name = jsx && attr.name === "class" ? "className" : attr.name;
+      if (attr.value === undefined) {
+        attrs.push(jsx ? `${name}={true}` : name);
+      } else {
+        attrs.push(`${name}="${this.applyEmmetIndex(attr.value, index)}"`);
+      }
+    }
+    return attrs.length ? ` ${attrs.join(" ")}` : "";
+  }
+
+  private applyEmmetIndex(value: string, index: number): string {
+    return value.replace(/\$/g, String(index + 1));
+  }
+
+  private isVoidHtmlTag(tag: string): boolean {
+    return VOID_HTML_TAGS.has(tag);
   }
 
   pinTab(path: string) {
