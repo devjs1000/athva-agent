@@ -100,6 +100,8 @@ interface OpenTab {
   content: string;
   modified: boolean;
   pinned: boolean;
+  kind?: "file" | "web";
+  url?: string;
 }
 
 export interface EditorNavigationRequest {
@@ -183,6 +185,11 @@ export class Editor {
   private onSaveCallback: ((path: string, content: string) => void) | null = null;
   private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
   private onHoverInfo: ((request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) | null = null;
+  private webFrameEl: HTMLIFrameElement;
+  private webPickerDropdown: HTMLElement;
+  private webTabLabels: Map<string, string> = new Map(); // path -> webview label
+  private activeWebLabel: string | null = null;
+  private webResizeObserver: ResizeObserver | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -272,9 +279,29 @@ export class Editor {
     this.hoverTooltipEl.className = "editor-hover-tooltip hidden";
     document.body.appendChild(this.hoverTooltipEl);
 
+    // Web tab iframe — lives inside editor-container, hidden by default
+    // Unused iframe placeholder (kept to avoid null refs from previous setup code)
+    this.webFrameEl = document.createElement("iframe");
+    this.webFrameEl.className = "web-tab-frame hidden";
+
+    // ResizeObserver keeps active child webview in sync with the editor container
+    const editorContainer = this.editorEl.parentElement!;
+    this.webResizeObserver = new ResizeObserver(() => this.syncActiveWebTabBounds());
+    this.webResizeObserver.observe(editorContainer);
+    // Also sync on window resize
+    window.addEventListener("resize", () => this.syncActiveWebTabBounds());
+
+    // Web tab picker dropdown
+    this.webPickerDropdown = document.createElement("div");
+    this.webPickerDropdown.className = "web-tab-picker hidden";
+    this.webPickerDropdown.innerHTML = this.buildWebPickerHTML();
+    document.body.appendChild(this.webPickerDropdown);
+    this.setupWebPickerListeners();
+
     document.addEventListener("click", () => {
       this.tabContextMenu.classList.add("hidden");
       this.editorContextMenu.classList.add("hidden");
+      this.webPickerDropdown.classList.add("hidden");
     });
     document.addEventListener("contextmenu", (e) => {
       if (!this.tabContextMenu.contains(e.target as Node)) {
@@ -325,6 +352,9 @@ export class Editor {
 
     // Initially hide editor
     this.editorEl.style.display = "none";
+
+    // Render initial tab bar (shows + button even with no tabs)
+    this.renderTabs();
   }
 
   applySettings(settings: EditorSettings) {
@@ -406,6 +436,16 @@ export class Editor {
     const idx = this.tabs.findIndex((t) => t.path === path);
     if (idx === -1) return;
 
+    const tab = this.tabs[idx];
+    if (tab.kind === "web") {
+      const label = this.webTabLabels.get(path);
+      if (label) {
+        void invoke("close_web_window", { label });
+        this.webTabLabels.delete(path);
+        if (this.activeWebLabel === label) this.activeWebLabel = null;
+      }
+    }
+
     this.tabs.splice(idx, 1);
 
     if (this.activeTab === path) {
@@ -463,11 +503,41 @@ export class Editor {
   }
 
   private switchToTab(path: string) {
+    const prevWebLabel = this.activeWebLabel;
     this.activeTab = path;
     const tab = this.tabs.find((t) => t.path === path);
     if (!tab) return;
 
     this.emptyEl.style.display = "none";
+
+    if (tab.kind === "web") {
+      // Hide the ace editor, show the child webview instead
+      this.editorEl.style.display = "none";
+      this.activeWebLabel = this.webTabLabels.get(path) ?? null;
+      if (prevWebLabel && prevWebLabel !== this.activeWebLabel) {
+        void invoke("hide_web_window", { label: prevWebLabel });
+      }
+      if (this.activeWebLabel) {
+        const bounds = this.getEditorContainerBounds();
+        void invoke("open_web_window", {
+          url: tab.url!,
+          label: this.activeWebLabel,
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        });
+      }
+      this.renderTabs();
+      return;
+    }
+
+    // Hide any active web tab when switching to a file tab
+    if (prevWebLabel) {
+      void invoke("hide_web_window", { label: prevWebLabel });
+      this.activeWebLabel = null;
+    }
+
     this.editorEl.style.display = "block";
 
     // Expose current file path for completers (e.g. exports-tracker)
@@ -498,6 +568,29 @@ export class Editor {
     this.renderTabs();
     this.ace.focus();
     this.ace.resize();
+  }
+
+  private getEditorContainerBounds(): { x: number; y: number; width: number; height: number } {
+    const container = document.getElementById("editor-container") ?? this.editorEl.parentElement!;
+    const rect = container.getBoundingClientRect();
+    return {
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  private syncActiveWebTabBounds() {
+    if (!this.activeWebLabel) return;
+    const bounds = this.getEditorContainerBounds();
+    void invoke("resize_web_window", {
+      label: this.activeWebLabel,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    });
   }
 
   private expandEmmetAtCursor(): boolean {
@@ -641,6 +734,101 @@ export class Editor {
     toClose.forEach((t) => this.closeTab(t.path));
   }
 
+  openWebTab(url: string, title: string) {
+    const id = `web:${url}`;
+    const label = `web-${title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+    const existing = this.tabs.find((t) => t.path === id);
+    if (existing) {
+      this.switchToTab(id);
+      return;
+    }
+    const tab: OpenTab = { path: id, name: title, content: "", modified: false, pinned: false, kind: "web", url };
+    this.webTabLabels.set(id, label);
+    this.tabs.push(tab);
+    this.switchToTab(id);
+  }
+
+  private toggleWebPicker(e: MouseEvent) {
+    const btn = (e.currentTarget ?? e.target) as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+    const isHidden = this.webPickerDropdown.classList.contains("hidden");
+    this.webPickerDropdown.classList.toggle("hidden", !isHidden);
+    if (isHidden) {
+      this.webPickerDropdown.style.top = `${rect.bottom + 4}px`;
+      const left = Math.min(rect.left, window.innerWidth - 260);
+      this.webPickerDropdown.style.left = `${Math.max(4, left)}px`;
+    }
+  }
+
+  private buildWebPickerHTML(): string {
+    const presets = [
+      { label: "YouTube", url: "https://www.youtube.com", icon: "▶" },
+      { label: "YouTube Music", url: "https://music.youtube.com", icon: "♪" },
+      { label: "Spotify", url: "https://open.spotify.com", icon: "●" },
+      { label: "Apple Music", url: "https://music.apple.com", icon: "♫" },
+    ];
+
+    return `
+      <div class="web-picker-head">Open web tab</div>
+      <div class="web-picker-presets">
+        ${presets.map((p) => `
+          <button class="web-picker-preset" data-url="${p.url}" data-label="${p.label}">
+            <span class="web-picker-preset-icon">${p.icon}</span>
+            <span>${p.label}</span>
+          </button>
+        `).join("")}
+      </div>
+      <div class="web-picker-divider"></div>
+      <div class="web-picker-custom">
+        <input class="web-picker-input" type="url" placeholder="https://..." spellcheck="false" />
+        <button class="web-picker-go">Open</button>
+      </div>
+    `;
+  }
+
+  private setupWebPickerListeners() {
+    this.webPickerDropdown.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const preset = (e.target as HTMLElement).closest(".web-picker-preset") as HTMLElement | null;
+      if (preset) {
+        const url = preset.dataset.url!;
+        const label = preset.dataset.label!;
+        this.webPickerDropdown.classList.add("hidden");
+        this.openWebTab(url, label);
+        return;
+      }
+      const goBtn = (e.target as HTMLElement).closest(".web-picker-go");
+      if (goBtn) {
+        const input = this.webPickerDropdown.querySelector(".web-picker-input") as HTMLInputElement;
+        let url = input.value.trim();
+        if (!url) return;
+        if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+        const label = new URL(url).hostname.replace(/^www\./, "");
+        this.webPickerDropdown.classList.add("hidden");
+        input.value = "";
+        this.openWebTab(url, label);
+      }
+    });
+
+    this.webPickerDropdown.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const input = this.webPickerDropdown.querySelector(".web-picker-input") as HTMLInputElement;
+        if (document.activeElement === input) {
+          let url = input.value.trim();
+          if (!url) return;
+          if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+          const label = new URL(url).hostname.replace(/^www\./, "");
+          this.webPickerDropdown.classList.add("hidden");
+          input.value = "";
+          this.openWebTab(url, label);
+        }
+      }
+      if (e.key === "Escape") {
+        this.webPickerDropdown.classList.add("hidden");
+      }
+    });
+  }
+
   private showTabContextMenu(e: MouseEvent, path: string) {
     const tab = this.tabs.find((t) => t.path === path)!;
     this.tabContextMenu.innerHTML = "";
@@ -686,17 +874,25 @@ export class Editor {
   }
 
   private renderTabs() {
-    this.tabsContainer.innerHTML = this.tabs
+    const tabsHTML = this.tabs
       .map(
         (tab) => `
-      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}" data-path="${this.escapeAttr(tab.path)}">
+      <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${tab.kind === "web" ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}">
         ${tab.pinned ? `<span class="editor-tab-pin">&#x2605;</span>` : ""}
+        ${tab.kind === "web" ? `<span class="editor-tab-web-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg></span>` : ""}
         <span>${this.escapeHtml(tab.name)}${tab.modified ? " \u2022" : ""}</span>
         <button class="editor-tab-close" data-close="${this.escapeAttr(tab.path)}">\u00D7</button>
       </div>
     `
       )
       .join("");
+
+    const addWebBtn = `<button class="editor-tab-add-web" id="btn-add-web-tab" title="Open web tab">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg>
+      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" style="margin-left:1px"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
+    </button>`;
+
+    this.tabsContainer.innerHTML = tabsHTML + addWebBtn;
 
     this.tabsContainer.querySelectorAll(".editor-tab").forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -721,6 +917,12 @@ export class Editor {
         const path = (btn as HTMLElement).dataset.close!;
         this.closeTab(path);
       });
+    });
+
+    const addWebBtnEl = this.tabsContainer.querySelector("#btn-add-web-tab");
+    addWebBtnEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleWebPicker(e as MouseEvent);
     });
   }
 

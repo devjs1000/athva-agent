@@ -41,5 +41,10 @@ commands.allow = [
   "memory_list",
   "memory_delete",
   "memory_clear",
-  "memory_stats"
+  "memory_stats",
+  "open_web_window",
+  "focus_web_window",
+  "close_web_window",
+  "hide_web_window",
+  "resize_web_window"
 ]

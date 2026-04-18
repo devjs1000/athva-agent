@@ -259,8 +259,10 @@ export class QualityPanel {
 
     try {
       const loaded_config = await this.load_config(project_path);
-      this.current_config = merge_quality_config(loaded_config?.config);
-      this.current_config_path = loaded_config?.path ?? PRIMARY_CONFIG_PATH;
+      if (loaded_config) {
+        this.current_config = merge_quality_config(loaded_config.config);
+        this.current_config_path = loaded_config.path;
+      }
       const input = await this.collect_analysis_input(project_path, this.current_config);
       const report = await analyze_with_worker(input);
       if (run_id !== this.run_id) return;

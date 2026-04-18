@@ -57,6 +57,9 @@
     "fs:allow-read",
     "fs:allow-write",
     "fs:allow-exists",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
     {
       "identifier": "fs:scope",
       "allow": [

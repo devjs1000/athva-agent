@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{WebviewUrl, WebviewBuilder, Manager, LogicalPosition, LogicalSize, Rect};
 
 // ── Project management ──
 
@@ -770,6 +770,96 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
     fs::write(&path, settings).map_err(|e| e.to_string())
 }
 
+// ── Embedded web tab (child webview inside main window) ──
+
+const WEB_TAB_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+#[tauri::command]
+fn open_web_window(
+    app: tauri::AppHandle,
+    url: String,
+    label: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let parsed = WebviewUrl::External(
+        url.parse().unwrap_or_else(|_| "https://example.com".parse().unwrap()),
+    );
+
+    // If already open, just show + reposition it
+    if let Some(existing) = app.get_webview(&label) {
+        existing.show().map_err(|e| e.to_string())?;
+        existing
+            .set_bounds(Rect {
+                position: LogicalPosition::new(x, y).into(),
+                size: LogicalSize::new(width, height).into(),
+            })
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let main_window = app.get_window("main").ok_or("main window not found")?;
+
+    let builder = WebviewBuilder::new(&label, parsed)
+        .user_agent(WEB_TAB_USER_AGENT)
+        .auto_resize();
+
+    main_window
+        .add_child(
+            builder,
+            LogicalPosition::new(x, y),
+            LogicalSize::new(width, height),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn focus_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label) {
+        wv.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn close_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label) {
+        wv.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label) {
+        wv.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn resize_web_window(
+    app: tauri::AppHandle,
+    label: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label) {
+        wv.set_bounds(Rect {
+            position: LogicalPosition::new(x, y).into(),
+            size: LogicalSize::new(width, height).into(),
+        })
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // ── App entry ──
 
 // ── Agent Memory ──
@@ -1058,6 +1148,11 @@ pub fn run() {
             memory_delete,
             memory_clear,
             memory_stats,
+            open_web_window,
+            focus_web_window,
+            close_web_window,
+            hide_web_window,
+            resize_web_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
