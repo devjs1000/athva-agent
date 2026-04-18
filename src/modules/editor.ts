@@ -202,10 +202,19 @@ export class Editor {
       },
     });
 
-    // Auto-trigger after '.' or '[' for member/property completions
+    // Auto-trigger after '.', '[' or quotes for member/property completions
     this.ace.commands.on("afterExec", (e: any) => {
-      if (e.command.name === "insertstring" && (e.args === "." || e.args === "[")) {
+      if (e.command.name !== "insertstring") return;
+      if (e.args === "." || e.args === "[") {
         this.customAutocomplete.trigger();
+        return;
+      }
+      if (e.args === "\"" || e.args === "'") {
+        const pos = this.ace.getCursorPosition();
+        const lineUpToCursor = this.ace.session.getLine(pos.row).slice(0, pos.column);
+        if (/(?:[A-Za-z_$][\w$]*|\])\[['"]$/.test(lineUpToCursor)) {
+          this.customAutocomplete.trigger();
+        }
       }
     });
 

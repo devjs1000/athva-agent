@@ -9,6 +9,7 @@ type CompletionItem = {
   snippet?: string;
   meta?: string;
   score?: number;
+  completer?: ace.Ace.Completer;
   _athvaMemberCompletion?: boolean;
 };
 
@@ -48,8 +49,8 @@ function getInsertLabel(item: CompletionItem): string {
 function isMemberAccessContext(editor: AceEditor): boolean {
   const pos = editor.getCursorPosition();
   const lineUpToCursor = editor.session.getLine(pos.row).slice(0, pos.column);
-  return /[A-Za-z_$][\w$.]*\.[\w$]*$/.test(lineUpToCursor)
-    || /[A-Za-z_$][\w$]*\[["'][\w$]*$/.test(lineUpToCursor);
+  return /(?:[A-Za-z_$][\w$]*|\][\w$]*)\.[\w$]*$/.test(lineUpToCursor)
+    || /(?:[A-Za-z_$][\w$]*|\])\[["'][\w$]*$/.test(lineUpToCursor);
 }
 
 function isMemberCompletion(item: CompletionItem): boolean {
@@ -136,12 +137,14 @@ export class CustomAutocomplete {
   }
 
   acceptSelected(): boolean {
-    if (!this.open || !this.provider) return false;
+    if (!this.open) return false;
     const item = this.items[this.selectedIndex];
     if (!item) return false;
-    const accepted = this.provider.insertMatch(this.editor, item);
+    const accepted = this.provider
+      ? this.provider.insertMatch(this.editor, item)
+      : item.completer?.insertMatch?.(this.editor, item as ace.Ace.Completion);
     this.hide();
-    return accepted;
+    return accepted !== false;
   }
 
   moveSelection(delta: number): boolean {
@@ -260,6 +263,14 @@ export class CustomAutocomplete {
 
     const pos = this.editor.getCursorPosition();
     this.provider?.detach();
+    if (isMemberAccessContext(this.editor)) {
+      this.provider = null;
+      this.currentPrefix = prefix;
+      const requestId = ++this.requestId;
+      void this.updateMemberCompletions(prefix, requestId);
+      return;
+    }
+
     const provider = new CompletionProvider({ prefix, pos });
     this.provider = provider;
     this.currentPrefix = prefix;
@@ -306,6 +317,67 @@ export class CustomAutocomplete {
     if (items.length !== 1) return false;
     const onlyItem = items[0];
     return onlyItem.value === prefix && !onlyItem.snippet;
+  }
+
+  private async updateMemberCompletions(prefix: string, requestId: number) {
+    const items = await this.collectMemberCompletions(prefix);
+    if (requestId !== this.requestId) return;
+
+    const nextItems = this.uniqueItems(items)
+      .filter((item) => !!getInsertLabel(item) && isMemberCompletion(item))
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+    if (!nextItems.length) {
+      this.hide();
+      return;
+    }
+
+    this.currentPrefix = getCompletionPrefix(this.editor);
+    this.items = nextItems.slice(0, 12);
+    this.selectedIndex = this.getPreferredIndex();
+    this.open = true;
+    this.render();
+    this.reposition();
+  }
+
+  private async collectMemberCompletions(prefix: string): Promise<CompletionItem[]> {
+    const pos = this.editor.getCursorPosition();
+    const session = this.editor.session;
+    const completers = (this.editor.completers || []).filter((completer) => !!completer.getCompletions);
+
+    const groups = await Promise.all(
+      completers.map((completer) =>
+        new Promise<CompletionItem[]>((resolve) => {
+          try {
+            completer.getCompletions(
+              this.editor,
+              session,
+              pos,
+              prefix,
+              (_err: unknown, results: CompletionItem[] = []) => {
+                resolve(results.map((item) => ({ ...item, completer: item.completer || completer })));
+              }
+            );
+          } catch {
+            resolve([]);
+          }
+        })
+      )
+    );
+
+    return groups.flat();
+  }
+
+  private uniqueItems(items: CompletionItem[]): CompletionItem[] {
+    const seen = new Set<string>();
+    const out: CompletionItem[] = [];
+    for (const item of items) {
+      const key = `${getInsertLabel(item)}:${item.meta ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+    return out;
   }
 
   private getPreferredIndex(): number {

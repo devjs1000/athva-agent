@@ -425,21 +425,31 @@ function extractNestedMember(chain: string[], content: string): string[] {
   const members: string[] = [];
   for (const line of body.split("\n")) {
     const stripped = line.replace(/\/\/.*$/, "").trim();
-    const m = stripped.match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*[:(]/);
+    const m = stripped.match(/^(?:["']?([A-Za-z_$][A-Za-z0-9_$]*)["']?)\s*[:(]/);
     if (m) members.push(m[1]);
   }
   return [...new Set(members)];
 }
 
 function parseMemberAccessContext(lineUpToCursor: string, prefix: string) {
-  const dotMatch = lineUpToCursor.match(/([A-Za-z_$][\w$.]*)\.([\w$]*)$/);
-  const bracketMatch = lineUpToCursor.match(/([A-Za-z_$][\w$]*)\[["']([\w$]*)$/);
-  const hit = dotMatch ?? bracketMatch;
+  const hit = lineUpToCursor.match(
+    /([A-Za-z_$][\w$]*(?:(?:\.[A-Za-z_$][\w$]*)|(?:\[['"][A-Za-z_$][\w$]*['"]\]))*)(?:\.([\w$]*)|\[(["'])([\w$]*)$)$/
+  );
   if (!hit) return null;
+
+  const receiver = hit[1];
+  const chain = [receiver.match(/^[A-Za-z_$][\w$]*/)?.[0] ?? ""];
+  const propRe = /(?:\.([A-Za-z_$][\w$]*))|(?:\[['"]([A-Za-z_$][\w$]*)['"]\])/g;
+  let propMatch: RegExpExecArray | null;
+  while ((propMatch = propRe.exec(receiver)) !== null) {
+    chain.push(propMatch[1] ?? propMatch[2]);
+  }
+
   return {
-    bracket: !!bracketMatch,
-    chain: hit[1].split("."),
-    memberPrefix: (hit[2] ?? prefix).toLowerCase(),
+    bracket: hit[4] !== undefined,
+    bracketQuote: hit[3] ?? "\"",
+    chain: chain.filter(Boolean),
+    memberPrefix: (hit[2] ?? hit[4] ?? prefix).toLowerCase(),
   };
 }
 
@@ -1366,7 +1376,8 @@ export class ExportsTracker {
           pos.row,
           pos.column,
           context.memberPrefix,
-          context.bracket
+          context.bracket,
+          context.bracketQuote
         );
 
         void tsCompletionPromise
@@ -1380,7 +1391,8 @@ export class ExportsTracker {
               session.getValue(),
               context.chain,
               context.memberPrefix,
-              context.bracket
+              context.bracket,
+              context.bracketQuote
             );
             callback(null, fallbackResults);
           })
@@ -1389,7 +1401,8 @@ export class ExportsTracker {
               session.getValue(),
               context.chain,
               context.memberPrefix,
-              context.bracket
+              context.bracket,
+              context.bracketQuote
             );
             callback(null, fallbackResults);
           });
@@ -1419,7 +1432,8 @@ export class ExportsTracker {
     row: number,
     column: number,
     memberPrefix: string,
-    bracket: boolean
+    bracket: boolean,
+    bracketQuote: string
   ): Promise<any[]> {
     const normalizedFilePath = normalizePath(filePath);
     if (!isSupportedSourceFile(normalizedFilePath) || !this.projectPath) return [];
@@ -1458,7 +1472,7 @@ export class ExportsTracker {
       const displayText = details?.displayParts ? ts.displayPartsToString(details.displayParts) : "";
       return {
         caption: entry.name,
-        value: bracket ? `${entry.name}"` : entry.name,
+        value: bracket ? `${entry.name}${bracketQuote}]` : entry.name,
         meta: displayText ? compactCompletionMeta(entry.kind, displayText) : entry.kind,
         score: 2200,
         _athvaMemberCompletion: true,
@@ -1470,7 +1484,8 @@ export class ExportsTracker {
     content: string,
     chain: string[],
     memberPrefix: string,
-    bracket: boolean
+    bracket: boolean,
+    bracketQuote: string
   ): any[] {
     const members = chain.length === 1
       ? extractMembersOf(chain[0], content)
@@ -1482,7 +1497,7 @@ export class ExportsTracker {
       .filter((m: string) => m.toLowerCase().startsWith(memberPrefix))
       .map((m: string) => ({
         caption: m,
-        value: bracket ? `${m}"` : m,
+        value: bracket ? `${m}${bracketQuote}]` : m,
         meta: rootName,
         score: 1100,
         _athvaMemberCompletion: true,

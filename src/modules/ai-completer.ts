@@ -13,6 +13,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let currentRequestId = 0;
 let ghostText = "";
 let suggestBtn: HTMLButtonElement | null = null;
+let suggestAnchor: { row: number; column: number } | null = null;
 let ghostEl: HTMLElement | null = null;
 let actionMenu: HTMLElement | null = null;
 let isLoading = false;
@@ -61,6 +62,10 @@ export function attachAICompleter(editor: any) {
   suggestBtn = document.createElement("button");
   suggestBtn.className = "ai-suggest-btn hidden";
   suggestBtn.textContent = "✨ Suggest";
+  suggestBtn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
   suggestBtn.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -166,7 +171,7 @@ export function attachAICompleter(editor: any) {
     clearGhost();
     hideActionMenu();
     if (!enabled) return;
-    scheduleSuggestBtn();
+    scheduleSuggestBtnAtCursor();
     if (editor.getValue().trim() === "") {
       showFloatingTextarea();
     }
@@ -174,6 +179,7 @@ export function attachAICompleter(editor: any) {
 
   // On selection change: show/hide action menu
   editor.selection.on("changeSelection", () => {
+    cancelSuggestIfCursorMoved();
     clearGhost();
     if (!enabled) return;
     const selectedText = editor.getSelectedText();
@@ -186,11 +192,20 @@ export function attachAICompleter(editor: any) {
 
   // Cursor move without selection: hide ghost + action menu
   editor.selection.on("changeCursor", () => {
+    cancelSuggestIfCursorMoved();
     clearGhost();
     const selectedText = editor.getSelectedText();
     if (!selectedText || !selectedText.trim()) {
       hideActionMenu();
     }
+  });
+
+  editor.session.on("changeScrollTop", repositionSuggestBtn);
+  editor.session.on("changeScrollLeft", repositionSuggestBtn);
+  editor.renderer.on("resize", repositionSuggestBtn);
+  editor.on("blur", () => {
+    if (document.activeElement === suggestBtn) return;
+    hideSuggestBtn();
   });
 
   // Tab to accept ghost text
@@ -209,35 +224,62 @@ export function attachAICompleter(editor: any) {
         clearGhost();
       }
     }
-    // Any typing hides the suggest button
+    // Change events own the next debounce; keydown should only hide the current UI.
     if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
-      hideSuggestBtn();
+      suggestBtn?.classList.add("hidden");
     }
   }, true);
 }
 
 // ── Suggest Button ──
 
-function scheduleSuggestBtn() {
+function samePoint(a: { row: number; column: number } | null, b: { row: number; column: number }) {
+  return !!a && a.row === b.row && a.column === b.column;
+}
+
+function scheduleSuggestBtnAtCursor() {
+  if (!activeEditor) return;
+  suggestAnchor = { ...activeEditor.getCursorPosition() };
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     if (!enabled || !activeEditor) return;
     const settings = getAISettings();
     if (!settings.apiKey) return;
+    if (!samePoint(suggestAnchor, activeEditor.getCursorPosition())) {
+      hideSuggestBtn();
+      return;
+    }
     showSuggestBtn();
   }, DEBOUNCE_MS);
 }
 
+function cancelSuggestIfCursorMoved() {
+  if (!activeEditor || !suggestAnchor) return;
+  if (samePoint(suggestAnchor, activeEditor.getCursorPosition())) return;
+  hideSuggestBtn();
+}
+
+function repositionSuggestBtn() {
+  if (!suggestBtn || suggestBtn.classList.contains("hidden")) return;
+  showSuggestBtn();
+}
+
 function showSuggestBtn() {
   if (!suggestBtn || !activeEditor || isLoading) return;
+  if (!suggestAnchor) return;
+
+  const cursor = activeEditor.getCursorPosition();
+  if (!samePoint(suggestAnchor, cursor)) {
+    hideSuggestBtn();
+    return;
+  }
 
   // Don't show if editor is empty or has no meaningful content
   const content = activeEditor.getValue().trim();
   if (!content) return;
 
-  const pos = activeEditor.getCursorPosition();
   const renderer = activeEditor.renderer;
-  const coords = renderer.textToScreenCoordinates(pos.row, pos.column);
+  const coords = renderer.textToScreenCoordinates(suggestAnchor.row, suggestAnchor.column);
   const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
 
   const x = coords.pageX - editorRect.left + 8;
@@ -262,6 +304,8 @@ function hideFloatingTextarea() {
 
 function hideSuggestBtn() {
   if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = null;
+  suggestAnchor = null;
   suggestBtn?.classList.add("hidden");
 }
 
@@ -276,8 +320,8 @@ function showActionMenu() {
   const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
   actionMenu.classList.remove("hidden");
 
-  const menuWidth = actionMenu.offsetWidth || 520;
-  const menuHeight = actionMenu.offsetHeight || 40;
+  const menuWidth = actionMenu.offsetWidth || 176;
+  const menuHeight = actionMenu.offsetHeight || 320;
   const anchorX = coords.pageX - editorRect.left + 8;
   const anchorY = coords.pageY - editorRect.top + renderer.lineHeight + 4;
   const maxLeft = Math.max(8, editorRect.width - menuWidth - 8);
