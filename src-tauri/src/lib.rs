@@ -510,6 +510,19 @@ fn run_git(dir: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
+fn run_git_bytes(dir: &str, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 #[tauri::command]
 fn git_status(path: String) -> GitStatus {
     // Check if it's a git repo
@@ -608,30 +621,33 @@ pub struct GitFileChange {
 
 #[tauri::command]
 fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
-    let output = run_git(&path, &["status", "--porcelain=v1", "-uall"])?;
+    let output = run_git_bytes(&path, &["status", "--porcelain=v1", "-z", "-uall"])?;
     let mut files: Vec<GitFileChange> = Vec::new();
+    let mut entries = output
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty());
 
-    for line in output.lines() {
-        if line.len() < 4 {
+    while let Some(entry) = entries.next() {
+        if entry.len() < 4 {
             continue;
         }
-        let index_status = line.chars().nth(0).unwrap_or(' ');
-        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let index_status = entry[0] as char;
+        let worktree_status = entry[1] as char;
 
         // Skip ignored files (!!)
         if index_status == '!' && worktree_status == '!' {
             continue;
         }
 
-        let file_path = line[3..].to_string();
-        // Handle renames: "old -> new" — take the new name
-        let raw_path = if file_path.contains(" -> ") {
-            file_path.split(" -> ").last().unwrap_or(&file_path).to_string()
+        let current_path = String::from_utf8_lossy(&entry[3..]).to_string();
+        // In porcelain -z, rename/copy records are followed by the original path.
+        let display_path = if index_status == 'R' || index_status == 'C' {
+            let _old_path = entries.next();
+            current_path
         } else {
-            file_path.clone()
+            current_path
         };
-        // Trim stray whitespace / control chars that can shift display
-        let display_path = raw_path.trim().to_string();
+
         if display_path.is_empty() {
             continue;
         }

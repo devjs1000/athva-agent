@@ -1482,13 +1482,12 @@ body {
   border: none;
   border-bottom: 1px solid rgba(255,255,255,0.06);
   outline: none;
-  resize: none;
+  resize: vertical;
   font-size: 13.5px;
   font-family: inherit;
   color: var(--text-primary);
   padding: 16px 18px 14px;
-  min-height: 90px;
-  max-height: 200px;
+  min-height: 160px;
   line-height: 1.6;
   box-sizing: border-box;
 }

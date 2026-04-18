@@ -36,6 +36,7 @@ export class SourceControl {
   private projectPath = "";
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private isBusy = false;
+  private refreshRequestId = 0;
   private onResize: () => void;
   private getAISettings: () => AISettings;
 
@@ -117,9 +118,11 @@ export class SourceControl {
 
   async refresh() {
     if (!this.projectPath) return;
+    const requestId = ++this.refreshRequestId;
 
     try {
       const files = await invoke<GitFileChange[]>("git_changed_files", { path: this.projectPath });
+      if (requestId !== this.refreshRequestId) return;
 
       const staged = files.filter((f) => f.staged);
       const unstaged = files.filter((f) => !f.staged);
@@ -141,6 +144,7 @@ export class SourceControl {
         badge.classList.toggle("hidden", total === 0);
       }
     } catch {
+      if (requestId !== this.refreshRequestId) return;
       // Not a git repo or error
       this.stagedListEl.innerHTML = "";
       this.changesListEl.innerHTML = "";

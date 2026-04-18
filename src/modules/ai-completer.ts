@@ -22,6 +22,7 @@ let floatingTextarea: HTMLTextAreaElement | null = null;
 let floatingTextareaBtn: HTMLButtonElement | null = null;
 
 const DEBOUNCE_MS = 2500;
+const ANTHROPIC_COMPLETION_MAX_TOKENS = 8192;
 
 const SELECTION_ACTIONS = [
   { label: "🔧 Fix", action: "fix", prompt: "Fix any bugs, errors, or issues in the following code. Return ONLY the corrected raw code, no explanation, no markdown fences, no backticks." },
@@ -621,9 +622,9 @@ Language: ${lang}
 File: ${fileName}
 
 === CODE BEFORE CURSOR ===
-${prefix.slice(-1000)}
+${prefix}
 === CURSOR IS HERE ===
-${suffix.slice(0, 300)}
+${suffix}
 === END ===
 
 Code to insert at cursor:`;
@@ -651,7 +652,7 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
         const res = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_tokens: 100, temperature: 0 }),
+          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0 }),
         });
         if (!res.ok) return "";
         data = await res.json();
@@ -662,7 +663,7 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": settings.apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-          body: JSON.stringify({ model, max_tokens: 100, messages: [{ role: "user", content: prompt }] }),
+          body: JSON.stringify({ model, max_tokens: ANTHROPIC_COMPLETION_MAX_TOKENS, messages: [{ role: "user", content: prompt }] }),
         });
         if (!res.ok) return "";
         data = await res.json();
@@ -673,7 +674,7 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.apiKey}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 100, temperature: 0 } }),
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0 } }),
         });
         if (!res.ok) return "";
         data = await res.json();
@@ -684,7 +685,7 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
         const res = await fetch("https://api.xiaomimimo.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", "api-key": settings.apiKey },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_completion_tokens: 100, temperature: 0 }),
+          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0 }),
         });
         if (!res.ok) return "";
         data = await res.json();
@@ -695,7 +696,7 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
         const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_tokens: 100, temperature: 0 }),
+          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0 }),
         });
         if (!res.ok) return "";
         data = await res.json();
