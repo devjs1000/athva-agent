@@ -146,11 +146,12 @@ This file is the reusable code registry for the current implementation. Entries 
   - `src/modules/quality-panel.ts`
   - `src/modules/quality-panel.worker.ts`
   - `cli/quality-panel.ts`
-- responsibility: static JS/TS project analysis for naming, imports, complexity, code quality, type safety, architecture, dependencies, and security; shared by the workspace panel and CLI report generator
+- responsibility: static JS/TS project analysis for naming, imports, complexity, code quality, type safety, architecture, dependencies, and security; shared by the workspace panel and CLI report generator, with guided per-category naming config and report-section navigation
 - reuse_when:
   - generating structured code health reports
   - adding new static-analysis rules or section plugins
   - exporting quality reports for CI or local inspection
+  - guiding teams through project-specific quality baselines without hand-editing JSON
 - last_analyzed_at: 2026-04-18T09:30:22Z
 
 ## Update Rule

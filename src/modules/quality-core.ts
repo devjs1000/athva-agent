@@ -12,6 +12,11 @@ export type NamingConventionKey =
 
 export interface QualityPanelConfig {
   namingConvention?: Exclude<NamingConventionKey, "UPPER_CASE" | "unknown">;
+  fileNamingConvention?: Exclude<NamingConventionKey, "unknown">;
+  functionNamingConvention?: Exclude<NamingConventionKey, "unknown">;
+  variableNamingConvention?: Exclude<NamingConventionKey, "unknown">;
+  classNamingConvention?: Exclude<NamingConventionKey, "unknown">;
+  constantNamingConvention?: Exclude<NamingConventionKey, "unknown">;
   complexityThreshold?: number;
   maxFunctionLength?: number;
   ignorePaths?: string[];
@@ -273,6 +278,11 @@ interface AnalysisContext {
 
 const DEFAULT_CONFIG: Required<QualityPanelConfig> = {
   namingConvention: "camelCase",
+  fileNamingConvention: "kebab-case",
+  functionNamingConvention: "camelCase",
+  variableNamingConvention: "camelCase",
+  classNamingConvention: "PascalCase",
+  constantNamingConvention: "UPPER_CASE",
   complexityThreshold: 10,
   maxFunctionLength: 50,
   ignorePaths: ["node_modules", "dist", "dist-cli", "build", "coverage", "target", ".next", "out"],
@@ -343,8 +353,14 @@ const LAYER_ORDER: Record<string, number> = {
 export function merge_quality_config(
   config: QualityPanelConfig | undefined
 ): Required<QualityPanelConfig> {
+  const baseNaming = config?.namingConvention ?? DEFAULT_CONFIG.namingConvention;
   return {
-    namingConvention: config?.namingConvention ?? DEFAULT_CONFIG.namingConvention,
+    namingConvention: baseNaming,
+    fileNamingConvention: config?.fileNamingConvention ?? DEFAULT_CONFIG.fileNamingConvention,
+    functionNamingConvention: config?.functionNamingConvention ?? baseNaming,
+    variableNamingConvention: config?.variableNamingConvention ?? baseNaming,
+    classNamingConvention: config?.classNamingConvention ?? DEFAULT_CONFIG.classNamingConvention,
+    constantNamingConvention: config?.constantNamingConvention ?? DEFAULT_CONFIG.constantNamingConvention,
     complexityThreshold: config?.complexityThreshold ?? DEFAULT_CONFIG.complexityThreshold,
     maxFunctionLength: config?.maxFunctionLength ?? DEFAULT_CONFIG.maxFunctionLength,
     ignorePaths: unique_strings([
@@ -395,7 +411,7 @@ export function analyze_quality_project(
   normalizedFiles.forEach((file) => fileMap.set(file.relativePath, file));
 
   const parsedFiles = normalizedFiles.map((file) =>
-    parse_quality_file(file, fileMap, config.namingConvention)
+    parse_quality_file(file, fileMap, config)
   );
   const graph = build_dependency_graph(parsedFiles);
   const fanInMap = build_fan_in_map(graph);
@@ -462,7 +478,7 @@ export function default_quality_plugins(): QualityRulePlugin[] {
 function parse_quality_file(
   file: QualitySourceFile,
   fileMap: Map<string, QualitySourceFile>,
-  expectedNaming: Required<QualityPanelConfig>["namingConvention"]
+  config: Required<QualityPanelConfig>
 ): ParsedFileData {
   const scriptKind = detect_script_kind(file.relativePath);
   const sourceFile = ts.createSourceFile(
@@ -667,7 +683,7 @@ function parse_quality_file(
     variablePatterns,
     classPatterns,
     constantPatterns,
-    expectedNaming
+    config
   );
 
   return {
@@ -714,13 +730,18 @@ function analyze_naming_section(context: AnalysisContext): NamingSection {
     violations.push(...file.namingViolations);
   });
 
-  const totalNames =
-    total_counts(filePatterns) +
-    total_counts(functionPatterns) +
-    total_counts(variablePatterns) +
-    total_counts(classPatterns) +
-    total_counts(constantPatterns);
-  const score = clamp_to_score(100 - calculate_density_penalty(violations.length, totalNames, 120));
+  const fileScore = calculate_convention_score(context.files.map((file) => file.fileConvention), context.config.fileNamingConvention);
+  const functionScore = calculate_convention_score(context.files.flatMap((file) => file.functionPatterns), context.config.functionNamingConvention);
+  const variableScore = calculate_convention_score(context.files.flatMap((file) => file.variablePatterns), context.config.variableNamingConvention);
+  const classScore = calculate_convention_score(context.files.flatMap((file) => file.classPatterns), context.config.classNamingConvention);
+  const constantScore = calculate_convention_score(context.files.flatMap((file) => file.constantPatterns), context.config.constantNamingConvention);
+  const score = clamp_to_score(
+    fileScore * 0.2 +
+    functionScore * 0.3 +
+    variableScore * 0.2 +
+    classScore * 0.15 +
+    constantScore * 0.15
+  );
 
   return {
     score,
@@ -733,7 +754,7 @@ function analyze_naming_section(context: AnalysisContext): NamingSection {
     dominantConvention:
       get_dominant_convention(functionPatterns) ||
       get_dominant_convention(variablePatterns) ||
-      context.config.namingConvention,
+      context.config.functionNamingConvention,
     violations,
   };
 }
@@ -908,7 +929,9 @@ function analyze_complexity_section(context: AnalysisContext): ComplexitySection
       highComplexityFunctions.length * 6 -
       oversizedFunctions.length * 3 -
       Math.max(0, largeFiles.length * 3) -
-      Math.max(0, averageCyclomaticComplexity - 4) * 2
+      Math.max(0, averageCyclomaticComplexity - 4) * 2 -
+      calculate_threshold_pressure(functionMetrics.map((metric) => metric.complexity), context.config.complexityThreshold, 22) -
+      calculate_threshold_pressure(functionMetrics.map((metric) => metric.length), context.config.maxFunctionLength, 16)
   );
 
   return {
@@ -1442,56 +1465,56 @@ function collect_naming_violations(
   variablePatterns: NamingConventionKey[],
   classPatterns: NamingConventionKey[],
   constantPatterns: NamingConventionKey[],
-  expectedNaming: Required<QualityPanelConfig>["namingConvention"]
+  config: Required<QualityPanelConfig>
 ): QualityViolation[] {
   const violations: QualityViolation[] = [];
-  if (fileConvention !== "unknown" && fileConvention !== "kebab-case") {
+  if (fileConvention !== "unknown" && fileConvention !== config.fileNamingConvention) {
     violations.push({
       type: "naming",
       severity: "low",
       file: relativePath,
       line: 1,
-      message: "File name does not follow the expected kebab-case convention.",
+      message: `File name does not follow the expected ${config.fileNamingConvention} convention.`,
     });
   }
 
-  if (functionPatterns.some((pattern) => pattern !== "unknown" && pattern !== expectedNaming)) {
+  if (functionPatterns.some((pattern) => pattern !== "unknown" && pattern !== config.functionNamingConvention)) {
     violations.push({
       type: "naming",
       severity: "low",
       file: relativePath,
       line: 1,
-      message: `Function naming is inconsistent with the expected ${expectedNaming} convention.`,
+      message: `Function naming is inconsistent with the expected ${config.functionNamingConvention} convention.`,
     });
   }
 
-  if (variablePatterns.some((pattern) => pattern !== "unknown" && pattern !== expectedNaming)) {
+  if (variablePatterns.some((pattern) => pattern !== "unknown" && pattern !== config.variableNamingConvention)) {
     violations.push({
       type: "naming",
       severity: "low",
       file: relativePath,
       line: 1,
-      message: `Variable naming is inconsistent with the expected ${expectedNaming} convention.`,
+      message: `Variable naming is inconsistent with the expected ${config.variableNamingConvention} convention.`,
     });
   }
 
-  if (classPatterns.some((pattern) => pattern !== "unknown" && pattern !== "PascalCase")) {
+  if (classPatterns.some((pattern) => pattern !== "unknown" && pattern !== config.classNamingConvention)) {
     violations.push({
       type: "naming",
       severity: "low",
       file: relativePath,
       line: get_line_number(sourceFile, sourceFile),
-      message: "Class naming should use PascalCase.",
+      message: `Class naming is inconsistent with the expected ${config.classNamingConvention} convention.`,
     });
   }
 
-  if (constantPatterns.some((pattern) => pattern !== "unknown" && pattern !== "UPPER_CASE")) {
+  if (constantPatterns.some((pattern) => pattern !== "unknown" && pattern !== config.constantNamingConvention)) {
     violations.push({
       type: "naming",
       severity: "low",
       file: relativePath,
       line: 1,
-      message: "Constant naming should use UPPER_CASE for exported or stable constants.",
+      message: `Constant naming is inconsistent with the expected ${config.constantNamingConvention} convention.`,
     });
   }
 
@@ -1856,7 +1879,7 @@ function calculate_overall_score(sections: QualitySections): number {
       score += (sections[key].score * weight) / 100;
     }
   );
-  return clamp_to_score(round_number(score));
+  return clamp_to_score(score);
 }
 
 function determine_risk_level(score: number, violations: QualityViolation[]): QualityRiskLevel {
@@ -2117,6 +2140,27 @@ function detect_naming_convention(name: string): NamingConventionKey {
   return "unknown";
 }
 
+function calculate_convention_score(
+  patterns: NamingConventionKey[],
+  expectedConvention: Exclude<NamingConventionKey, "unknown">
+): number {
+  const knownPatterns = patterns.filter((pattern) => pattern !== "unknown");
+  if (knownPatterns.length === 0) return 100;
+  const matchingCount = knownPatterns.filter((pattern) => pattern === expectedConvention).length;
+  return round_number((matchingCount / knownPatterns.length) * 100);
+}
+
+function calculate_threshold_pressure(values: number[], threshold: number, maxPenalty: number): number {
+  if (values.length === 0 || threshold <= 0) return 0;
+  const normalizedPressure = average(
+    values.map((value) => {
+      const ratio = value / threshold;
+      return Math.max(0, ratio - 0.55);
+    })
+  );
+  return Math.min(maxPenalty, normalizedPressure * maxPenalty);
+}
+
 function count_conventions(patterns: NamingConventionKey[]): Record<string, number> {
   const counts = Object.fromEntries(CONVENTION_ORDER.map((name) => [name, 0]));
   patterns.forEach((pattern) => {
@@ -2232,10 +2276,6 @@ function strip_extension(name: string): string {
 
 function unique_strings(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function total_counts(record: Record<string, number>): number {
-  return Object.values(record).reduce((sum, value) => sum + value, 0);
 }
 
 function average(values: number[]): number {

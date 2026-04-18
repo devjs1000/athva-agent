@@ -1,0 +1,1174 @@
+{
+  "exports": [
+    {
+      "name": "Dirent",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "readdir",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "readFile",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "writeFile",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "resolve",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "join",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "relative",
+      "file": "cli/types/node-lite.d.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "merge_quality_config",
+      "file": "dist-cli/src/modules/quality-core.js",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "should_include_quality_file",
+      "file": "dist-cli/src/modules/quality-core.js",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "analyze_quality_project",
+      "file": "dist-cli/src/modules/quality-core.js",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "default_quality_plugins",
+      "file": "dist-cli/src/modules/quality-core.js",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "APP_CONFIG",
+      "file": "src/config/app.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "STORAGE_KEYS",
+      "file": "src/config/app.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "PATHS",
+      "file": "src/config/app.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "CHAT_SYSTEM_PROMPT",
+      "file": "src/config/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "MAX_PROJECT_CONTEXT_CHARS",
+      "file": "src/config/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "MAX_COMPACTED_SUMMARY_CHARS",
+      "file": "src/config/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AGENT_COMPACT_THRESHOLD_TOKENS",
+      "file": "src/config/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AGENT_KEEP_RECENT_MESSAGES",
+      "file": "src/config/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AGENT_TOOLS",
+      "file": "src/config/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "MemoryEntry",
+      "file": "src/modules/agent-memory.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "MemoryStats",
+      "file": "src/modules/agent-memory.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AgentMemory",
+      "file": "src/modules/agent-memory.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "setOnSendToChat",
+      "file": "src/modules/ai-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "setAICompleterConfig",
+      "file": "src/modules/ai-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "setAICompleterEnabled",
+      "file": "src/modules/ai-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "attachAICompleter",
+      "file": "src/modules/ai-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "aiCompleter",
+      "file": "src/modules/ai-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ChatMode",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ToolCall",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ChatMessage",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ChatSession",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getAllSessions",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getSessionsByProject",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getSession",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "saveSession",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "deleteSession",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "createSession",
+      "file": "src/modules/chat-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "StreamContext",
+      "file": "src/modules/chat-streaming.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "streamAI",
+      "file": "src/modules/chat-streaming.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "simulateStream",
+      "file": "src/modules/chat-streaming.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "callAIOnce",
+      "file": "src/modules/chat-streaming.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "isBlockedPath",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "compressToolResult",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ShellContext",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "runShellCommand",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ToolExecContext",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "executorActionNeedsApproval",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "executeExecutorAction",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "executeTool",
+      "file": "src/modules/chat-tool-executor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "parseToolCalls",
+      "file": "src/modules/chat-tool-parser.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowPhase",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowStatus",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowSnapshotStatus",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowContextScope",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ExecutorToolName",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "RetryPolicy",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "PlannerStep",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowPlanAction",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowQuestion",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ExecutorAction",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ExecutorResult",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DiscoverySpec",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ContextPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ClarificationPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ReadPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ExecutionPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "VerificationPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "FixPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "FailureReport",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "PlannerPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowSnapshot",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowThresholds",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WorkflowStateEnvelope",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WORKFLOW_MODE_VERSION",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WORKFLOW_MAX_RETRIES",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WORKFLOW_MAX_ITERATIONS",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "PROJECT_ROOT_TOKEN",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "WORKFLOW_THRESHOLDS",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "workflowPhaseLabel",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "extractExplicitTargets",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "deriveInitialScope",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "createWorkflowState",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "createWorkflowSnapshot",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "appendWorkflowSnapshot",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "summarizeWorkflowState",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "workflowSnapshotCardLines",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "plannerPlanToActions",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "toExecutorAction",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "parsePlannerPlan",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "buildWorkflowPlannerPrompt",
+      "file": "src/modules/chat-workflow.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "Chatbot",
+      "file": "src/modules/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "CodeReviewPanel",
+      "file": "src/modules/code-review-panel.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ContextMenuTarget",
+      "file": "src/modules/context-menu.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "OnRefresh",
+      "file": "src/modules/context-menu.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "OnOpenFile",
+      "file": "src/modules/context-menu.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ContextMenu",
+      "file": "src/modules/context-menu.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "CustomAutocomplete",
+      "file": "src/modules/custom-autocomplete.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "showInputDialog",
+      "file": "src/modules/dialogs.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "showConfirmDialog",
+      "file": "src/modules/dialogs.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "EditorSettings",
+      "file": "src/modules/editor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DEFAULT_EDITOR_SETTINGS",
+      "file": "src/modules/editor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "EditorNavigationRequest",
+      "file": "src/modules/editor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "EditorHoverInfo",
+      "file": "src/modules/editor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "EditorHoverRequest",
+      "file": "src/modules/editor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "Editor",
+      "file": "src/modules/editor.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DefinitionTarget",
+      "file": "src/modules/exports-tracker.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "HoverInfo",
+      "file": "src/modules/exports-tracker.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ExportsTracker",
+      "file": "src/modules/exports-tracker.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "FileEntry",
+      "file": "src/modules/file-explorer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "OnFileSelect",
+      "file": "src/modules/file-explorer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "FileExplorer",
+      "file": "src/modules/file-explorer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getFolderIcon",
+      "file": "src/modules/file-icons.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getFileIcon",
+      "file": "src/modules/file-icons.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "GitStatusBar",
+      "file": "src/modules/git-status.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "OnOpenFile",
+      "file": "src/modules/global-search.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "OnFilesReplaced",
+      "file": "src/modules/global-search.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "GlobalSearch",
+      "file": "src/modules/global-search.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "MemorySettingsUI",
+      "file": "src/modules/memory-settings-ui.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "Minimap",
+      "file": "src/modules/minimap.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ModelOption",
+      "file": "src/modules/model-list.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "PROVIDER_MODELS",
+      "file": "src/modules/model-list.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getModelsForProvider",
+      "file": "src/modules/model-list.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getDefaultModel",
+      "file": "src/modules/model-list.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualitySeverity",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityRiskLevel",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "NamingConventionKey",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityPanelConfig",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualitySourceFile",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityPackageManifest",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityViolation",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SectionSummary",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "NamingSection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ImportsSection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ComplexitySection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualitySection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "TypesSection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ArchitectureSection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DependenciesSection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SecuritySection",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualitySections",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityReport",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityAnalysisInput",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityRulePlugin",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "merge_quality_config",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "should_include_quality_file",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "analyze_quality_project",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "default_quality_plugins",
+      "file": "src/modules/quality-core.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QualityPanel",
+      "file": "src/modules/quality-panel.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "OnFileOpen",
+      "file": "src/modules/quick-open.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "QuickOpen",
+      "file": "src/modules/quick-open.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ScriptRunner",
+      "file": "src/modules/script-runner.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AISettings",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AgentAccess",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "MemorySettings",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "AppSettings",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DEFAULT_AI_SETTINGS",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DEFAULT_AGENT_ACCESS",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DEFAULT_MEMORY_SETTINGS",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "DEFAULT_SETTINGS",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "loadSettings",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "saveSettings",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SettingsUI",
+      "file": "src/modules/settings.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SidebarTimeWidget",
+      "file": "src/modules/sidebar-time-widget.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SnippetScope",
+      "file": "src/modules/snippet-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SnippetSource",
+      "file": "src/modules/snippet-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SnippetEntry",
+      "file": "src/modules/snippet-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SnippetStore",
+      "file": "src/modules/snippet-store.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "Snippet",
+      "file": "src/modules/snippets-data.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SnippetCategory",
+      "file": "src/modules/snippets-data.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SNIPPET_CATEGORIES",
+      "file": "src/modules/snippets-data.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SnippetsPanel",
+      "file": "src/modules/snippets-panel.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "SourceControl",
+      "file": "src/modules/source-control.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "setTailwindEnabled",
+      "file": "src/modules/tailwind-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "isTailwindEnabled",
+      "file": "src/modules/tailwind-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "createTailwindCompleter",
+      "file": "src/modules/tailwind-completer.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "TerminalPanel",
+      "file": "src/modules/terminal.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "addTokens",
+      "file": "src/modules/token-usage.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "addExactTokens",
+      "file": "src/modules/token-usage.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "UsageSummary",
+      "file": "src/modules/token-usage.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getUsage",
+      "file": "src/modules/token-usage.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "updateStatusBar",
+      "file": "src/modules/token-usage.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "lintTypeScript",
+      "file": "src/modules/ts-lint.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "shouldUseTsLint",
+      "file": "src/modules/ts-lint.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getTsFileName",
+      "file": "src/modules/ts-lint.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "Project",
+      "file": "src/store/projects.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "ProjectsStore",
+      "file": "src/store/projects.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "getProjects",
+      "file": "src/store/projects.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "addProject",
+      "file": "src/store/projects.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "removeProject",
+      "file": "src/store/projects.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "checkPathExists",
+      "file": "src/store/projects.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "capText",
+      "file": "src/utils/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "capProjectContext",
+      "file": "src/utils/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "buildAgentSystemPrompt",
+      "file": "src/utils/chatbot.ts",
+      "kind": "named",
+      "module": "esm"
+    },
+    {
+      "name": "defineConfig",
+      "file": "vite.config.ts",
+      "kind": "default",
+      "module": "esm"
+    }
+  ]
+}

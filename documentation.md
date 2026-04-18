@@ -44,8 +44,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/snippet-store.ts`: merges built-in, global, and project snippets, persists custom snippets, and exposes custom snippet autocomplete data with explicit JSX/TSX category matching.
 - `src/modules/ai-completer.ts`: selected-code actions and typing-triggered, cursor-anchored idle AI suggestions.
 - `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports, resolves definitions/hover quick-info via TypeScript, and suggests installed package names plus object members in relevant contexts.
-- `src/modules/quality-core.ts`: reusable static-analysis engine that parses JS/TS files, computes naming/import/complexity/quality/type/architecture/dependency/security metrics, and returns a JSON quality report.
-- `src/modules/quality-panel.ts`: workspace-side quality dashboard that scans the current project, runs the quality engine in a worker, and renders actionable findings.
+- `src/modules/quality-core.ts`: reusable static-analysis engine that parses JS/TS files, computes naming/import/complexity/quality/type/architecture/dependency/security metrics, and returns a JSON quality report. The quality config supports per-category naming expectations for files, functions, variables, classes, and constants in addition to complexity and length thresholds.
+- `src/modules/quality-panel.ts`: workspace-side quality dashboard that scans the current project, runs the quality engine in a worker, renders actionable findings, provides a guided project-level config flow saved to `.athva/quality-panel.json`, includes score/severity charts, and supports click-through navigation from section cards into detailed issue sections.
 - `src/modules/ts-lint.ts`: TypeScript worker bridge for editor diagnostics.
 
 ### Backend Modules
@@ -171,6 +171,12 @@ pnpm build
 
 ```bash
 pnpm quality:analyze <project-path> --output /tmp/quality-report.json
+```
+
+Optional custom config:
+
+```bash
+pnpm quality:analyze <project-path> --config /path/to/quality-config.json --output /tmp/quality-report.json
 ```
 
 ## Environment Requirements
