@@ -454,13 +454,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Load settings
   appSettings = await loadSettings();
   refreshSecuritySession(appSettings);
-  applyTheme(appSettings.appearance);
 
   // Init editor
   editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);
   registerAceThemeSetter((theme) => editor.setAceTheme(theme));
+
+  // Apply theme after registering the Ace setter so the editor theme is set correctly
+  applyTheme(appSettings.appearance);
 
   // Init snippets panel
   snippetsPanel = new SnippetsPanel("snippets-panel");
