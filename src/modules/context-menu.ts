@@ -171,9 +171,22 @@ export class ContextMenu {
 
         row.addEventListener("mouseenter", () => {
           const rect = row.getBoundingClientRect();
-          sub.style.left = `${rect.width}px`;
-          sub.style.top = `${rect.top - this.el.getBoundingClientRect().top}px`;
+          const menuRect = this.el.getBoundingClientRect();
+          sub.style.left = "0";
+          sub.style.top = "0";
           sub.classList.remove("hidden");
+          const subRect = sub.getBoundingClientRect();
+          // Horizontal: prefer right, flip left if overflow
+          const rightSpace = window.innerWidth - rect.right;
+          sub.style.left = rightSpace >= subRect.width
+            ? `${rect.width}px`
+            : `-${subRect.width}px`;
+          // Vertical: align top with row, flip up if overflow bottom
+          const topAligned = rect.top - menuRect.top;
+          const wouldOverflowBottom = rect.top + subRect.height > window.innerHeight - 8;
+          sub.style.top = wouldOverflowBottom
+            ? `${rect.bottom - menuRect.top - subRect.height}px`
+            : `${topAligned}px`;
         });
         row.addEventListener("mouseleave", (e) => {
           const related = e.relatedTarget as HTMLElement;

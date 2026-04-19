@@ -178,17 +178,11 @@ export function attachAICompleter(editor: any) {
     }
   });
 
-  // On selection change: show/hide action menu
+  // On selection change: hide action menu (it only shows via right-click context menu)
   editor.selection.on("changeSelection", () => {
     cancelSuggestIfCursorMoved();
     clearGhost();
-    if (!enabled) return;
-    const selectedText = editor.getSelectedText();
-    if (selectedText && selectedText.trim().length > 0) {
-      showActionMenu();
-    } else {
-      hideActionMenu();
-    }
+    hideActionMenu();
   });
 
   // Cursor move without selection: hide ghost + action menu

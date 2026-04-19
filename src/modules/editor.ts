@@ -342,6 +342,14 @@ export class Editor {
       }
     });
 
+    // Hide cursor on click, restore on mouse move
+    this.editorEl.addEventListener("mousedown", () => {
+      this.editorEl.style.cursor = "none";
+    });
+    this.editorEl.addEventListener("mousemove", () => {
+      this.editorEl.style.cursor = "";
+    });
+
     // Editor right-click
     this.editorEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -1453,25 +1461,28 @@ export class Editor {
       | { separator: true };
 
     const items: MenuItem[] = [
-      {
-        label: "Cut", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5c-.2.2-.3.4-.3.7 0 .5.4 1 1 1 .2 0 .5-.1.7-.3L7 2.8 5.1 1a.5.5 0 0 0-.7.7L5.8 3l-.7.7-.2-.2-.9.9L3 3.4 1 5.4 2.4 6.8l2.2-2.2c.1.2.3.4.5.5L3.5 6.6l2 1.4 2-2L8 7l-1 1 1 1 1.1-1.1.5.5-1.1 1.1 1 1 2-2-1.5-1.5.7-.7c.2.2.5.3.7.3.6 0 1-.4 1-1 0-.3-.1-.5-.3-.7L8 3.5 7.3 2.8 5.8 1.3 4.5 2.6l-.5-.5-.5.5.5.5-.5.5v-.1zm1 1c-.3 0-.5-.2-.5-.5s.2-.5.5-.5.5.2.5.5-.2.5-.5.5z"/></svg>`,
-        shortcut: "⌘X",
-        action: () => {
-          const text = this.ace.getSelectedText();
-          if (text) {
-            navigator.clipboard.writeText(text).catch(() => { });
-            this.ace.execCommand("del");
-          }
-        },
-      },
-      {
-        label: "Copy", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`,
-        shortcut: "⌘C",
-        action: () => {
-          const text = this.ace.getSelectedText();
-          if (text) navigator.clipboard.writeText(text).catch(() => { });
-        },
-      },
+      ...(selection ? [
+        {
+          label: "Cut", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5c-.2.2-.3.4-.3.7 0 .5.4 1 1 1 .2 0 .5-.1.7-.3L7 2.8 5.1 1a.5.5 0 0 0-.7.7L5.8 3l-.7.7-.2-.2-.9.9L3 3.4 1 5.4 2.4 6.8l2.2-2.2c.1.2.3.4.5.5L3.5 6.6l2 1.4 2-2L8 7l-1 1 1 1 1.1-1.1.5.5-1.1 1.1 1 1 2-2-1.5-1.5.7-.7c.2.2.5.3.7.3.6 0 1-.4 1-1 0-.3-.1-.5-.3-.7L8 3.5 7.3 2.8 5.8 1.3 4.5 2.6l-.5-.5-.5.5.5.5-.5.5v-.1zm1 1c-.3 0-.5-.2-.5-.5s.2-.5.5-.5.5.2.5.5-.2.5-.5.5z"/></svg>`,
+          shortcut: "⌘X",
+          action: () => {
+            const text = this.ace.getSelectedText();
+            if (text) {
+              navigator.clipboard.writeText(text).catch(() => { });
+              this.ace.execCommand("del");
+            }
+          },
+        } as MenuItem,
+        {
+          label: "Copy", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`,
+          shortcut: "⌘C",
+          action: () => {
+            const text = this.ace.getSelectedText();
+            if (text) navigator.clipboard.writeText(text).catch(() => { });
+          },
+        } as MenuItem,
+        { separator: true } as MenuItem,
+      ] : []),
       {
         label: "Paste", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 1.5A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5v1A1.5 1.5 0 0 1 9.5 4h-3A1.5 1.5 0 0 1 5 2.5v-1zm1.5-.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-3z"/><path d="M3 2.5a.5.5 0 0 1 .5-.5H5v1H3.5a.5.5 0 0 1-.5-.5V2.5zm8 0v.5H9.5V2h1a.5.5 0 0 1 .5.5zM3 4v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4H3zm2 2h6v1H5V6zm0 2h6v1H5V8zm0 2h4v1H5v-1z"/></svg>`,
         shortcut: "⌘V",
@@ -1494,13 +1505,15 @@ export class Editor {
         shortcut: "⇧⌥F",
         action: () => this.formatDocument(),
       },
-      { separator: true },
-      {
-        label: "Ask AI",
-        icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`,
-        action: () => { },
-        // submenu handled separately
-      },
+      ...(selection ? [
+        { separator: true } as MenuItem,
+        {
+          label: "Ask AI",
+          icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`,
+          action: () => { },
+          // submenu handled separately
+        } as MenuItem,
+      ] : []),
     ];
 
     for (const item of items) {
@@ -1561,16 +1574,21 @@ export class Editor {
         row.addEventListener("mouseenter", () => {
           const rect = row.getBoundingClientRect();
           const menuRect = menu.getBoundingClientRect();
-          // Check if submenu would overflow right side
-          const subWidth = 180;
-          const rightSpace = window.innerWidth - rect.right;
-          if (rightSpace < subWidth) {
-            sub.style.left = `-${subWidth}px`;
-          } else {
-            sub.style.left = `${rect.width}px`;
-          }
-          sub.style.top = `${rect.top - menuRect.top}px`;
+          sub.style.left = "0";
+          sub.style.top = "0";
           sub.classList.remove("hidden");
+          const subRect = sub.getBoundingClientRect();
+          // Horizontal: prefer right, flip left if overflow
+          const rightSpace = window.innerWidth - rect.right;
+          sub.style.left = rightSpace >= subRect.width
+            ? `${rect.width}px`
+            : `-${subRect.width}px`;
+          // Vertical: align top with row, flip up if overflow bottom
+          const topAligned = rect.top - menuRect.top;
+          const wouldOverflowBottom = rect.top + subRect.height > window.innerHeight - 8;
+          sub.style.top = wouldOverflowBottom
+            ? `${rect.bottom - menuRect.top - subRect.height}px`
+            : `${topAligned}px`;
         });
         row.addEventListener("mouseleave", (ev) => {
           if (!sub.contains(ev.relatedTarget as Node)) sub.classList.add("hidden");
