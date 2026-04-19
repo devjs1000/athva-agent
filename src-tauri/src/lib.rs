@@ -8,8 +8,7 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
-use tauri::webview::PageLoadEvent;
-use tauri_plugin_opener::OpenerExt;
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
 
 // ── Project management ──
 
@@ -970,12 +969,16 @@ fn open_web_window(
 
     let builder = WebviewBuilder::new(&label, parsed)
         .user_agent(WEB_TAB_USER_AGENT)
-        .on_navigation(move |_url| {
-            // Allow all navigations inside the embedded webview.
-            // OAuth flows (e.g. Google login) work because WKWebView handles
-            // redirects natively; shell.open calls from page JS are denied by
-            // the ACL and safely swallowed by the site's catch handlers.
-            true
+        .on_navigation(move |_url| true)
+        .on_new_window(move |_url, _features| {
+            // Return Allow so wry creates the popup natively using the same
+            // WKWebViewConfiguration as the opener. This preserves window.opener
+            // and the shared cookie/session store — both required for OAuth flows
+            // (Figma → Google, Grok → Google, etc.) to complete and post the
+            // auth token back to the parent page via window.opener.postMessage().
+            // Using NewWindowResponse::Create { window } breaks this because a
+            // Tauri WebviewWindow is a separate WKWebView instance with no opener.
+            NewWindowResponse::Allow
         })
         .initialization_script(
             // Runs AFTER Tauri's own IPC init scripts (window.ipc + __TAURI_INTERNALS__
