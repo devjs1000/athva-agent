@@ -980,57 +980,130 @@ fn open_web_window(
             // Tauri WebviewWindow is a separate WKWebView instance with no opener.
             NewWindowResponse::Allow
         })
-        .initialization_script(
-            // Runs AFTER Tauri's own IPC init scripts (window.ipc + __TAURI_INTERNALS__
-            // are already set). Goals:
-            //   A) Spoof navigator so Google/Figma don't detect the embedded WKWebView.
-            //   B) Intercept fetch() so any ipc:// request silently fails with a
-            //      NetworkError instead of a CSP violation — Tauri's IPC then
-            //      automatically falls back to window.ipc.postMessage which works fine.
-            //   C) Keep window.ipc intact by capturing it before hiding window.webkit.
-            r#"(function () {
-            // ── A: capture the native bridge before hiding webkit ──────────────────
+        .initialization_script(r#"(function () {
+            'use strict';
+            var d = Object.defineProperty.bind(Object);
             var _nativeSend = window.webkit
                 && window.webkit.messageHandlers
                 && window.webkit.messageHandlers.ipc
                 ? window.webkit.messageHandlers.ipc.postMessage.bind(window.webkit.messageHandlers.ipc)
                 : null;
 
-            // ── A: spoof navigator fingerprints ───────────────────────────────────
-            try { Object.defineProperty(navigator, 'userAgent', { get: function() { return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'; }, configurable: false }); } catch(_) {}
-            try { Object.defineProperty(navigator, 'vendor',    { get: function() { return 'Google Inc.'; }, configurable: false }); } catch(_) {}
-            try { Object.defineProperty(navigator, 'platform',  { get: function() { return 'MacIntel'; },   configurable: false }); } catch(_) {}
+            // ── 1. Navigator spoofing ─────────────────────────────────────────────
+            var UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+            try { d(navigator, 'userAgent',      { get: function(){ return UA; },            configurable: false }); } catch(_) {}
+            try { d(navigator, 'appVersion',     { get: function(){ return '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'; }, configurable: false }); } catch(_) {}
+            try { d(navigator, 'vendor',         { get: function(){ return 'Google Inc.'; }, configurable: false }); } catch(_) {}
+            try { d(navigator, 'platform',       { get: function(){ return 'MacIntel'; },   configurable: false }); } catch(_) {}
+            try { d(navigator, 'webdriver',      { get: function(){ return false; },         configurable: false }); } catch(_) {}
+            try { d(navigator, 'language',       { get: function(){ return 'en-US'; },       configurable: false }); } catch(_) {}
+            try { d(navigator, 'languages',      { get: function(){ return ['en-US','en']; },configurable: false }); } catch(_) {}
+            try { d(navigator, 'hardwareConcurrency', { get: function(){ return 8; },        configurable: false }); } catch(_) {}
+            try { d(navigator, 'deviceMemory',   { get: function(){ return 8; },             configurable: false }); } catch(_) {}
+            try { d(navigator, 'maxTouchPoints', { get: function(){ return 0; },             configurable: false }); } catch(_) {}
 
-            // ── A: hide window.webkit ─────────────────────────────────────────────
+            // ── 2. Plugins / mimeTypes (empty in WKWebView, non-empty in Chrome) ──
+            var _fakeMime = function(type, suf, desc) {
+                return { type: type, suffixes: suf, description: desc, enabledPlugin: null };
+            };
+            var _fakePlugin = function(name, desc, file, mimes) {
+                var p = { name: name, description: desc, filename: file, length: mimes.length };
+                mimes.forEach(function(m, i) { p[i] = m; m.enabledPlugin = p; });
+                p.item = function(i) { return p[i]; };
+                p.namedItem = function(n) { for(var i=0;i<mimes.length;i++) if(mimes[i].type===n) return mimes[i]; return null; };
+                return p;
+            };
+            var _pdfMime    = _fakeMime('application/pdf','pdf','Portable Document Format');
+            var _pdfPlugin  = _fakePlugin('PDF Viewer','Portable Document Format','internal-pdf-viewer',[_pdfMime]);
+            var _plugins = [_pdfPlugin];
+            var _mimes   = [_pdfMime];
+            var _pArr = Object.assign([_pdfPlugin], {
+                item: function(i){ return _plugins[i]||null; },
+                namedItem: function(n){ return _plugins.find(function(p){return p.name===n;})||null; },
+                refresh: function(){}
+            });
+            var _mArr = Object.assign([_pdfMime], {
+                item: function(i){ return _mimes[i]||null; },
+                namedItem: function(t){ return _mimes.find(function(m){return m.type===t;})||null; }
+            });
+            try { d(navigator, 'plugins',   { get: function(){ return _pArr; }, configurable: false }); } catch(_) {}
+            try { d(navigator, 'mimeTypes', { get: function(){ return _mArr; }, configurable: false }); } catch(_) {}
+
+            // ── 3. window.chrome (absent in WKWebView, present in Chrome) ─────────
+            try {
+                d(window, 'chrome', {
+                    value: {
+                        app: { isInstalled: false, InstallState: { DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed' }, RunningState: { CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running' } },
+                        runtime: { OnInstalledReason: { CHROME_UPDATE:'chrome_update',INSTALL:'install',SHARED_MODULE_UPDATE:'shared_module_update',UPDATE:'update' }, OnRestartRequiredReason: { APP_UPDATE:'app_update',OS_UPDATE:'os_update',PERIODIC:'periodic' }, PlatformArch: { ARM:'arm',ARM64:'arm64',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64' }, PlatformNaclArch: { ARM:'arm',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64' }, PlatformOs: { ANDROID:'android',CROS:'cros',LINUX:'linux',MAC:'mac',OPENBSD:'openbsd',WIN:'win' }, RequestUpdateCheckStatus: { NO_UPDATE:'no_update',THROTTLED:'throttled',UPDATE_AVAILABLE:'update_available' } },
+                        loadTimes: function() { return { requestTime: performance.timing ? performance.timing.navigationStart/1000 : 0, startLoadTime: performance.timing ? performance.timing.navigationStart/1000 : 0, commitLoadTime: performance.timing ? performance.timing.responseStart/1000 : 0, finishDocumentLoadTime: performance.timing ? performance.timing.domContentLoadedEventEnd/1000 : 0, finishLoadTime: performance.timing ? performance.timing.loadEventEnd/1000 : 0, firstPaintTime: 0, firstPaintAfterLoadTime: 0, navigationType: 'Other', wasFetchedViaSpdy: false, wasNpnNegotiated: false, npnNegotiatedProtocol: 'http/1.1', wasAlternateProtocolAvailable: false, connectionInfo: 'http/1.1' }; },
+                        csi: function() { return { startE: performance.timing ? performance.timing.navigationStart : 0, onloadT: performance.timing ? performance.timing.loadEventEnd : 0, pageT: performance.now(), tran: 15 }; }
+                    },
+                    writable: false, configurable: false
+                });
+            } catch(_) {}
+
+            // ── 4. Permissions API (WKWebView has no Notification/geolocation perms)
+            try {
+                var _origQuery = window.Notification && window.Notification.permission;
+                if (navigator.permissions && navigator.permissions.query) {
+                    var _origPermsQuery = navigator.permissions.query.bind(navigator.permissions);
+                    navigator.permissions.query = function(desc) {
+                        return _origPermsQuery(desc).catch(function() {
+                            return Promise.resolve({ state: 'prompt', onchange: null });
+                        });
+                    };
+                }
+            } catch(_) {}
+
+            // ── 5. Hide window.webkit (WKWebView signal) ──────────────────────────
             try { delete window.webkit; } catch(_) {}
-            try { Object.defineProperty(window, 'webkit', { get: function() { return undefined; }, configurable: false }); } catch(_) {}
+            try { d(window, 'webkit', { get: function(){ return undefined; }, configurable: false }); } catch(_) {}
 
-            // ── A: re-expose window.ipc so Tauri fallback still works ─────────────
+            // ── 6. Hide Tauri identity globals (bot-detection signals) ────────────
+            // isTauri and __TAURI__ are pure identity flags — safe to hide.
+            // __TAURI_INTERNALS__ must stay because our media IPC uses it;
+            // we only remove the 'metadata' sub-key that leaks the window label.
+            try { d(window, 'isTauri', { get: function(){ return undefined; }, configurable: false }); } catch(_) {}
+            try { d(window, '__TAURI__', { get: function(){ return undefined; }, configurable: false }); } catch(_) {}
+            try { if (window.__TAURI_INTERNALS__) { delete window.__TAURI_INTERNALS__.metadata; } } catch(_) {}
+
+            // ── 7. Restore window.ipc for Tauri IPC (now webkit is hidden) ────────
             if (_nativeSend) {
                 try {
-                    Object.defineProperty(window, 'ipc', {
-                        value: Object.freeze({ postMessage: function(s) { _nativeSend(s); } }),
+                    d(window, 'ipc', {
+                        value: Object.freeze({ postMessage: function(s){ _nativeSend(s); } }),
                         writable: false, configurable: false
                     });
                 } catch(_) {}
             }
 
-            // ── B: intercept fetch to silently fail ipc:// requests ───────────────
-            // Sites like ChatGPT/Figma have a strict connect-src CSP that does not
-            // include ipc:. When Tauri's IPC tries fetch("ipc://localhost/cmd") it
-            // triggers a visible CSP violation in the console. We intercept those
-            // requests and reject them with a plain NetworkError so Tauri's built-in
-            // fallback (window.ipc.postMessage) takes over silently.
-            (function () {
-                var _origFetch = window.fetch;
+            // ── 8. Silence ipc:// fetch attempts (CSP violation suppression) ──────
+            (function() {
+                var _F = window.fetch;
                 window.fetch = function(input, init) {
-                    var url = typeof input === 'string' ? input
-                        : (input && typeof input.url === 'string') ? input.url
-                        : String(input);
-                    if (url.indexOf('ipc://') === 0 || url.indexOf('ipc:') === 0) {
-                        return Promise.reject(new TypeError('NetworkError: ipc scheme intercepted'));
+                    var url = typeof input === 'string' ? input : (input && input.url) ? input.url : String(input);
+                    if (url.slice(0,6) === 'ipc://' || url.slice(0,4) === 'ipc:') {
+                        return Promise.reject(new TypeError('NetworkError'));
                     }
-                    return _origFetch.apply(this, arguments);
+                    return _F.apply(this, arguments);
+                };
+            })();
+
+            // ── 9. WebGL renderer masking ─────────────────────────────────────────
+            (function() {
+                var _getCtx = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+                    var ctx = _getCtx.call(this, type, attrs);
+                    if (!ctx) return ctx;
+                    if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+                        var _getParam = ctx.getParameter.bind(ctx);
+                        ctx.getParameter = function(param) {
+                            if (param === 37445) return 'Google Inc. (Apple)';       // UNMASKED_VENDOR_WEBGL
+                            if (param === 37446) return 'ANGLE (Apple, ANGLE Metal Renderer: Apple M-Series GPU, Unspecified Version)'; // UNMASKED_RENDERER_WEBGL
+                            return _getParam(param);
+                        };
+                    }
+                    return ctx;
                 };
             })();
             })();"#,
@@ -1046,13 +1119,31 @@ fn open_web_window(
         })
         .auto_resize();
 
-    main_window
+    let child = main_window
         .add_child(
             builder,
             LogicalPosition::new(x, y),
             LogicalSize::new(width, height),
         )
         .map_err(|e| e.to_string())?;
+
+    // Disable WKWebView's cross-origin frame access restriction so that
+    // Cloudflare Turnstile's iframe (challenges.cloudflare.com) can
+    // postMessage to its parent frame (chatgpt.com / figma.com).
+    // This uses a private WebKit API — the same technique Electron uses.
+    #[cfg(target_os = "macos")]
+    child.with_webview(|wv| {
+        use objc2::runtime::AnyObject;
+        use objc2::msg_send;
+        unsafe {
+            let raw: *mut AnyObject = wv.inner() as *mut AnyObject;
+            // Get WKPreferences from the WKWebView's configuration
+            let config: *mut AnyObject = msg_send![raw, configuration];
+            let prefs: *mut AnyObject = msg_send![config, preferences];
+            // _setWebSecurityEnabled:NO — private API, disables cross-origin checks
+            let _: () = msg_send![prefs, _setWebSecurityEnabled: false];
+        }
+    }).ok();
 
     Ok(())
 }

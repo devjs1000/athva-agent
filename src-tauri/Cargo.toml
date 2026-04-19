@@ -28,3 +28,6 @@ tauri-plugin-shell = "2.3.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
 regex = "1"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+
