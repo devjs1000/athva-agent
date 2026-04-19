@@ -74,7 +74,6 @@ const PRETTIER_PARSER_MAP: Record<string, string> = {
 };
 
 export interface EditorSettings {
-  theme: string;
   fontSize: number;
   tabSize: number;
   wordWrap: boolean;
@@ -85,7 +84,6 @@ export interface EditorSettings {
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
-  theme: "monokai",
   fontSize: 14,
   tabSize: 2,
   wordWrap: false,
@@ -403,8 +401,7 @@ export class Editor {
   applySettings(settings: EditorSettings) {
     this.currentSettings = { ...settings };
 
-    // Theme and font size are global on the editor instance
-    this.ace.setTheme(`ace/theme/${settings.theme}`);
+    // Font size is global on the editor instance
     this.ace.setFontSize(settings.fontSize);
     this.ace.renderer.setShowGutter(settings.showGutter);
 

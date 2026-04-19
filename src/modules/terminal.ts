@@ -24,6 +24,28 @@ export class TerminalPanel {
   private cwd: string = "";
   private history: string[] = [];
   private historyIndex: number = -1;
+  private terminalTheme: any = {
+    background: "#1e1e1e",
+    foreground: "#cccccc",
+    cursor: "#cccccc",
+    selectionBackground: "#264f78",
+    black: "#1e1e1e",
+    red: "#f44747",
+    green: "#6a9955",
+    yellow: "#d7ba7d",
+    blue: "#569cd6",
+    magenta: "#c586c0",
+    cyan: "#4ec9b0",
+    white: "#d4d4d4",
+    brightBlack: "#808080",
+    brightRed: "#f44747",
+    brightGreen: "#6a9955",
+    brightYellow: "#d7ba7d",
+    brightBlue: "#569cd6",
+    brightMagenta: "#c586c0",
+    brightCyan: "#4ec9b0",
+    brightWhite: "#ffffff",
+  };
 
   constructor(onEditorResize: () => void) {
     this.panel = document.getElementById("terminal-panel")!;
@@ -109,28 +131,7 @@ export class TerminalPanel {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: '"SF Mono", Menlo, Monaco, "Courier New", monospace',
-      theme: {
-        background: "#1e1e1e",
-        foreground: "#cccccc",
-        cursor: "#cccccc",
-        selectionBackground: "#264f78",
-        black: "#1e1e1e",
-        red: "#f44747",
-        green: "#6a9955",
-        yellow: "#d7ba7d",
-        blue: "#569cd6",
-        magenta: "#c586c0",
-        cyan: "#4ec9b0",
-        white: "#d4d4d4",
-        brightBlack: "#808080",
-        brightRed: "#f44747",
-        brightGreen: "#6a9955",
-        brightYellow: "#d7ba7d",
-        brightBlue: "#569cd6",
-        brightMagenta: "#c586c0",
-        brightCyan: "#4ec9b0",
-        brightWhite: "#ffffff",
-      },
+      theme: this.terminalTheme,
     });
 
     this.fitAddon = new FitAddon();
@@ -436,5 +437,20 @@ export class TerminalPanel {
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     });
+  }
+
+  setTheme(colors: any, isLight: boolean) {
+    this.terminalTheme = {
+      ...this.terminalTheme,
+      background: colors.editorBg,
+      foreground: isLight ? "#1f1f1f" : "#cccccc",
+      cursor: isLight ? "#1f1f1f" : "#cccccc",
+      selectionBackground: isLight ? "rgba(0, 0, 0, 0.1)" : "#264f78",
+      black: isLight ? "#ffffff" : "#1e1e1e",
+      white: isLight ? "#1e1e1e" : "#d4d4d4",
+    };
+    if (this.term) {
+      this.term.options.theme = this.terminalTheme;
+    }
   }
 }

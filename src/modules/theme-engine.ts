@@ -17,6 +17,12 @@ export function registerAceThemeSetter(fn: (theme: string) => void) {
   _setAceTheme = fn;
 }
 
+// External callback set by main.ts so theme-engine doesn't import TerminalPanel
+let _setTerminalTheme: ((colors: ThemeColors, isLight: boolean) => void) | null = null;
+export function registerTerminalThemeSetter(fn: (colors: ThemeColors, isLight: boolean) => void) {
+  _setTerminalTheme = fn;
+}
+
 export const PRESET_THEMES: Record<string, ThemeColors & { label: string }> = {
   dark: {
     label: "Dark",
@@ -167,6 +173,11 @@ export function applyTheme(appearance: AppearanceSettings): void {
   if (_setAceTheme) {
     const baseTheme = appearance.theme in THEME_TO_ACE ? appearance.theme : "dark";
     _setAceTheme(THEME_TO_ACE[baseTheme]);
+  }
+
+  // Pass theme to Terminal if available
+  if (_setTerminalTheme) {
+    _setTerminalTheme(colors, brightness > 128);
   }
 
   // Apply workspace background image

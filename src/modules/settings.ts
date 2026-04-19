@@ -188,7 +188,6 @@ export class SettingsUI {
   private activeTab = "all";
 
   // Editor elements
-  private themeEl: HTMLSelectElement;
   private fontSizeEl: HTMLInputElement;
   private tabSizeEl: HTMLInputElement;
   private wordWrapEl: HTMLInputElement;
@@ -256,7 +255,6 @@ export class SettingsUI {
     this.settings = settings;
     this.onApply = onApply;
 
-    this.themeEl = document.getElementById("setting-theme") as HTMLSelectElement;
     this.fontSizeEl = document.getElementById("setting-font-size") as HTMLInputElement;
     this.tabSizeEl = document.getElementById("setting-tab-size") as HTMLInputElement;
     this.wordWrapEl = document.getElementById("setting-word-wrap") as HTMLInputElement;
@@ -338,7 +336,6 @@ export class SettingsUI {
 
   private populateFromSettings() {
     // Editor
-    this.themeEl.value = this.settings.editor.theme;
     this.fontSizeEl.value = String(this.settings.editor.fontSize);
     this.tabSizeEl.value = String(this.settings.editor.tabSize);
     this.wordWrapEl.checked = this.settings.editor.wordWrap;
@@ -401,7 +398,6 @@ export class SettingsUI {
   private collectFromUI(): AppSettings {
     return {
       editor: {
-        theme: this.themeEl.value,
         fontSize: parseInt(this.fontSizeEl.value) || 14,
         tabSize: parseInt(this.tabSizeEl.value) || 2,
         wordWrap: this.wordWrapEl.checked,

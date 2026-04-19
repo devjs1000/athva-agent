@@ -22,7 +22,7 @@ import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 import { ExportsTracker } from "./modules/exports-tracker";
-import { applyTheme, registerAceThemeSetter } from "./modules/theme-engine";
+import { applyTheme, registerAceThemeSetter, registerTerminalThemeSetter } from "./modules/theme-engine";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -544,6 +544,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init terminal
   terminal = new TerminalPanel(() => editor.resize());
+  registerTerminalThemeSetter((colors, isLight) => terminal.setTheme(colors, isLight));
 
   // Init script runner
   scriptRunner = new ScriptRunner(terminal);
