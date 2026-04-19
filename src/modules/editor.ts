@@ -905,12 +905,119 @@ export class Editor {
   }
 
   private buildTabPickerHTML(): string {
-    const presets = [
-      { label: "YouTube", url: "https://www.youtube.com", icon: "▶" },
-      { label: "YouTube Music", url: "https://music.youtube.com", icon: "♪" },
-      { label: "Spotify", url: "https://open.spotify.com", icon: "●" },
-      { label: "Apple Music", url: "https://music.apple.com", icon: "♫" },
+    const sections: { label: string; icon: string; items: { label: string; url: string; icon: string }[] }[] = [
+      {
+        label: "Design", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>`,
+        items: [
+          { label: "Figma", url: "https://www.figma.com", icon: `<svg viewBox="0 0 38 57" fill="none"><path d="M19 28.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z" fill="#1ABCFE"/><path d="M0 47.5A9.5 9.5 0 0 1 9.5 38H19v9.5a9.5 9.5 0 0 1-19 0z" fill="#0ACF83"/><path d="M19 0v19h9.5a9.5 9.5 0 0 0 0-19H19z" fill="#FF7262"/><path d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5z" fill="#F24E1E"/><path d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5z" fill="#A259FF"/></svg>` },
+          { label: "Canva", url: "https://www.canva.com", icon: `<svg viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="#7D2AE8"/><path d="M50 20c-16.57 0-30 13.43-30 30s13.43 30 30 30c8.28 0 15.78-3.36 21.21-8.79l-7.07-7.07A19.9 19.9 0 0 1 50 70c-11.05 0-20-8.95-20-20s8.95-20 20-20c5.52 0 10.52 2.24 14.14 5.86l7.07-7.07A29.9 29.9 0 0 0 50 20z" fill="white"/></svg>` },
+          { label: "Adobe XD", url: "https://xd.adobe.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="#FF26BE"/><text x="8" y="34" fill="white" font-size="22" font-weight="700" font-family="sans-serif">Xd</text></svg>` },
+          { label: "Sketch", url: "https://www.sketch.com", icon: `<svg viewBox="0 0 50 50" fill="none"><polygon points="25,2 48,18 39,46 11,46 2,18" fill="#FDAD00"/><polygon points="25,2 14,18 25,46 36,18" fill="#EA6C00" opacity="0.5"/></svg>` },
+        ]
+      },
+      {
+        label: "Version Control", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm12 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 18a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0-8a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm6-4a4 4 0 0 1 3.87 3H18a4 4 0 0 1 0 8h-2.13A4.001 4.001 0 0 1 8 12h.13A4.002 4.002 0 0 1 12 6z"/></svg>`,
+        items: [
+          { label: "GitHub", url: "https://github.com", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` },
+          { label: "GitLab", url: "https://gitlab.com", icon: `<svg viewBox="0 0 586 559" fill="none"><path d="M461.52 301.03L292.99 558.5 124.46 301.03l168.53-518.55L461.52 301.03z" fill="#E24329"/><path d="M292.99 558.5L124.46 301.03H.5L292.99 558.5z" fill="#FC6D26"/><path d="M124.46 301.03H.5L124.46 301.03z" fill="#FCA326"/><path d="M292.99 558.5L461.52 301.03H585.5L292.99 558.5z" fill="#FC6D26"/><path d="M461.52 301.03H585.5L461.52 301.03z" fill="#FCA326"/></svg>` },
+          { label: "Bitbucket", url: "https://bitbucket.org", icon: `<svg viewBox="0 0 32 32" fill="none"><path d="M2 5a1 1 0 0 0-1 1.15l4.36 25.4A1 1 0 0 0 6.33 32h19.74a1 1 0 0 0 1-.85L31 6.15A1 1 0 0 0 30 5H2zm17.25 16.6h-6.48L11.1 13h9.8l-1.65 8.6z" fill="#2684FF"/></svg>` },
+          { label: "Azure DevOps", url: "https://dev.azure.com", icon: `<svg viewBox="0 0 32 32" fill="none"><path d="M0 17.5L5.5 8l7 5.5v-10L18 1l13 14-5.5 2.5H10L7.5 27 0 17.5z" fill="#0078D7"/></svg>` },
+        ]
+      },
+      {
+        label: "Project Management", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>`,
+        items: [
+          { label: "Jira", url: "https://www.atlassian.com/software/jira", icon: `<svg viewBox="0 0 32 32" fill="none"><path d="M15.98 2C9.35 2 4 7.37 4 14.02c0 3.73 1.67 7.07 4.32 9.35l7.66 6.63 7.66-6.63C26.28 21.09 28 17.7 28 14.02 28 7.37 22.61 2 15.98 2zm0 17.35a5.33 5.33 0 1 1 0-10.66 5.33 5.33 0 0 1 0 10.66z" fill="#2684FF"/></svg>` },
+          { label: "Trello", url: "https://trello.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#0052CC"/><rect x="8" y="8" width="14" height="30" rx="3" fill="white"/><rect x="28" y="8" width="14" height="20" rx="3" fill="white"/></svg>` },
+          { label: "Asana", url: "https://app.asana.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="17" r="10" fill="#F06A6A"/><circle cx="10" cy="35" r="10" fill="#F06A6A"/><circle cx="40" cy="35" r="10" fill="#F06A6A"/></svg>` },
+          { label: "Monday.com", url: "https://monday.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="12" cy="25" r="9" fill="#FF3750"/><circle cx="25" cy="25" r="9" fill="#FFCB00"/><circle cx="38" cy="25" r="9" fill="#00CA72"/></svg>` },
+        ]
+      },
+      {
+        label: "Sheets", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-8 12H7v-2h4v2zm0-4H7V9h4v2zm6 4h-4v-2h4v2zm0-4h-4V9h4v2z"/></svg>`,
+        items: [
+          { label: "Google Sheets", url: "https://sheets.google.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect x="8" y="2" width="34" height="46" rx="3" fill="#0F9D58"/><rect x="14" y="14" width="22" height="3" rx="1" fill="white"/><rect x="14" y="21" width="22" height="3" rx="1" fill="white"/><rect x="14" y="28" width="22" height="3" rx="1" fill="white"/><rect x="14" y="35" width="14" height="3" rx="1" fill="white"/></svg>` },
+          { label: "Microsoft Excel", url: "https://www.office.com/launch/excel", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="6" fill="#217346"/><path d="M10 12h14l6 13-6 13H10l6-13-6-13z" fill="white"/><rect x="26" y="12" width="14" height="4" rx="1" fill="white"/><rect x="26" y="22" width="14" height="4" rx="1" fill="white"/><rect x="26" y="32" width="14" height="4" rx="1" fill="white"/></svg>` },
+          { label: "Airtable", url: "https://airtable.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#FCB400"/><rect x="8" y="8" width="34" height="10" rx="3" fill="white"/><rect x="8" y="22" width="15" height="20" rx="3" fill="white"/><rect x="27" y="22" width="15" height="14" rx="3" fill="white"/></svg>` },
+          { label: "Notion", url: "https://www.notion.so", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="white"/><rect width="50" height="50" rx="8" fill="black" opacity="0.05"/><path d="M10 10h30v4H10zm0 9h20v4H10zm0 9h25v4H10zm0 9h15v4H10z" fill="#37352F"/></svg>` },
+        ]
+      },
+      {
+        label: "AI", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-13h2v6h-2zm0 8h2v2h-2z"/></svg>`,
+        items: [
+          { label: "ChatGPT", url: "https://chat.openai.com", icon: `<svg viewBox="0 0 41 41" fill="currentColor"><path d="M37.5 16.9a9.7 9.7 0 0 0-.8-7.9 10 10 0 0 0-10.8-4.8A9.7 9.7 0 0 0 18.6 1a10 10 0 0 0-9.5 6.9 9.7 9.7 0 0 0-6.5 4.7 10 10 0 0 0 1.2 11.7 9.7 9.7 0 0 0 .8 7.9 10 10 0 0 0 10.8 4.8 9.7 9.7 0 0 0 7.3 3.3 10 10 0 0 0 9.6-6.9 9.7 9.7 0 0 0 6.4-4.7 10 10 0 0 0-1.2-11.8zm-14.8 20.6a7.4 7.4 0 0 1-4.8-1.7l.2-.1 8-4.6a1.3 1.3 0 0 0 .7-1.1v-11.3l3.4 2a.1.1 0 0 1 .1.1v9.3a7.5 7.5 0 0 1-7.5 7.4zM6 30.3a7.4 7.4 0 0 1-.9-5l.2.1 8 4.6a1.3 1.3 0 0 0 1.3 0l9.8-5.7v3.9a.1.1 0 0 1 0 .1L16 33a7.5 7.5 0 0 1-10-2.7zm-1.6-17.5a7.4 7.4 0 0 1 3.9-3.3v9.4a1.3 1.3 0 0 0 .6 1.1l9.8 5.7-3.4 2a.1.1 0 0 1-.1 0L7 23.1A7.5 7.5 0 0 1 4.4 12.8zm27.8 6.4l-9.8-5.7 3.4-2a.1.1 0 0 1 .1 0l8.2 4.7a7.5 7.5 0 0 1-1.2 13.5v-9.4a1.3 1.3 0 0 0-.7-1.1zm3.4-5-.2-.1-8-4.6a1.3 1.3 0 0 0-1.3 0l-9.8 5.7V11.3a.1.1 0 0 1 0-.1L25 6.5a7.5 7.5 0 0 1 10.6 7.7zm-21.2 7l-3.4-2a.1.1 0 0 1-.1-.1v-9.3a7.5 7.5 0 0 1 12.3-5.7l-.2.1-8 4.6a1.3 1.3 0 0 0-.6 1.1zm1.8-3.9l4.4-2.5 4.4 2.5v5l-4.4 2.5-4.4-2.5z"/></svg>` },
+          { label: "Gemini", url: "https://gemini.google.com", icon: `<svg viewBox="0 0 28 28" fill="none"><path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#gemini-grad)"/><defs><linearGradient id="gemini-grad" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="100%" stop-color="#EA4335"/></linearGradient></defs></svg>` },
+          { label: "Claude", url: "https://claude.ai", icon: `<svg viewBox="0 0 46 46" fill="none"><path d="M23 0C10.3 0 0 10.3 0 23s10.3 23 23 23 23-10.3 23-23S35.7 0 23 0zm0 8c2.2 0 4 1.8 4 4s-1.8 4-4 4-4-1.8-4-4 1.8-4 4-4zm-9 28v-2c0-5 4-9 9-9s9 4 9 9v2H14z" fill="#D97757"/></svg>` },
+          { label: "Perplexity", url: "https://www.perplexity.ai", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#20808D"/><path d="M25 10l10 10H15L25 10zM15 20h20v20H15V20zm5 5v10h10V25H20z" fill="white"/></svg>` },
+          { label: "Qwen", url: "https://chat.qwen.ai", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#615CFF"/><text x="9" y="35" fill="white" font-size="22" font-weight="700" font-family="sans-serif">Qw</text></svg>` },
+          { label: "Kimi", url: "https://kimi.moonshot.cn", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="25" fill="#1A1A2E"/><circle cx="25" cy="20" r="8" fill="#7B61FF"/><path d="M12 38c0-7.18 5.82-13 13-13s13 5.82 13 13" stroke="#7B61FF" stroke-width="3" stroke-linecap="round"/></svg>` },
+          { label: "Grok", url: "https://grok.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="black"/><text x="8" y="36" fill="white" font-size="26" font-weight="900" font-family="sans-serif">𝕏</text></svg>` },
+          { label: "Manus", url: "https://manus.im", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#1E1E1E"/><text x="9" y="35" fill="white" font-size="20" font-weight="700" font-family="sans-serif">M</text></svg>` },
+        ]
+      },
+      {
+        label: "Search", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>`,
+        items: [
+          { label: "Google", url: "https://www.google.com", icon: `<svg viewBox="0 0 48 48" fill="none"><path d="M43.6 20H24v8h11.3C33.6 33.4 29.3 36 24 36a12 12 0 1 1 0-24c3 0 5.7 1.1 7.8 2.9L37.4 9A20 20 0 1 0 24 44c11 0 20-9 20-20 0-1.3-.1-2.7-.4-4z" fill="#FFC107"/><path d="M6.3 14.7l6.6 4.8A12 12 0 0 1 24 12c3 0 5.7 1.1 7.8 2.9L37.4 9A20 20 0 0 0 6.3 14.7z" fill="#FF3D00"/><path d="M24 44c5.2 0 9.9-1.9 13.5-5L31.8 34c-2 1.5-4.5 2-7.8 2a12 12 0 0 1-11.3-8l-6.6 5A20 20 0 0 0 24 44z" fill="#4CAF50"/><path d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.5 5.5l5.7 5a20 20 0 0 0 7-15.5c0-1.3-.1-2.7-.4-4z" fill="#1976D2"/></svg>` },
+          { label: "Bing", url: "https://www.bing.com", icon: `<svg viewBox="0 0 32 32" fill="none"><path d="M7 3l5 2v18l7-4 2-7-7-2-1-4 13 4v11l-13 7-6-3z" fill="#008373"/></svg>` },
+          { label: "DuckDuckGo", url: "https://duckduckgo.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="25" r="25" fill="#DE5833"/><circle cx="25" cy="22" r="12" fill="white"/><circle cx="22" cy="20" r="3" fill="#3D3D3D"/><circle cx="23" cy="19" r="1" fill="white"/></svg>` },
+          { label: "Yahoo", url: "https://www.yahoo.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#6001D2"/><text x="6" y="35" fill="white" font-size="22" font-weight="700" font-family="sans-serif">Y!</text></svg>` },
+        ]
+      },
+      {
+        label: "Email", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>`,
+        items: [
+          { label: "Gmail", url: "https://mail.google.com", icon: `<svg viewBox="0 0 48 48" fill="none"><path d="M0 8v32h48V8H0z" fill="white"/><path d="M0 8l24 16L48 8" stroke="#D44638" stroke-width="4"/><path d="M0 8v32l14-16L0 8z" fill="#C33929"/><path d="M48 8v32L34 24 48 8z" fill="#C33929"/></svg>` },
+          { label: "Outlook", url: "https://outlook.live.com", icon: `<svg viewBox="0 0 48 48" fill="none"><rect width="28" height="28" x="10" y="10" rx="4" fill="#0078D4"/><rect x="22" y="10" width="16" height="28" rx="2" fill="#0078D4"/><rect x="22" y="10" width="16" height="28" rx="2" fill="white" opacity="0.2"/><path d="M22 10h16l2 2v24l-2 2H22l-2-2V12l2-2z" fill="#0078D4"/><path d="M22 22l16-12" stroke="white" stroke-width="2"/><path d="M22 22l16 10" stroke="white" stroke-width="2"/></svg>` },
+          { label: "Yahoo Mail", url: "https://mail.yahoo.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#6001D2"/><path d="M10 15l10 14v10h10V29l10-14H10z" fill="white"/></svg>` },
+          { label: "ProtonMail", url: "https://mail.proton.me", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#6D4AFF"/><path d="M10 15h15c8 0 12 4 12 10s-4 10-12 10H20v10H10V15zm10 12h5c3 0 5-1 5-2s-2-2-5-2h-5v4z" fill="white"/></svg>` },
+        ]
+      },
+      {
+        label: "Music", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`,
+        items: [
+          { label: "Spotify", url: "https://open.spotify.com", icon: `<svg viewBox="0 0 168 168" fill="none"><circle cx="84" cy="84" r="84" fill="#1ED760"/><path d="M120.7 121.6c-1.6 2.6-4.9 3.4-7.5 1.8-20.6-12.6-46.5-15.4-77-8.4-2.9.7-5.9-1.1-6.6-4.1-.7-2.9 1.1-5.9 4.1-6.6 33.4-7.6 62.1-4.4 85.3 9.8 2.6 1.6 3.4 4.9 1.7 7.5zm10.2-22.5c-2 3.2-6.3 4.2-9.5 2.2-23.6-14.5-59.5-18.7-87.4-10.2-3.6 1.1-7.4-.9-8.5-4.5-1.1-3.6.9-7.4 4.5-8.5 31.8-9.7 71.2-5 98.7 11.5 3.2 2 4.2 6.3 2.2 9.5zm.9-23.4c-28.3-16.8-75-18.3-102-10.1-4.3 1.3-8.9-1.1-10.2-5.5-1.3-4.3 1.1-8.9 5.5-10.2 31-9.4 82.5-7.6 115.1 11.7 3.9 2.3 5.1 7.3 2.8 11.2-2.3 3.9-7.3 5.2-11.2 2.9z" fill="white"/></svg>` },
+          { label: "Apple Music", url: "https://music.apple.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="url(#apple-music-grad)"/><path d="M35 12H21v22c-1.2-.8-2.5-1-4-1-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6V20h9v-4l3-4z" fill="white"/><defs><linearGradient id="apple-music-grad" x1="0" y1="0" x2="50" y2="50"><stop offset="0%" stop-color="#FC5C7D"/><stop offset="100%" stop-color="#6A3093"/></linearGradient></defs></svg>` },
+          { label: "YouTube Music", url: "https://music.youtube.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="25" fill="#FF0000"/><polygon points="20,16 38,25 20,34" fill="white"/><circle cx="25" cy="25" r="8" fill="#FF0000"/><circle cx="25" cy="25" r="5" fill="white"/><circle cx="25" cy="25" r="2" fill="#FF0000"/></svg>` },
+          { label: "SoundCloud", url: "https://soundcloud.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#FF5500"/><path d="M8 28a2 2 0 0 0 4 0 2 2 0 0 0-4 0zm6-4a4 4 0 0 0 4 4h20a6 6 0 0 0 0-12 8 8 0 0 0-15 4 4 4 0 0 0-9 4z" fill="white"/></svg>` },
+        ]
+      },
+      {
+        label: "Social Media", icon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`,
+        items: [
+          { label: "Instagram", url: "https://www.instagram.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="12" fill="url(#ig-grad)"/><rect x="13" y="13" width="24" height="24" rx="6" stroke="white" stroke-width="2.5" fill="none"/><circle cx="25" cy="25" r="7" stroke="white" stroke-width="2.5" fill="none"/><circle cx="33" cy="17" r="2" fill="white"/><defs><linearGradient id="ig-grad" x1="0" y1="50" x2="50" y2="0"><stop offset="0%" stop-color="#F9CE34"/><stop offset="30%" stop-color="#EE2A7B"/><stop offset="70%" stop-color="#6228D7"/><stop offset="100%" stop-color="#4F5BD5"/></linearGradient></defs></svg>` },
+          { label: "Facebook", url: "https://www.facebook.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="#1877F2"/><path d="M34 25h-6v18h-6V25h-4v-6h4v-4c0-5 3-8 8-8h5v6h-3c-1.3 0-2 .7-2 2v4h6l-2 6z" fill="white"/></svg>` },
+          { label: "Twitter / X", url: "https://twitter.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="black"/><path d="M8 8h10l7 10 8-10h9L29 24l15 18H34L25 30l-9 12H7L21 26 8 8z" fill="white"/></svg>` },
+          { label: "LinkedIn", url: "https://www.linkedin.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#0A66C2"/><rect x="10" y="18" width="8" height="24" rx="1" fill="white"/><circle cx="14" cy="12" r="5" fill="white"/><path d="M24 18h7v3c1.5-2 4-3.5 7-3.5 5.5 0 9 3.5 9 9.5V42h-8V29c0-3-1-4.5-3.5-4.5S32 26 32 29v13h-8V18z" fill="white"/></svg>` },
+          { label: "TikTok", url: "https://www.tiktok.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="black"/><path d="M32 8h-6v24a6 6 0 1 1-6-6v-6a12 12 0 1 0 12 12V18c2 1.5 4.5 2 7 2v-6a8 8 0 0 1-7-6z" fill="white"/></svg>` },
+          { label: "WhatsApp", url: "https://web.whatsapp.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="25" r="25" fill="#25D366"/><path d="M25 12C17.8 12 12 17.8 12 25c0 2.3.6 4.5 1.7 6.4L12 38l6.8-1.7c1.8 1 3.9 1.6 6.2 1.6 7.2 0 13-5.8 13-13S32.2 12 25 12zm7 17.7c-.3.8-1.7 1.5-2.3 1.6-.6.1-1.2.1-1.8-.1-.4-.1-1-.3-1.7-.6-3-1.3-5-4.3-5.1-4.5-.1-.1-.9-1.2-.9-2.3 0-1.1.6-1.7.8-1.9.2-.2.4-.2.6-.2h.4c.2 0 .4 0 .6.5l.8 2c.1.2 0 .4-.1.5l-.5.6c-.1.1-.2.3-.1.5.5.8 1.1 1.5 1.8 2.1.8.7 1.6 1.1 2.5 1.4.2.1.4 0 .5-.1l.6-.7c.2-.2.3-.2.5-.1l2 .9c.2.1.4.2.4.4 0 .3-.2 1-.3 1.4z" fill="white"/></svg>` },
+          { label: "Telegram", url: "https://web.telegram.org", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="25" r="25" fill="#29B6F6"/><path d="M10 24l30-12-5 28-10-8-5 5V30l15-14-17 10z" fill="white"/></svg>` },
+          { label: "Discord", url: "https://discord.com/app", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="#5865F2"/><path d="M34 16c-2.5-1.2-5.2-2-8-2.3l-.5.9c2.4.6 4.6 1.6 6.5 3-3-1.5-6.4-2.2-10-2.2s-7 .7-10 2.2c1.9-1.4 4.1-2.4 6.5-3l-.5-.9c-2.8.3-5.5 1.1-8 2.3-3.2 8.5-3.5 16 0 21.3 2.3 2.9 5.4 4.2 8.5 4.2l1.5-1.8c-1.8-.5-3.5-1.4-5-2.7 3 2 6.5 3 10 3s7-.9 10-3c-1.5 1.3-3.2 2.2-5 2.7l1.5 1.8c3.1 0 6.2-1.3 8.5-4.2 3.5-5.3 3.2-12.8 0-21.3zM19 33c-1.7 0-3-1.5-3-3.5S17.3 26 19 26s3 1.5 3 3.5-1.3 3.5-3 3.5zm12 0c-1.7 0-3-1.5-3-3.5S29.3 26 31 26s3 1.5 3 3.5-1.3 3.5-3 3.5z" fill="white"/></svg>` },
+          { label: "Reddit", url: "https://www.reddit.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="25" r="25" fill="#FF4500"/><circle cx="37" cy="14" r="4" fill="#FF6534"/><circle cx="37" cy="14" r="2" fill="white"/><path d="M25 15c-6 0-11 5-11 11s5 11 11 11 11-5 11-11-5-11-11-11z" fill="white"/><circle cx="21" cy="24" r="2" fill="#FF4500"/><circle cx="29" cy="24" r="2" fill="#FF4500"/><path d="M21 30c1 1.5 2.5 2 4 2s3-.5 4-2" stroke="#FF4500" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>` },
+          { label: "YouTube", url: "https://www.youtube.com", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="10" fill="#FF0000"/><path d="M40 18s-.3-2.4-1.5-3.4C37 13.1 35.4 13 34.7 13c-4.7-.3-11.7-.3-11.7-.3s-7 0-11.7.3c-.7 0-2.3.1-3.8 1.6C6.3 15.6 6 18 6 18S5.7 20.7 5.7 23.5v2.5c0 2.7.3 5.5.3 5.5s.3 2.4 1.5 3.4c1.5 1.5 3.4 1.4 4.3 1.5C14.5 36.2 24 36.3 24 36.3s7 0 11.7-.4c.7-.1 2.3-.1 3.8-1.6 1.2-1 1.5-3.4 1.5-3.4s.3-2.7.3-5.5v-2.5C40.3 20.7 40 18 40 18zM21 29.5v-10l10 5-10 5z" fill="white"/></svg>` },
+          { label: "Pinterest", url: "https://www.pinterest.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="25" r="25" fill="#E60023"/><path d="M25 8C15.6 8 8 15.6 8 25c0 7.3 4.5 13.6 10.9 16.2-.1-1.3-.3-3.3.1-4.7l2-8.6s-.5-1-.5-2.5c0-2.3 1.3-4 3.3-4 1.6 0 2.3 1.2 2.3 2.6 0 1.6-1 4-1.5 6.2-.4 1.8 1 3.3 2.7 3.3 3.3 0 5.5-4.2 5.5-9.2 0-3.8-2.5-6.5-6.9-6.5-5 0-8.1 3.7-8.1 7.8 0 1.4.4 2.4 1.1 3.2.3.3.3.5.2.9l-.4 1.7c-.1.5-.5.7-.9.5-2.5-1-3.7-3.8-3.7-6.9 0-5.1 4.3-11.2 12.8-11.2 6.8 0 11.3 4.9 11.3 10.2 0 6.9-3.8 12-9.5 12-1.9 0-3.7-1-4.3-2.2l-1.2 4.7c-.4 1.6-1.5 3.5-2.4 4.7.9.3 1.8.4 2.7.4 9.4 0 17-7.6 17-17S34.4 8 25 8z" fill="white"/></svg>` },
+          { label: "Behance", url: "https://www.behance.net", icon: `<svg viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#1769FF"/><path d="M10 14h12c4 0 7 2 7 6 0 2.5-1 4-3 5 3 1 4.5 3 4.5 6 0 4.5-3.5 7-8.5 7H10V14zm6 9h5c2 0 3-1 3-2.5S23 18 21 18h-5v5zm0 9h6c2.5 0 4-1 4-3s-1.5-3-4-3h-6v6zm20-8h-8v-4h8v4zm3-7c-1-2.5-3.5-4-6.5-4-4 0-7 3.5-7 8s3 8 7 8c3.5 0 6-2 7-5h-5c-.5 1-1 1.5-2 1.5-1.5 0-2.5-1-2.5-2.5H40c0-.3 0-.7-.1-1 0-2.5-1.5-4.5-2.9-5z" fill="white"/></svg>` },
+          { label: "Dribbble", url: "https://dribbble.com", icon: `<svg viewBox="0 0 50 50" fill="none"><circle cx="25" cy="25" r="25" fill="#EA4C89"/><path d="M25 8a17 17 0 1 0 0 34A17 17 0 0 0 25 8zm11.4 7.8c2 2.5 3.2 5.6 3.5 9-5-.9-9.5-.6-13.3.7-1-2.2-2-4.3-3.2-6.3 4.4-2 9-2.7 13-3.4zM25 11.5c3 0 5.8 1 8 2.7-3.6.5-7.5 1.5-11.2 3.3-.8-1.5-1.7-2.9-2.7-4.3 1.8-.9 3.8-1.7 5.9-1.7zm-10.2 5c1 1.4 2 2.9 2.9 4.5-5 1.4-9.6 1.8-12.4 1.8.5-3.5 2.3-6.5 5.1-8.5 1.4.6 2.9 1.4 4.4 2.2zm-5.3 9.5c0-.5 0-1 .1-1.5 3-.1 8-.5 13.5-2.2.3.7.6 1.4.8 2.1-8 2.2-11.5 7.5-12 8.2a15.4 15.4 0 0 1-2.4-6.6zm15.5 14a15.4 15.4 0 0 1-9.7-5.2c.5-.6 3.7-5.5 11.8-7.8 1.8 4.8 2.6 9 3 12.2a15.2 15.2 0 0 1-5 .8zm7.7-1.8c-.3-2.9-1.1-7-2.8-11.5 3.4-.6 7-.5 11.5.5-.9 4.3-4 7.8-8.7 11z" fill="white"/></svg>` },
+        ]
+      },
     ];
+
+    const sectionsHTML = sections.map((section) => `
+      <div class="tab-picker-section">
+        <div class="tab-picker-section-header">
+          <span class="tab-picker-section-icon">${section.icon}</span>
+          <span class="tab-picker-section-label">${section.label}</span>
+        </div>
+        <div class="tab-picker-section-items">
+          ${section.items.map((p) => `
+            <button class="tab-picker-preset" data-url="${p.url}" data-label="${p.label}" type="button" title="${p.label}">
+              <span class="tab-picker-preset-icon">${p.icon}</span>
+              <span>${p.label}</span>
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
 
     return `
       <div class="tab-picker-head">Open new tab</div>
@@ -930,13 +1037,8 @@ export class Editor {
         </button>
       </div>
       <div class="tab-picker-panel hidden" data-panel="web">
-        <div class="tab-picker-presets">
-        ${presets.map((p) => `
-          <button class="tab-picker-preset" data-url="${p.url}" data-label="${p.label}" type="button">
-            <span class="tab-picker-preset-icon">${p.icon}</span>
-            <span>${p.label}</span>
-          </button>
-        `).join("")}
+        <div class="tab-picker-sections">
+          ${sectionsHTML}
         </div>
         <div class="tab-picker-divider"></div>
         <div class="tab-picker-custom">
