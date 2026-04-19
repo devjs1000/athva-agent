@@ -89,6 +89,12 @@ async function ensureUnlocked(reason: string): Promise<boolean> {
   const security = appSettings.security;
   if (!security?.enabled) return true;
   if (appUnlocked) return true;
+  return promptUnlock(reason);
+}
+
+async function promptUnlock(reason: string): Promise<boolean> {
+  const security = appSettings.security;
+  if (!security?.enabled) return true;
   const pinConfigured = !!(security.pinSalt && security.pinHash);
   const fpConfigured = !!security.fingerprintCredentialId;
   const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
@@ -132,6 +138,8 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
   const pinField = document.getElementById("unlock-pin-field")!;
   const pinEl = document.getElementById("unlock-dialog-pin") as HTMLInputElement;
   const errorEl = document.getElementById("unlock-dialog-error")!;
+  const fpHint = document.getElementById("unlock-fp-hint")!;
+  const fpHintText = document.getElementById("unlock-fp-hint-text")!;
   const okBtn = document.getElementById("unlock-dialog-ok") as HTMLButtonElement;
   const fpBtn = document.getElementById("unlock-dialog-fingerprint") as HTMLButtonElement;
   const cancelBtn = document.getElementById("unlock-dialog-cancel") as HTMLButtonElement;
@@ -143,10 +151,10 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
   const allowPin = security.method === "pin" || security.method === "pin_or_fingerprint";
   const allowFp = security.method === "fingerprint" || security.method === "pin_or_fingerprint";
 
-  // Show/hide elements based on method
   pinField.classList.toggle("hidden", !allowPin);
   okBtn.classList.toggle("hidden", !allowPin);
   fpBtn.classList.toggle("hidden", !allowFp);
+  fpHint.classList.add("hidden");
 
   fpBtn.disabled = !(allowFp && fpConfigured);
   okBtn.disabled = !(allowPin && pinConfigured);
@@ -161,6 +169,7 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
 
   return await new Promise((resolve) => {
     const fail = (message: string) => {
+      fpHint.classList.add("hidden");
       errorEl.textContent = message;
       errorEl.classList.remove("hidden");
     };
@@ -177,9 +186,13 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
 
     const onFingerprint = async () => {
       if (!allowFp) return;
-      if (!fpConfigured) return fail("Fingerprint is not set up in Settings.");
+      if (!fpConfigured) return fail("Touch ID is not set up in Settings.");
+      fpHint.classList.remove("hidden");
+      fpHintText.textContent = "Waiting for Touch ID…";
+      errorEl.classList.add("hidden");
       const ok = await verifyFingerprint().catch(() => false);
-      if (!ok) return fail("Fingerprint verification failed.");
+      fpHint.classList.add("hidden");
+      if (!ok) return fail("Touch ID verification failed. Try your PIN.");
       cleanup();
       resolve(true);
     };
@@ -199,6 +212,7 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
 
     function cleanup() {
       overlay.classList.add("hidden");
+      fpHint.classList.add("hidden");
       okBtn.removeEventListener("click", onOkClick);
       fpBtn.removeEventListener("click", onFpClick);
       cancelBtn.removeEventListener("click", onCancel);
@@ -206,9 +220,9 @@ async function showUnlockDialog(reason: string): Promise<boolean> {
       document.removeEventListener("keydown", onKey);
     }
 
-    // Auto-trigger fingerprint if that's the only method
-    if (allowFp && !allowPin && fpConfigured) {
-      setTimeout(() => void onFingerprint(), 120);
+    // Auto-trigger fingerprint whenever fp is configured (both fingerprint-only and pin_or_fingerprint)
+    if (allowFp && fpConfigured) {
+      setTimeout(() => void onFingerprint(), 150);
     } else {
       (allowPin && pinConfigured ? pinEl : cancelBtn).focus();
     }
@@ -410,11 +424,15 @@ async function openFileWithGuards(path: string, name: string, line?: number, col
   const fileName = name || path.split("/").pop() || "";
   const shouldProtectEnv = appSettings.security?.enabled && appSettings.security.protectEnvFiles;
   const isEnv = isEnvFileName(fileName);
-  if (shouldProtectEnv && isEnv && !appUnlocked) {
-    const masked = await invoke<string>("read_env_masked", { path }).catch(() => "********\n");
-    editor.openFileWithContent(path, name, masked, true);
-    fileExplorer.setActiveFile(path);
-    const ok = await ensureUnlocked("Unlock to reveal .env secrets");
+  if (shouldProtectEnv && isEnv) {
+    if (!appUnlocked) {
+      // Show masked content immediately, then prompt to unlock
+      const masked = await invoke<string>("read_env_masked", { path }).catch(() => "********\n");
+      editor.openFileWithContent(path, name, masked, true);
+      fileExplorer.setActiveFile(path);
+    }
+    // Always prompt for unlock when clicking an env file with protection enabled
+    const ok = await promptUnlock("Unlock to reveal .env secrets");
     if (ok) {
       await editor.reloadFile(path);
     }

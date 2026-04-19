@@ -103,18 +103,49 @@
 
       <!-- ========== App Unlock Dialog ========== -->
       <div id="unlock-dialog" class="dialog-overlay hidden">
-        <div class="dialog dialog-sm">
-          <h2 id="unlock-dialog-title">Unlock</h2>
-          <p id="unlock-dialog-message" class="confirm-msg">Enter PIN or use fingerprint to continue.</p>
-          <div id="unlock-pin-field" class="dialog-field">
-            <label for="unlock-dialog-pin">PIN</label>
-            <input id="unlock-dialog-pin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="••••" />
+        <div class="dialog unlock-dialog-card">
+          <div class="unlock-dialog-header">
+            <div class="unlock-icon-wrap">
+              <svg class="unlock-lock-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </div>
+            <div>
+              <h2 id="unlock-dialog-title" class="unlock-dialog-title">Unlock</h2>
+              <p id="unlock-dialog-message" class="unlock-dialog-subtitle">Enter your credentials to continue.</p>
+            </div>
           </div>
-          <p id="unlock-dialog-error" class="hint hidden"></p>
-          <div class="dialog-actions">
+          <div id="unlock-pin-field" class="unlock-pin-wrap">
+            <label class="unlock-pin-label" for="unlock-dialog-pin">PIN</label>
+            <input id="unlock-dialog-pin" class="unlock-pin-input" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="• • • •" />
+          </div>
+          <p id="unlock-dialog-error" class="unlock-error hidden"></p>
+          <div id="unlock-fp-hint" class="unlock-fp-hint hidden">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="unlock-fp-hint-icon">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke-opacity="0.3"/>
+              <path d="M12 6c-1.1 0-2 .4-2.7 1.1M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4M10 16.5c.6.3 1.3.5 2 .5"/>
+              <path d="M12 8v.01M8.5 14.5c.3 1 1 1.8 1.8 2.3"/>
+            </svg>
+            <span id="unlock-fp-hint-text">Waiting for Touch ID…</span>
+          </div>
+          <div class="unlock-dialog-actions">
             <button id="unlock-dialog-cancel" class="btn-secondary">Cancel</button>
-            <button id="unlock-dialog-fingerprint" class="btn-secondary">Use Fingerprint</button>
-            <button id="unlock-dialog-ok" class="btn-primary">Unlock</button>
+            <button id="unlock-dialog-fingerprint" class="unlock-fp-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke-opacity="0.4"/>
+                <path d="M12 6c-1.1 0-2 .4-2.7 1.1M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4M10 16.5c.6.3 1.3.5 2 .5"/>
+                <path d="M12 8v.01M8.5 14.5c.3 1 1 1.8 1.8 2.3"/>
+              </svg>
+              Touch ID
+            </button>
+            <button id="unlock-dialog-ok" class="btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+              </svg>
+              Unlock
+            </button>
           </div>
         </div>
       </div>
