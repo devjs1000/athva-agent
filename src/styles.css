@@ -6751,3 +6751,20 @@ body {
   position: relative;
   z-index: 1;
 }
+
+/* Make Ace editor background transparent so editor-bg-layer shows through.
+   Ace themes set background-color on .ace_editor and .ace_scroller via inline
+   or theme CSS — we override to transparent so our custom bg layer is visible. */
+#ace-editor .ace_editor,
+#ace-editor.ace_editor {
+  background-color: transparent !important;
+}
+
+#ace-editor .ace_scroller {
+  background-color: transparent !important;
+}
+
+#ace-editor .ace_gutter {
+  background-color: transparent !important;
+}
+
