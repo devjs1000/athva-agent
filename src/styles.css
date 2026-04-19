@@ -1758,6 +1758,50 @@ body {
   opacity: 0.75;
 }
 
+.tab-picker-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 5px 8px;
+}
+
+.tab-picker-search-icon {
+  width: 13px;
+  height: 13px;
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.tab-picker-search {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.tab-picker-search::placeholder {
+  color: rgba(255, 255, 255, 0.28);
+}
+
+.tab-picker-search-wrap:focus-within {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tab-picker-no-results {
+  padding: 12px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
 .tab-picker-sections {
   display: flex;
   flex-direction: column;

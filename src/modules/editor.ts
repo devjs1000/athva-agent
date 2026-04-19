@@ -870,6 +870,13 @@ export class Editor {
       if (this.activeWebLabel) {
         void invoke("hide_web_window", { label: this.activeWebLabel });
       }
+      const searchInput = this.tabPickerDropdown.querySelector<HTMLInputElement>(".tab-picker-search");
+      if (searchInput) {
+        searchInput.value = "";
+        this.tabPickerDropdown.querySelectorAll<HTMLElement>(".tab-picker-section, .tab-picker-preset").forEach((el) => { el.style.display = ""; });
+        const noResults = this.tabPickerDropdown.querySelector<HTMLElement>(".tab-picker-no-results");
+        if (noResults) noResults.classList.add("hidden");
+      }
       this.focusActiveTabPickerControl();
       return;
     }
@@ -1037,9 +1044,14 @@ export class Editor {
         </button>
       </div>
       <div class="tab-picker-panel hidden" data-panel="web">
+        <div class="tab-picker-search-wrap">
+          <svg class="tab-picker-search-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input class="tab-picker-search" type="text" placeholder="Search…" spellcheck="false" autocomplete="off" />
+        </div>
         <div class="tab-picker-sections">
           ${sectionsHTML}
         </div>
+        <div class="tab-picker-no-results hidden">No results</div>
         <div class="tab-picker-divider"></div>
         <div class="tab-picker-custom">
           <input class="tab-picker-input" type="url" placeholder="https://..." spellcheck="false" />
@@ -1100,6 +1112,28 @@ export class Editor {
       if (e.key === "Escape") {
         this.setTabPickerVisible(false);
       }
+    });
+
+    this.tabPickerDropdown.addEventListener("input", (e) => {
+      const search = e.target as HTMLElement;
+      if (!search.classList.contains("tab-picker-search")) return;
+      const query = (search as HTMLInputElement).value.trim().toLowerCase();
+      const sections = this.tabPickerDropdown.querySelectorAll<HTMLElement>(".tab-picker-section");
+      let anyVisible = false;
+      sections.forEach((section) => {
+        const presets = section.querySelectorAll<HTMLElement>(".tab-picker-preset");
+        let sectionVisible = false;
+        presets.forEach((preset) => {
+          const label = (preset.dataset.label ?? "").toLowerCase();
+          const show = !query || label.includes(query);
+          preset.style.display = show ? "" : "none";
+          if (show) sectionVisible = true;
+        });
+        section.style.display = sectionVisible ? "" : "none";
+        if (sectionVisible) anyVisible = true;
+      });
+      const noResults = this.tabPickerDropdown.querySelector<HTMLElement>(".tab-picker-no-results");
+      if (noResults) noResults.classList.toggle("hidden", anyVisible);
     });
   }
 
