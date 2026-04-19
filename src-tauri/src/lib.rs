@@ -9,6 +9,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
 use tauri::webview::PageLoadEvent;
+use tauri_plugin_opener::OpenerExt;
 
 // ── Project management ──
 
@@ -969,25 +970,67 @@ fn open_web_window(
 
     let builder = WebviewBuilder::new(&label, parsed)
         .user_agent(WEB_TAB_USER_AGENT)
+        .on_navigation(move |_url| {
+            // Allow all navigations inside the embedded webview.
+            // OAuth flows (e.g. Google login) work because WKWebView handles
+            // redirects natively; shell.open calls from page JS are denied by
+            // the ACL and safely swallowed by the site's catch handlers.
+            true
+        })
         .initialization_script(
-            r#"
-            // Mask WKWebView signals that Google uses to block embedded browser sign-in
-            Object.defineProperty(navigator, 'userAgent', {
-                get: () => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                configurable: false
-            });
-            Object.defineProperty(navigator, 'vendor', {
-                get: () => 'Google Inc.',
-                configurable: false
-            });
-            Object.defineProperty(navigator, 'platform', {
-                get: () => 'MacIntel',
-                configurable: false
-            });
-            // Remove window.webkit which signals WKWebView to Google
+            // Runs AFTER Tauri's own IPC init scripts (window.ipc + __TAURI_INTERNALS__
+            // are already set). Goals:
+            //   A) Spoof navigator so Google/Figma don't detect the embedded WKWebView.
+            //   B) Intercept fetch() so any ipc:// request silently fails with a
+            //      NetworkError instead of a CSP violation — Tauri's IPC then
+            //      automatically falls back to window.ipc.postMessage which works fine.
+            //   C) Keep window.ipc intact by capturing it before hiding window.webkit.
+            r#"(function () {
+            // ── A: capture the native bridge before hiding webkit ──────────────────
+            var _nativeSend = window.webkit
+                && window.webkit.messageHandlers
+                && window.webkit.messageHandlers.ipc
+                ? window.webkit.messageHandlers.ipc.postMessage.bind(window.webkit.messageHandlers.ipc)
+                : null;
+
+            // ── A: spoof navigator fingerprints ───────────────────────────────────
+            try { Object.defineProperty(navigator, 'userAgent', { get: function() { return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'; }, configurable: false }); } catch(_) {}
+            try { Object.defineProperty(navigator, 'vendor',    { get: function() { return 'Google Inc.'; }, configurable: false }); } catch(_) {}
+            try { Object.defineProperty(navigator, 'platform',  { get: function() { return 'MacIntel'; },   configurable: false }); } catch(_) {}
+
+            // ── A: hide window.webkit ─────────────────────────────────────────────
             try { delete window.webkit; } catch(_) {}
-            try { Object.defineProperty(window, 'webkit', { get: () => undefined, configurable: false }); } catch(_) {}
-            "#,
+            try { Object.defineProperty(window, 'webkit', { get: function() { return undefined; }, configurable: false }); } catch(_) {}
+
+            // ── A: re-expose window.ipc so Tauri fallback still works ─────────────
+            if (_nativeSend) {
+                try {
+                    Object.defineProperty(window, 'ipc', {
+                        value: Object.freeze({ postMessage: function(s) { _nativeSend(s); } }),
+                        writable: false, configurable: false
+                    });
+                } catch(_) {}
+            }
+
+            // ── B: intercept fetch to silently fail ipc:// requests ───────────────
+            // Sites like ChatGPT/Figma have a strict connect-src CSP that does not
+            // include ipc:. When Tauri's IPC tries fetch("ipc://localhost/cmd") it
+            // triggers a visible CSP violation in the console. We intercept those
+            // requests and reject them with a plain NetworkError so Tauri's built-in
+            // fallback (window.ipc.postMessage) takes over silently.
+            (function () {
+                var _origFetch = window.fetch;
+                window.fetch = function(input, init) {
+                    var url = typeof input === 'string' ? input
+                        : (input && typeof input.url === 'string') ? input.url
+                        : String(input);
+                    if (url.indexOf('ipc://') === 0 || url.indexOf('ipc:') === 0) {
+                        return Promise.reject(new TypeError('NetworkError: ipc scheme intercepted'));
+                    }
+                    return _origFetch.apply(this, arguments);
+                };
+            })();
+            })();"#,
         )
         .on_page_load(move |webview, payload| match payload.event() {
             PageLoadEvent::Started => {

@@ -1,4 +1,11 @@
 [[permission]]
+identifier = "allow-web-tab-commands"
+description = "Minimal commands needed by embedded web tab webviews"
+commands.allow = [
+  "report_web_media_state"
+]
+
+[[permission]]
 identifier = "allow-app-commands"
 description = "Allow all custom app commands"
 commands.allow = [
