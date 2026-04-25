@@ -1,6 +1,7 @@
 import "../monaco-env";
 import * as monaco from "monaco-editor";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { readFile, readDir } from "@tauri-apps/plugin-fs";
 import { listen } from "@tauri-apps/api/event";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
 import type { AISettings } from "./settings";
@@ -114,6 +115,14 @@ const EXT_LANGUAGE_MAP: Record<string, string> = {
 const EMMET_EXTS = new Set(["html", "htm", "jsx", "tsx"]);
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tiff", "avif"]);
 const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "avi", "mkv", "ogv"]);
+const MIME_MAP: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  gif: "image/gif", webp: "image/webp", ico: "image/x-icon",
+  bmp: "image/bmp", tiff: "image/tiff", avif: "image/avif",
+  svg: "image/svg+xml",
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+  avi: "video/x-msvideo", mkv: "video/x-matroska", ogv: "video/ogg",
+};
 const HTML_TAGS = new Set([
   "a", "article", "aside", "button", "canvas", "div", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
   "header", "hr", "img", "input", "label", "li", "link", "main", "meta", "nav", "ol", "option", "p", "section",
@@ -163,6 +172,8 @@ export class Editor {
   private svgPreviewEl: HTMLElement = document.createElement("div");
   private svgToggleBtn: HTMLElement = document.createElement("button");
   private svgPreviewActive = false;
+  /** Project roots for which we have already loaded node_modules types into Monaco */
+  private projectTypesLoaded: Set<string> = new Set();
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -333,9 +344,11 @@ export class Editor {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
-      tsLang.typescriptDefaults.setCompilerOptions({
+      const tsCompilerOpts = {
         target: tsLang.ScriptTarget.ESNext,
         module: tsLang.ModuleKind.ESNext,
+        // NodeNext lets the TS service resolve node_modules from addExtraLib-registered paths
+        moduleResolution: tsLang.ModuleResolutionKind.NodeNext ?? 99,
         jsx: tsLang.JsxEmit.ReactJSX,
         allowJs: true,
         checkJs: true,
@@ -345,17 +358,47 @@ export class Editor {
         strict: false,
         noEmit: true,
         skipLibCheck: true,
-      });
+      };
+      tsLang.typescriptDefaults.setCompilerOptions(tsCompilerOpts);
       tsLang.javascriptDefaults.setCompilerOptions({
         target: tsLang.ScriptTarget.ESNext,
+        moduleResolution: tsLang.ModuleResolutionKind.NodeNext ?? 99,
         jsx: tsLang.JsxEmit.ReactJSX,
         allowJs: true,
         esModuleInterop: true,
       });
+
+      // Suppress errors that are always false positives in Monaco's sandboxed environment.
+      // Monaco has no access to node_modules on disk until we explicitly load them.
+      //   2307 — Cannot find module 'X'
+      //   2875 — JSX tag requires 'react/jsx-runtime' path (suppressed until types load)
+      //   7016 — Could not find declaration file for module
+      //   2580 — Cannot find name 'require' (Node.js global)
+      //   2591 — Cannot find name 'module'
+      //   2593 — Cannot find name 'exports'
+      //   2669 — Augmentations for global scope nesting
+      const diagnosticCodesToIgnore = [2307, 2875, 7016, 2580, 2591, 2593, 2669];
       tsLang.typescriptDefaults.setDiagnosticsOptions({
         noSemanticValidation: false,
         noSyntaxValidation: false,
+        diagnosticCodesToIgnore,
       });
+      tsLang.javascriptDefaults.setDiagnosticsOptions({
+        noSemanticValidation: false,
+        noSyntaxValidation: false,
+        diagnosticCodesToIgnore,
+      });
+
+      // Inject minimal Node.js ambient globals so `process`, `Buffer`, `__dirname` etc. resolve
+      tsLang.typescriptDefaults.addExtraLib(
+        `declare var process: { env: Record<string, string | undefined>; argv: string[]; cwd(): string; exit(code?: number): never; platform: string; version: string; versions: Record<string, string>; };
+         declare var __dirname: string;
+         declare var __filename: string;
+         declare function require(id: string): any;
+         declare var Buffer: any;
+         declare var global: typeof globalThis;`,
+        "ts:injected/node-globals.d.ts"
+      );
     }
 
     monaco.editor.defineTheme("athva-dark", {
@@ -652,14 +695,14 @@ export class Editor {
     this.svgToggleBtn.classList.add("hidden");
     this.svgPreviewActive = false;
 
-    // Image preview
+    // Image preview — read binary → base64 data URL (asset:// protocol not configured)
     if (IMAGE_EXTS.has(ext)) {
       this.editorEl.style.display = "none";
       this.mediaPreviewEl.classList.remove("hidden");
-      const src = convertFileSrc(path);
-      this.mediaPreviewEl.innerHTML = `<img src="${src}" alt="${tab.name}" class="media-preview-img" />`;
+      this.mediaPreviewEl.innerHTML = `<span class="media-preview-loading">Loading…</span>`;
       this.updateProtectedBanner(tab);
       this.renderTabs();
+      void this.loadMediaPreview(path, ext, "img");
       return;
     }
 
@@ -667,10 +710,10 @@ export class Editor {
     if (VIDEO_EXTS.has(ext)) {
       this.editorEl.style.display = "none";
       this.mediaPreviewEl.classList.remove("hidden");
-      const src = convertFileSrc(path);
-      this.mediaPreviewEl.innerHTML = `<video src="${src}" controls class="media-preview-video"></video>`;
+      this.mediaPreviewEl.innerHTML = `<span class="media-preview-loading">Loading…</span>`;
       this.updateProtectedBanner(tab);
       this.renderTabs();
+      void this.loadMediaPreview(path, ext, "video");
       return;
     }
 
@@ -699,6 +742,11 @@ export class Editor {
       tabSize: this.currentSettings.tabSize,
       readOnly: !!tab.lockedView,
     });
+
+    // Load node_modules types for TS/JS files (async, does nothing if already loaded for this project)
+    if (language === "typescript" || language === "javascript") {
+      void this.loadProjectTypesForFile(path);
+    }
 
     this.updateProtectedBanner(tab);
     this.renderTabs();
@@ -729,6 +777,135 @@ export class Editor {
       this.monacoEditor.focus();
     }
   }
+
+  private async loadMediaPreview(path: string, ext: string, kind: "img" | "video") {
+    // Only render if this path is still the active tab
+    if (this.activeTab !== path) return;
+    try {
+      const bytes = await readFile(path);
+      if (this.activeTab !== path) return; // guard against tab switch during load
+      const mime = MIME_MAP[ext] ?? (kind === "video" ? "video/mp4" : "image/png");
+      const b64 = btoa(
+        Array.from(new Uint8Array(bytes), (b) => String.fromCharCode(b)).join("")
+      );
+      const src = `data:${mime};base64,${b64}`;
+      if (kind === "img") {
+        this.mediaPreviewEl.innerHTML = `<img src="${src}" alt="${path.split("/").pop()}" class="media-preview-img" />`;
+      } else {
+        this.mediaPreviewEl.innerHTML = `<video src="${src}" controls class="media-preview-video"></video>`;
+      }
+    } catch (e) {
+      if (this.activeTab !== path) return;
+      this.mediaPreviewEl.innerHTML = `<span class="media-preview-error">Failed to load preview: ${e}</span>`;
+    }
+  }
+
+  // ─── Project type loader ────────────────────────────────────────────────────
+  // Reads .d.ts files from the project's node_modules and registers them with
+  // Monaco's TypeScript language service so completions and hover info work.
+
+  private async loadProjectTypesForFile(filePath: string): Promise<void> {
+    const projectRoot = await this.findProjectRoot(filePath);
+    if (!projectRoot || this.projectTypesLoaded.has(projectRoot)) return;
+    this.projectTypesLoaded.add(projectRoot); // mark before async work to prevent double-load
+
+    let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    try {
+      const raw = await invoke<string>("read_file", { path: `${projectRoot}/package.json` });
+      pkg = JSON.parse(raw);
+    } catch {
+      return; // No package.json — not a node project
+    }
+
+    const deps = [
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.devDependencies ?? {}),
+    ];
+
+    // Load each package's types concurrently (errors are swallowed per-package)
+    await Promise.allSettled(deps.map((d) => this.loadPackageTypes(projectRoot, d)));
+  }
+
+  private async findProjectRoot(filePath: string): Promise<string | null> {
+    const segments = filePath.split("/");
+    for (let i = segments.length - 1; i > 0; i--) {
+      const dir = segments.slice(0, i).join("/");
+      try {
+        await invoke<string>("read_file", { path: `${dir}/package.json` });
+        return dir;
+      } catch { /* keep walking up */ }
+    }
+    return null;
+  }
+
+  private async loadPackageTypes(projectRoot: string, pkgName: string): Promise<void> {
+    // Normalize for @types lookup: "@scope/pkg" → "scope__pkg"
+    const typesKey = pkgName.startsWith("@")
+      ? pkgName.slice(1).replace("/", "__")
+      : pkgName;
+
+    const dirsToScan = [
+      `${projectRoot}/node_modules/@types/${typesKey}`,   // @types/* (highest priority)
+      `${projectRoot}/node_modules/${pkgName}`,            // package own types
+    ];
+
+    for (const dir of dirsToScan) {
+      await this.loadDtsFromDir(dir, 0);
+    }
+  }
+
+  private async loadDtsFromDir(dir: string, depth: number): Promise<void> {
+    if (depth > 3) return;
+    let entries: { name: string; isFile: boolean; isDirectory: boolean }[];
+    try {
+      entries = await readDir(dir);
+    } catch {
+      return; // dir doesn't exist
+    }
+
+    const tasks: Promise<void>[] = [];
+    for (const entry of entries) {
+      if (entry.isFile && entry.name.endsWith(".d.ts")) {
+        tasks.push(this.registerDts(`${dir}/${entry.name}`));
+      } else if (
+        entry.isDirectory &&
+        depth < 3 &&
+        entry.name !== "node_modules" &&
+        !entry.name.startsWith(".")
+      ) {
+        tasks.push(this.loadDtsFromDir(`${dir}/${entry.name}`, depth + 1));
+      } else if (entry.isFile && entry.name === "package.json") {
+        // Register package.json so TS resolver can find the "types" field
+        tasks.push(this.registerPackageJson(`${dir}/${entry.name}`));
+      }
+    }
+    await Promise.allSettled(tasks);
+  }
+
+  private async registerDts(filePath: string): Promise<void> {
+    try {
+      const content = await invoke<string>("read_file", { path: filePath });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tsLang = (monaco.languages as any).typescript as any;
+      if (!tsLang) return;
+      const uri = `file://${filePath}`;
+      tsLang.typescriptDefaults.addExtraLib(content, uri);
+      tsLang.javascriptDefaults.addExtraLib(content, uri);
+    } catch { /* unreadable file — skip */ }
+  }
+
+  private async registerPackageJson(filePath: string): Promise<void> {
+    try {
+      const content = await invoke<string>("read_file", { path: filePath });
+      // Monaco's TS service reads package.json to resolve the "types"/"typings" field
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tsLang = (monaco.languages as any).typescript as any;
+      if (!tsLang) return;
+      const uri = `file://${filePath}`;
+      tsLang.typescriptDefaults.addExtraLib(content, uri);
+    } catch { /* skip */ }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   private getEditorContainerBounds(): { x: number; y: number; width: number; height: number } {
     const container = document.getElementById("editor-container") ?? this.editorEl.parentElement!;

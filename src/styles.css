@@ -2110,6 +2110,12 @@ body {
   display: none;
 }
 
+.media-preview-loading,
+.media-preview-error {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .media-preview-img {
   max-width: 100%;
   max-height: 100%;
