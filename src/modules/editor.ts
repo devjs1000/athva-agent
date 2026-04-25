@@ -8,6 +8,7 @@ import { renderMarkdown } from "./markdown-renderer";
 import { TodoPanel } from "./todo-panel";
 import { DocumentEditor } from "./doc-editor";
 import { renderCSVPreview, renderFlowPreview, renderTextPreview, renderXlsxPreview } from "./preview-renderers";
+import { ColorHighlighter } from "./color-highlighter";
 import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
@@ -187,6 +188,8 @@ export class Editor {
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
   private readonly importableSourceExts = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
+  //@ts-ignore — holds reference to prevent GC; lifecycle managed internally
+  private colorHighlighter: ColorHighlighter | null = null;
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -359,6 +362,9 @@ export class Editor {
 
     // Attach AI ghost text completer
     attachAICompleter(this.monacoEditor, this.editorEl);
+
+    // Inline color swatches + picker
+    this.colorHighlighter = new ColorHighlighter(this.monacoEditor);
 
     // Auto-save on change (debounced)
     this.monacoEditor.onDidChangeModelContent(() => {
