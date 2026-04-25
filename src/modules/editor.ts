@@ -145,6 +145,12 @@ interface EmmetNode {
   repeat: number;
 }
 
+interface ProjectCompilerConfig {
+  baseUrl?: string;
+  paths?: Record<string, string[]>;
+  typeRoots?: string[];
+}
+
 export class Editor {
   private monacoEditor: monaco.editor.IStandaloneCodeEditor;
   private models: Map<string, monaco.editor.ITextModel> = new Map();
@@ -188,6 +194,10 @@ export class Editor {
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
   private readonly importableSourceExts = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
+  private readonly importableSourceSuffixRe = /\.(?:[cm]?[jt]sx?)$/;
+  private readonly projectDependencyCache: Map<string, string[]> = new Map();
+  private readonly projectSourceFileCache: Map<string, string[]> = new Map();
+  private readonly projectCompilerConfigCache: Map<string, ProjectCompilerConfig> = new Map();
   //@ts-ignore — holds reference to prevent GC; lifecycle managed internally
   private colorHighlighter: ColorHighlighter | null = null;
 
@@ -197,6 +207,7 @@ export class Editor {
     this.editorEl = document.getElementById(editorId)!;
 
     this.setupMonacoDefaults();
+    this.registerImportPathCompletionProvider();
 
     this.monacoEditor = monaco.editor.create(this.editorEl, {
       value: "",
@@ -215,7 +226,11 @@ export class Editor {
       renderWhitespace: "none",
       readOnly: false,
       suggestOnTriggerCharacters: true,
-      quickSuggestions: true,
+      quickSuggestions: {
+        other: "on",
+        comments: "off",
+        strings: "on",
+      },
       parameterHints: { enabled: true },
       hover: { enabled: true, delay: 600 },
       links: false,
@@ -397,10 +412,7 @@ export class Editor {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
-      // Bundler (100) = TypeScript 5.0+ mode designed for webpack/Vite/Turbopack projects.
-      // It does NOT require explicit file extensions on relative imports (unlike NodeNext=99).
-      // Falls back to Node (2) for older Monaco/TS builds.
-      const moduleResolution = tsLang.ModuleResolutionKind?.Bundler ?? tsLang.ModuleResolutionKind?.Node ?? 2;
+      const moduleResolution = tsLang.ModuleResolutionKind?.NodeJs ?? tsLang.ModuleResolutionKind?.Node ?? 2;
       // Use hardcoded 4 = ReactJSX as safety fallback — never let jsx be undefined/0 (None)
       const jsxEmit = tsLang.JsxEmit?.ReactJSX ?? 4;
 
@@ -408,12 +420,18 @@ export class Editor {
         target: tsLang.ScriptTarget?.ESNext ?? 99,
         module: tsLang.ModuleKind?.ESNext ?? 99,
         moduleResolution,
+        allowNonTsExtensions: true,
         jsx: jsxEmit,
         allowJs: true,
         checkJs: true,
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
         resolveJsonModule: true,
+        baseUrl: "file:///",
+        typeRoots: ["node_modules/@types"],
+        paths: {
+          "*": ["node_modules/*"],
+        },
         strict: false,
         noEmit: true,
         skipLibCheck: true,
@@ -422,6 +440,11 @@ export class Editor {
       tsLang.javascriptDefaults.setCompilerOptions({
         target: tsLang.ScriptTarget?.ESNext ?? 99,
         moduleResolution,
+        allowNonTsExtensions: true,
+        baseUrl: "file:///",
+        paths: {
+          "*": ["node_modules/*"],
+        },
         jsx: jsxEmit,
         allowJs: true,
         esModuleInterop: true,
@@ -530,6 +553,28 @@ export class Editor {
     for (const lang of languages) {
       monaco.languages.registerCompletionItemProvider(lang, provider);
     }
+  }
+
+  private registerImportPathCompletionProvider() {
+    this.addCompletionProvider(["typescript", "javascript"], {
+      triggerCharacters: ['"', "'", "/", "@", "."],
+      provideCompletionItems: async (model, position) => {
+        const context = this.getImportStringContext(model, position);
+        if (!context) return { suggestions: [] };
+
+        const filePath = decodeURIComponent(model.uri.path);
+        const projectRoot = await this.findProjectRoot(filePath);
+        if (!projectRoot) return { suggestions: [] };
+
+        const suggestions = await this.buildImportPathSuggestions(
+          projectRoot,
+          filePath,
+          context.value,
+          context.range
+        );
+        return { suggestions };
+      },
+    });
   }
 
   applySettings(settings: EditorSettings) {
@@ -752,7 +797,7 @@ export class Editor {
       // Set up Monaco with current content
       const ext = tab.name.split(".").pop()?.toLowerCase() || "";
       const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
-      const uri = monaco.Uri.parse("file://" + path);
+      const uri = monaco.Uri.file(path);
 
       let model = this.models.get(path);
       if (!model) {
@@ -938,7 +983,7 @@ export class Editor {
     }
 
     const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
-    const uri = monaco.Uri.parse("file://" + path);
+    const uri = monaco.Uri.file(path);
 
     let model = this.models.get(path) ?? monaco.editor.getModel(uri);
     if (!model) {
@@ -1106,18 +1151,26 @@ export class Editor {
       ...Object.keys(pkg.dependencies ?? {}),
       ...Object.keys(pkg.devDependencies ?? {}),
     ];
+    this.projectDependencyCache.set(projectRoot, deps.sort((a, b) => a.localeCompare(b)));
+    const projectCompilerConfig = await this.loadProjectCompilerConfig(projectRoot);
 
     // Load each package's types concurrently (errors are swallowed per-package)
     await Promise.allSettled(deps.map((d) => this.loadPackageTypes(projectRoot, d)));
     await this.loadProjectSourceModels(projectRoot, filePath);
 
-    // Set baseUrl to the project root so TypeScript's module resolver can find
-    // node_modules from the registered file:// paths (e.g. "react" → node_modules/@types/react)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
       const patchOpts = (defaults: any) => {
-        defaults.setCompilerOptions({ ...defaults.getCompilerOptions(), baseUrl: projectRoot });
+        defaults.setCompilerOptions({
+          ...defaults.getCompilerOptions(),
+          baseUrl: projectCompilerConfig.baseUrl ?? monaco.Uri.file(projectRoot).toString(),
+          typeRoots: projectCompilerConfig.typeRoots ?? ["node_modules/@types"],
+          paths: {
+            "*": ["node_modules/*"],
+            ...(projectCompilerConfig.paths ?? {}),
+          },
+        });
       };
       patchOpts(tsLang.typescriptDefaults);
       patchOpts(tsLang.javascriptDefaults);
@@ -1125,7 +1178,7 @@ export class Editor {
   }
 
   private async loadProjectSourceModels(projectRoot: string, activeFilePath: string): Promise<void> {
-    const sourceFiles = await this.collectProjectSourceFiles(projectRoot, 0, []);
+    const sourceFiles = await this.getProjectSourceFiles(projectRoot);
     const tasks = sourceFiles
       .filter((filePath) => filePath !== activeFilePath && !this.models.has(filePath))
       .map(async (filePath) => {
@@ -1133,7 +1186,7 @@ export class Editor {
           const content = await invoke<string>("read_file", { path: filePath });
           const ext = filePath.split(".").pop()?.toLowerCase() || "";
           const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
-          const uri = monaco.Uri.parse(`file://${filePath}`);
+          const uri = monaco.Uri.file(filePath);
           const existingModel = monaco.editor.getModel(uri);
           if (existingModel) {
             this.models.set(filePath, existingModel);
@@ -1147,6 +1200,16 @@ export class Editor {
       });
 
     await Promise.allSettled(tasks);
+  }
+
+  private async getProjectSourceFiles(projectRoot: string): Promise<string[]> {
+    const cached = this.projectSourceFileCache.get(projectRoot);
+    if (cached) return cached;
+
+    const files = await this.collectProjectSourceFiles(projectRoot, 0, []);
+    files.sort((a, b) => a.localeCompare(b));
+    this.projectSourceFileCache.set(projectRoot, files);
+    return files;
   }
 
   private async collectProjectSourceFiles(
@@ -1186,7 +1249,6 @@ export class Editor {
       }
 
       if (!entry.isFile) continue;
-      if (entry.name.endsWith(".d.ts")) continue;
 
       const ext = entry.name.split(".").pop()?.toLowerCase() || "";
       if (this.importableSourceExts.has(ext)) files.push(path);
@@ -1194,6 +1256,249 @@ export class Editor {
 
     await Promise.allSettled(tasks);
     return files;
+  }
+
+  private getImportStringContext(
+    model: monaco.editor.ITextModel,
+    position: monaco.Position
+  ): { value: string; range: monaco.IRange } | null {
+    const linePrefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+    const patterns = [
+      /(?:^|\s)import\s+['"]([^'"]*)$/,
+      /(?:from\s*|import\s*\(\s*)['"]([^'"]*)$/,
+      /(?:export\s+\*\s+from\s*|export\s+\{[^}]*\}\s+from\s*)['"]([^'"]*)$/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = linePrefix.match(pattern);
+      if (!match) continue;
+      const value = match[1] ?? "";
+      return {
+        value,
+        range: {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: position.column - value.length,
+          endColumn: position.column,
+        },
+      };
+    }
+
+    return null;
+  }
+
+  private async buildImportPathSuggestions(
+    projectRoot: string,
+    filePath: string,
+    typedValue: string,
+    range: monaco.IRange
+  ): Promise<monaco.languages.CompletionItem[]> {
+    const [dependencyNames, sourceFiles, projectCompilerConfig] = await Promise.all([
+      this.getProjectDependencyNames(projectRoot),
+      this.getProjectSourceFiles(projectRoot),
+      this.loadProjectCompilerConfig(projectRoot),
+    ]);
+
+    const suggestions: monaco.languages.CompletionItem[] = [];
+    const seen = new Set<string>();
+    const normalizedTyped = typedValue.trim();
+    const currentDir = filePath.slice(0, Math.max(0, filePath.lastIndexOf("/")));
+    const includeDependencies =
+      !normalizedTyped ||
+      (!normalizedTyped.startsWith(".") &&
+        !normalizedTyped.startsWith("/"));
+
+    const pushSuggestion = (
+      label: string,
+      detail: string,
+      kind: monaco.languages.CompletionItemKind,
+      rank: string
+    ) => {
+      if (!label || seen.has(label)) return;
+      if (normalizedTyped && !label.toLowerCase().startsWith(normalizedTyped.toLowerCase())) return;
+      seen.add(label);
+      suggestions.push({
+        label,
+        kind,
+        detail,
+        insertText: label,
+        range,
+        sortText: `${rank}:${label}`,
+      });
+    };
+
+    if (includeDependencies) {
+      dependencyNames.forEach((name) => {
+        pushSuggestion(name, "dependency", monaco.languages.CompletionItemKind.Module, "0");
+      });
+    }
+
+    sourceFiles.forEach((sourceFile) => {
+      if (sourceFile === filePath) return;
+
+      const aliasSpecifiers = this.buildAliasImportSpecifiers(sourceFile, projectRoot, projectCompilerConfig.paths);
+      aliasSpecifiers.forEach((aliasSpecifier) => {
+        if (!normalizedTyped || !aliasSpecifier.startsWith(".") && aliasSpecifier.toLowerCase().startsWith(normalizedTyped.toLowerCase())) {
+          pushSuggestion(aliasSpecifier, "path alias", monaco.languages.CompletionItemKind.Module, "1");
+        }
+      });
+
+      if (normalizedTyped.startsWith(".")) {
+        const relativeSpecifier = this.toRelativeImportSpecifier(currentDir, sourceFile);
+        pushSuggestion(relativeSpecifier, "relative module", monaco.languages.CompletionItemKind.File, "2");
+      }
+    });
+
+    return suggestions.slice(0, 200);
+  }
+
+  private async getProjectDependencyNames(projectRoot: string): Promise<string[]> {
+    const cached = this.projectDependencyCache.get(projectRoot);
+    if (cached) return cached;
+
+    try {
+      const raw = await invoke<string>("read_file", { path: `${projectRoot}/package.json` });
+      const pkg = JSON.parse(raw) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const deps = [
+        ...Object.keys(pkg.dependencies ?? {}),
+        ...Object.keys(pkg.devDependencies ?? {}),
+      ].sort((a, b) => a.localeCompare(b));
+      this.projectDependencyCache.set(projectRoot, deps);
+      return deps;
+    } catch {
+      return [];
+    }
+  }
+
+  private async loadProjectCompilerConfig(projectRoot: string): Promise<ProjectCompilerConfig> {
+    const cached = this.projectCompilerConfigCache.get(projectRoot);
+    if (cached) return cached;
+
+    const candidates = [`${projectRoot}/tsconfig.json`, `${projectRoot}/jsconfig.json`];
+    for (const filePath of candidates) {
+      try {
+        const raw = await invoke<string>("read_file", { path: filePath });
+        const parsed = this.parseConfigJson(raw) as { compilerOptions?: Record<string, unknown> };
+        const compilerOptions = parsed.compilerOptions ?? {};
+        const config: ProjectCompilerConfig = {
+          baseUrl: this.resolveConfigBaseUrl(projectRoot, compilerOptions.baseUrl),
+          paths: this.normalizeConfigPaths(compilerOptions.paths),
+          typeRoots: this.normalizeConfigTypeRoots(projectRoot, compilerOptions.typeRoots),
+        };
+        this.projectCompilerConfigCache.set(projectRoot, config);
+        return config;
+      } catch {
+        // Keep trying fallbacks.
+      }
+    }
+
+    const fallback: ProjectCompilerConfig = {
+      baseUrl: monaco.Uri.file(projectRoot).toString(),
+      paths: undefined,
+      typeRoots: ["node_modules/@types"],
+    };
+    this.projectCompilerConfigCache.set(projectRoot, fallback);
+    return fallback;
+  }
+
+  private parseConfigJson(raw: string): unknown {
+    const withoutComments = raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    const withoutTrailingCommas = withoutComments.replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(withoutTrailingCommas);
+  }
+
+  private resolveConfigBaseUrl(projectRoot: string, baseUrlValue: unknown): string | undefined {
+    if (typeof baseUrlValue !== "string" || !baseUrlValue.trim()) {
+      return monaco.Uri.file(projectRoot).toString();
+    }
+    const resolved = this.resolveProjectPath(projectRoot, baseUrlValue);
+    return monaco.Uri.file(resolved).toString();
+  }
+
+  private normalizeConfigPaths(value: unknown): Record<string, string[]> | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, rawValue]) => {
+        if (!Array.isArray(rawValue)) return null;
+        const next = rawValue.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+        return next.length ? [key, next] as const : null;
+      })
+      .filter((entry): entry is readonly [string, string[]] => Boolean(entry));
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+
+  private normalizeConfigTypeRoots(projectRoot: string, value: unknown): string[] | undefined {
+    if (!Array.isArray(value)) return ["node_modules/@types"];
+    const next = value
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.startsWith(".") ? this.resolveProjectPath(projectRoot, item) : item);
+    return next.length ? next : ["node_modules/@types"];
+  }
+
+  private resolveProjectPath(projectRoot: string, relativePath: string): string {
+    const base = projectRoot.replace(/\/+$/, "");
+    const segments = [...base.split("/").filter(Boolean)];
+    for (const part of relativePath.split("/")) {
+      if (!part || part === ".") continue;
+      if (part === "..") {
+        segments.pop();
+        continue;
+      }
+      segments.push(part);
+    }
+    return `/${segments.join("/")}`;
+  }
+
+  private buildAliasImportSpecifiers(
+    sourceFile: string,
+    projectRoot: string,
+    paths?: Record<string, string[]>
+  ): string[] {
+    if (!paths) return [];
+    const matches: string[] = [];
+
+    for (const [aliasPattern, targets] of Object.entries(paths)) {
+      if (!aliasPattern.includes("*")) continue;
+      const [aliasPrefix, aliasSuffix] = aliasPattern.split("*");
+
+      for (const targetPattern of targets) {
+        if (!targetPattern.includes("*")) continue;
+        const [targetPrefix, targetSuffix] = targetPattern.split("*");
+        const absolutePrefix = this.resolveProjectPath(projectRoot, targetPrefix);
+        const absoluteSuffix = targetSuffix ?? "";
+        if (!sourceFile.startsWith(absolutePrefix) || !sourceFile.endsWith(absoluteSuffix)) continue;
+
+        const inner = sourceFile
+          .slice(absolutePrefix.length, sourceFile.length - absoluteSuffix.length)
+          .replace(/^\/+/, "");
+        const specifier = `${aliasPrefix}${this.toImportSpecifier(inner)}${aliasSuffix ?? ""}`;
+        matches.push(specifier);
+      }
+    }
+
+    return [...new Set(matches)];
+  }
+
+  private toImportSpecifier(rawPath: string): string {
+    return rawPath.replace(this.importableSourceSuffixRe, "").replace(/\/index$/, "");
+  }
+
+  private toRelativeImportSpecifier(fromDir: string, toFile: string): string {
+    const fromParts = fromDir.split("/").filter(Boolean);
+    const toParts = toFile.split("/").filter(Boolean);
+    while (fromParts.length && toParts.length && fromParts[0] === toParts[0]) {
+      fromParts.shift();
+      toParts.shift();
+    }
+    const up = fromParts.map(() => "..");
+    const joined = [...up, ...toParts].join("/");
+    const relative = joined.startsWith(".") ? joined : `./${joined}`;
+    return this.toImportSpecifier(relative);
   }
 
   private async findProjectRoot(filePath: string): Promise<string | null> {
@@ -1215,16 +1520,22 @@ export class Editor {
       : pkgName;
 
     const dirsToScan = [
-      `${projectRoot}/node_modules/@types/${typesKey}`,   // @types/* (highest priority)
-      `${projectRoot}/node_modules/${pkgName}`,            // package own types
+      {
+        actualDir: `${projectRoot}/node_modules/@types/${typesKey}`,
+        virtualDir: `/node_modules/@types/${typesKey}`,
+      },
+      {
+        actualDir: `${projectRoot}/node_modules/${pkgName}`,
+        virtualDir: `/node_modules/${pkgName}`,
+      },
     ];
 
-    for (const dir of dirsToScan) {
-      await this.loadDtsFromDir(dir, 0);
+    for (const { actualDir, virtualDir } of dirsToScan) {
+      await this.loadDtsFromDir(actualDir, virtualDir, 0);
     }
   }
 
-  private async loadDtsFromDir(dir: string, depth: number): Promise<void> {
+  private async loadDtsFromDir(dir: string, virtualDir: string, depth: number): Promise<void> {
     if (depth > 3) return;
     let entries: { name: string; isFile: boolean; isDirectory: boolean }[];
     try {
@@ -1236,44 +1547,52 @@ export class Editor {
     const tasks: Promise<void>[] = [];
     for (const entry of entries) {
       if (entry.isFile && entry.name.endsWith(".d.ts")) {
-        tasks.push(this.registerDts(`${dir}/${entry.name}`));
+        tasks.push(
+          this.registerHiddenProjectModel(
+            `${dir}/${entry.name}`,
+            "typescript",
+            `${virtualDir}/${entry.name}`
+          )
+        );
       } else if (
         entry.isDirectory &&
         depth < 3 &&
         entry.name !== "node_modules" &&
         !entry.name.startsWith(".")
       ) {
-        tasks.push(this.loadDtsFromDir(`${dir}/${entry.name}`, depth + 1));
+        tasks.push(this.loadDtsFromDir(`${dir}/${entry.name}`, `${virtualDir}/${entry.name}`, depth + 1));
       } else if (entry.isFile && entry.name === "package.json") {
-        // Register package.json so TS resolver can find the "types" field
-        tasks.push(this.registerPackageJson(`${dir}/${entry.name}`));
+        tasks.push(
+          this.registerHiddenProjectModel(
+            `${dir}/${entry.name}`,
+            "json",
+            `${virtualDir}/${entry.name}`
+          )
+        );
       }
     }
     await Promise.allSettled(tasks);
   }
 
-  private async registerDts(filePath: string): Promise<void> {
+  private async registerHiddenProjectModel(
+    filePath: string,
+    language: string,
+    virtualPath?: string
+  ): Promise<void> {
     try {
-      const content = await invoke<string>("read_file", { path: filePath });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tsLang = (monaco.languages as any).typescript as any;
-      if (!tsLang) return;
-      const uri = `file://${filePath}`;
-      tsLang.typescriptDefaults.addExtraLib(content, uri);
-      tsLang.javascriptDefaults.addExtraLib(content, uri);
-    } catch { /* unreadable file — skip */ }
-  }
+      const uri = virtualPath
+        ? monaco.Uri.parse(`file://${virtualPath}`)
+        : monaco.Uri.file(filePath);
+      const existingModel = monaco.editor.getModel(uri);
+      if (existingModel) {
+        this.models.set(filePath, existingModel);
+        return;
+      }
 
-  private async registerPackageJson(filePath: string): Promise<void> {
-    try {
       const content = await invoke<string>("read_file", { path: filePath });
-      // Monaco's TS service reads package.json to resolve the "types"/"typings" field
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tsLang = (monaco.languages as any).typescript as any;
-      if (!tsLang) return;
-      const uri = `file://${filePath}`;
-      tsLang.typescriptDefaults.addExtraLib(content, uri);
-    } catch { /* skip */ }
+      const model = monaco.editor.createModel(content, language, uri);
+      this.models.set(filePath, model);
+    } catch { /* unreadable file — skip */ }
   }
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -1795,7 +2114,11 @@ export class Editor {
       });
       el.addEventListener("mousedown", (e) => {
         const me = e as MouseEvent;
-        if (me.button === 2) { me.preventDefault(); return; }
+        if (me.button === 2) {
+          me.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          return;
+        }
         if (me.button !== 0) return;
         if ((me.target as HTMLElement).closest(".editor-tab-close")) return;
 
@@ -1851,6 +2174,7 @@ export class Editor {
       el.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         e.stopPropagation();
+        window.getSelection()?.removeAllRanges();
         const path = (el as HTMLElement).dataset.path!;
         this.showTabContextMenu(e as MouseEvent, path);
       });

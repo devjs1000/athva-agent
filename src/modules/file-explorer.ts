@@ -123,9 +123,15 @@ export class FileExplorer {
         isDir: entry.is_dir,
         parentDir: dirPath,
       };
+      item.addEventListener("mousedown", (e) => {
+        if ((e as MouseEvent).button !== 2) return;
+        e.preventDefault();
+        window.getSelection()?.removeAllRanges();
+      });
       item.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         e.stopPropagation();
+        window.getSelection()?.removeAllRanges();
         this.contextMenu.show(e.clientX, e.clientY, menuTarget);
       });
 

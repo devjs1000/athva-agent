@@ -982,6 +982,8 @@ body {
   color: var(--text-primary);
   transition: background 0.05s;
   height: 22px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .tree-item:hover {
@@ -1038,6 +1040,8 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-left: 2px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .tree-children {
@@ -1533,6 +1537,7 @@ body {
     color 0.12s;
   position: relative;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .editor-tab.dragging {
@@ -1565,11 +1570,15 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .editor-tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .editor-tab:hover {
@@ -7520,4 +7529,3 @@ thead .md-td {
 #ace-editor .ace_gutter {
   background-color: transparent !important;
 }
-
