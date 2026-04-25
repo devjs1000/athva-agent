@@ -1401,6 +1401,7 @@ body {
   flex-direction: column;
   min-height: 100px;
   overflow: hidden;
+  position: relative;
 }
 
 /* ── Terminal Panel ── */
@@ -1473,6 +1474,46 @@ body {
 
 .editor-tabs:empty {
   display: none;
+}
+
+/* ── Undo / Redo toolbar ── */
+.editor-undo-redo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 6px;
+  z-index: 20;
+  background: linear-gradient(to left, #181a1f 70%, transparent);
+}
+
+.editor-undo-redo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.editor-undo-redo-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.editor-undo-redo-btn:active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .editor-tab {

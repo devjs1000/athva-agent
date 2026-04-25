@@ -214,6 +214,15 @@ export class Editor {
       () => this.monacoEditor.trigger("keyboard", "editor.action.triggerSuggest", null)
     );
 
+    // Explicit undo/redo — Tauri's WKWebView on macOS intercepts Cmd+Z at the system level
+    // before Monaco can handle it, so we bind it explicitly inside Monaco's command registry.
+    this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, () => this.undo());
+    this.monacoEditor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ,
+      () => this.redo()
+    );
+    this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, () => this.redo());
+
     // Tab key: try Emmet first, then let Monaco handle indent
     this.monacoEditor.onKeyDown((e) => {
       if (e.keyCode === monaco.KeyCode.Tab && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -278,6 +287,27 @@ export class Editor {
     this.svgToggleBtn.textContent = "Preview";
     this.svgToggleBtn.addEventListener("click", () => this.toggleSvgPreview());
     editorContainer.appendChild(this.svgToggleBtn);
+
+    // Undo / Redo toolbar — injected into the tab bar's parent (editor-top)
+    const editorTop = this.tabsContainer.parentElement;
+    if (editorTop) {
+      const undoRedoBar = document.createElement("div");
+      undoRedoBar.className = "editor-undo-redo";
+      undoRedoBar.innerHTML = `
+        <button class="editor-undo-redo-btn" id="editor-undo-btn" title="Undo (⌘Z)" aria-label="Undo">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+          </svg>
+        </button>
+        <button class="editor-undo-redo-btn" id="editor-redo-btn" title="Redo (⌘⇧Z)" aria-label="Redo">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/>
+          </svg>
+        </button>`;
+      editorTop.appendChild(undoRedoBar);
+      undoRedoBar.querySelector("#editor-undo-btn")!.addEventListener("click", () => this.undo());
+      undoRedoBar.querySelector("#editor-redo-btn")!.addEventListener("click", () => this.redo());
+    }
 
     // New tab picker dropdown
     this.tabPickerDropdown = document.createElement("div");
@@ -635,6 +665,16 @@ export class Editor {
     this.monacoEditor.focus();
   }
 
+  undo() {
+    this.monacoEditor.focus();
+    this.monacoEditor.trigger("keyboard", "undo", null);
+  }
+
+  redo() {
+    this.monacoEditor.focus();
+    this.monacoEditor.trigger("keyboard", "redo", null);
+  }
+
   setOnCreateEditorTab(callback: () => void) {
     this.onCreateEditorTab = callback;
   }
@@ -831,6 +871,18 @@ export class Editor {
 
     // Load each package's types concurrently (errors are swallowed per-package)
     await Promise.allSettled(deps.map((d) => this.loadPackageTypes(projectRoot, d)));
+
+    // Set baseUrl to the project root so TypeScript's module resolver can find
+    // node_modules from the registered file:// paths (e.g. "react" → node_modules/@types/react)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tsLang = (monaco.languages as any).typescript as any;
+    if (tsLang) {
+      const patchOpts = (defaults: any) => {
+        defaults.setCompilerOptions({ ...defaults.getCompilerOptions(), baseUrl: projectRoot });
+      };
+      patchOpts(tsLang.typescriptDefaults);
+      patchOpts(tsLang.javascriptDefaults);
+    }
   }
 
   private async findProjectRoot(filePath: string): Promise<string | null> {
