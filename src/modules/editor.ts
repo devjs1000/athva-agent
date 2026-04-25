@@ -193,6 +193,8 @@ export class Editor {
   private docEditorActive = false;
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
+  /** Virtual paths already registered via addExtraLib — prevents duplicate registration */
+  private readonly extraLibPaths: Set<string> = new Set();
   private readonly importableSourceExts = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
   private readonly importableSourceSuffixRe = /\.(?:[cm]?[jt]sx?)$/;
   private readonly projectDependencyCache: Map<string, string[]> = new Map();
@@ -412,7 +414,7 @@ export class Editor {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
-      const moduleResolution = tsLang.ModuleResolutionKind?.NodeJs ?? tsLang.ModuleResolutionKind?.Node ?? 2;
+      const moduleResolution = tsLang.ModuleResolutionKind?.Bundler ?? tsLang.ModuleResolutionKind?.Node ?? 2;
       // Use hardcoded 4 = ReactJSX as safety fallback — never let jsx be undefined/0 (None)
       const jsxEmit = tsLang.JsxEmit?.ReactJSX ?? 4;
 
@@ -427,11 +429,6 @@ export class Editor {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
         resolveJsonModule: true,
-        baseUrl: "file:///",
-        typeRoots: ["node_modules/@types"],
-        paths: {
-          "*": ["node_modules/*"],
-        },
         strict: false,
         noEmit: true,
         skipLibCheck: true,
@@ -441,10 +438,6 @@ export class Editor {
         target: tsLang.ScriptTarget?.ESNext ?? 99,
         moduleResolution,
         allowNonTsExtensions: true,
-        baseUrl: "file:///",
-        paths: {
-          "*": ["node_modules/*"],
-        },
         jsx: jsxEmit,
         allowJs: true,
         esModuleInterop: true,
@@ -1162,15 +1155,13 @@ export class Editor {
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
       const patchOpts = (defaults: any) => {
-        defaults.setCompilerOptions({
+        const opts: Record<string, unknown> = {
           ...defaults.getCompilerOptions(),
-          baseUrl: projectCompilerConfig.baseUrl ?? monaco.Uri.file(projectRoot).toString(),
-          typeRoots: projectCompilerConfig.typeRoots ?? ["node_modules/@types"],
-          paths: {
-            "*": ["node_modules/*"],
-            ...(projectCompilerConfig.paths ?? {}),
-          },
-        });
+          baseUrl: projectCompilerConfig.baseUrl ?? projectRoot,
+          typeRoots: projectCompilerConfig.typeRoots ?? [`${projectRoot}/node_modules/@types`],
+        };
+        if (projectCompilerConfig.paths) opts.paths = projectCompilerConfig.paths;
+        defaults.setCompilerOptions(opts);
       };
       patchOpts(tsLang.typescriptDefaults);
       patchOpts(tsLang.javascriptDefaults);
@@ -1396,9 +1387,9 @@ export class Editor {
     }
 
     const fallback: ProjectCompilerConfig = {
-      baseUrl: monaco.Uri.file(projectRoot).toString(),
+      baseUrl: projectRoot,
       paths: undefined,
-      typeRoots: ["node_modules/@types"],
+      typeRoots: [`${projectRoot}/node_modules/@types`],
     };
     this.projectCompilerConfigCache.set(projectRoot, fallback);
     return fallback;
@@ -1414,10 +1405,9 @@ export class Editor {
 
   private resolveConfigBaseUrl(projectRoot: string, baseUrlValue: unknown): string | undefined {
     if (typeof baseUrlValue !== "string" || !baseUrlValue.trim()) {
-      return monaco.Uri.file(projectRoot).toString();
+      return projectRoot;
     }
-    const resolved = this.resolveProjectPath(projectRoot, baseUrlValue);
-    return monaco.Uri.file(resolved).toString();
+    return this.resolveProjectPath(projectRoot, baseUrlValue);
   }
 
   private normalizeConfigPaths(value: unknown): Record<string, string[]> | undefined {
@@ -1541,19 +1531,13 @@ export class Editor {
     try {
       entries = await readDir(dir);
     } catch {
-      return; // dir doesn't exist
+      return;
     }
 
     const tasks: Promise<void>[] = [];
     for (const entry of entries) {
-      if (entry.isFile && entry.name.endsWith(".d.ts")) {
-        tasks.push(
-          this.registerHiddenProjectModel(
-            `${dir}/${entry.name}`,
-            "typescript",
-            `${virtualDir}/${entry.name}`
-          )
-        );
+      if (entry.isFile && (entry.name.endsWith(".d.ts") || entry.name === "package.json")) {
+        tasks.push(this.registerExtraLib(`${dir}/${entry.name}`, `${virtualDir}/${entry.name}`));
       } else if (
         entry.isDirectory &&
         depth < 3 &&
@@ -1561,38 +1545,24 @@ export class Editor {
         !entry.name.startsWith(".")
       ) {
         tasks.push(this.loadDtsFromDir(`${dir}/${entry.name}`, `${virtualDir}/${entry.name}`, depth + 1));
-      } else if (entry.isFile && entry.name === "package.json") {
-        tasks.push(
-          this.registerHiddenProjectModel(
-            `${dir}/${entry.name}`,
-            "json",
-            `${virtualDir}/${entry.name}`
-          )
-        );
       }
     }
     await Promise.allSettled(tasks);
   }
 
-  private async registerHiddenProjectModel(
-    filePath: string,
-    language: string,
-    virtualPath?: string
-  ): Promise<void> {
+  private async registerExtraLib(filePath: string, virtualPath: string): Promise<void> {
+    const libUri = `file://${virtualPath}`;
+    if (this.extraLibPaths.has(libUri)) return;
+    this.extraLibPaths.add(libUri);
     try {
-      const uri = virtualPath
-        ? monaco.Uri.parse(`file://${virtualPath}`)
-        : monaco.Uri.file(filePath);
-      const existingModel = monaco.editor.getModel(uri);
-      if (existingModel) {
-        this.models.set(filePath, existingModel);
-        return;
-      }
-
       const content = await invoke<string>("read_file", { path: filePath });
-      const model = monaco.editor.createModel(content, language, uri);
-      this.models.set(filePath, model);
-    } catch { /* unreadable file — skip */ }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tsLang = (monaco.languages as any).typescript as any;
+      if (tsLang) {
+        tsLang.typescriptDefaults.addExtraLib(content, libUri);
+        tsLang.javascriptDefaults.addExtraLib(content, libUri);
+      }
+    } catch { /* unreadable — skip */ }
   }
   // ────────────────────────────────────────────────────────────────────────────
 
