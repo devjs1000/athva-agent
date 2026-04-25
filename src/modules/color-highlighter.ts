@@ -126,6 +126,7 @@ export class ColorHighlighter {
   private colors: ColorMatch[] = [];
   private pending: ColorMatch | null = null;
   private debounceId: ReturnType<typeof setTimeout> | null = null;
+  private hideTimerId: ReturnType<typeof setTimeout> | null = null;
   private disposables: monaco.IDisposable[] = [];
   private _domHandler: (e: MouseEvent) => void;
   private _outsideHandler: (e: MouseEvent) => void;
@@ -152,9 +153,16 @@ export class ColorHighlighter {
     document.body.appendChild(this.popup);
 
     this.popupInput = this.popup.querySelector(".ch-picker-input") as HTMLInputElement;
-    this.popupInput.addEventListener("input", () => this.applyColor(this.popupInput.value));
+    this.popupInput.addEventListener("input", () => {
+      this.cancelHideTimer(); // keep popup alive while OS picker is active
+      this.applyColor(this.popupInput.value);
+    });
 
-    // Close popup when clicking outside
+    // Hide after mouse leaves the popup (with a short grace delay)
+    this.popup.addEventListener("mouseleave", () => this.scheduleHide(600));
+    this.popup.addEventListener("mouseenter", () => this.cancelHideTimer());
+
+    // Also close on outside click as a fallback
     this._outsideHandler = (e: MouseEvent) => {
       if (!this.popup.contains(e.target as Node)) this.hidePopup();
     };
@@ -251,6 +259,15 @@ export class ColorHighlighter {
 
   // ── Popup ──────────────────────────────────────────────────────────────────
 
+  private scheduleHide(ms: number) {
+    this.cancelHideTimer();
+    this.hideTimerId = setTimeout(() => this.hidePopup(), ms);
+  }
+
+  private cancelHideTimer() {
+    if (this.hideTimerId) { clearTimeout(this.hideTimerId); this.hideTimerId = null; }
+  }
+
   private showPopup(color: ColorMatch, x: number, y: number) {
     this.pending = color;
     this.popupInput.value = color.hex.slice(0, 7);
@@ -272,6 +289,7 @@ export class ColorHighlighter {
   }
 
   private hidePopup() {
+    this.cancelHideTimer();
     this.popup.classList.remove("ch-picker-popup--visible");
     this.pending = null;
   }
@@ -326,6 +344,7 @@ export class ColorHighlighter {
 
   dispose() {
     if (this.debounceId) clearTimeout(this.debounceId);
+    this.cancelHideTimer();
     this.disposables.forEach(d => d.dispose());
     this.editor.getContainerDomNode().removeEventListener("mousedown", this._domHandler, true);
     document.removeEventListener("mousedown", this._outsideHandler);
