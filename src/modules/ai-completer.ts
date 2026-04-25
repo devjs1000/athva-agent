@@ -9,11 +9,12 @@ type GetAISettings = () => AISettings;
 let getAISettings: GetAISettings = () => ({ provider: "", apiKey: "", model: "" });
 let enabled = false;
 let activeEditor: any = null;
+let activeContainerEl: HTMLElement | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let currentRequestId = 0;
 let ghostText = "";
 let suggestBtn: HTMLButtonElement | null = null;
-let suggestAnchor: { row: number; column: number } | null = null;
+let suggestAnchor: { lineNumber: number; column: number } | null = null;
 let ghostEl: HTMLElement | null = null;
 let actionMenu: HTMLElement | null = null;
 let isLoading = false;
@@ -37,7 +38,6 @@ const SELECTION_ACTIONS = [
   { label: "💬 Send to Chat", action: "chat", prompt: "" },
 ];
 
-// Callback to send code to chat panel
 let onSendToChat: ((text: string) => void) | null = null;
 
 export function setOnSendToChat(cb: (text: string) => void) {
@@ -56,8 +56,9 @@ export function setAICompleterEnabled(v: boolean) {
   }
 }
 
-export function attachAICompleter(editor: any) {
+export function attachAICompleter(editor: any, containerEl: HTMLElement) {
   activeEditor = editor;
+  activeContainerEl = containerEl;
 
   // Create the suggest button
   suggestBtn = document.createElement("button");
@@ -72,13 +73,12 @@ export function attachAICompleter(editor: any) {
     e.stopPropagation();
     await onSuggestClick();
   });
-  (editor.container as HTMLElement).appendChild(suggestBtn);
+  containerEl.appendChild(suggestBtn);
 
   // Create floating textarea shown when file is empty
   floatingTextareaContainer = document.createElement("div");
   floatingTextareaContainer.className = "ai-floating-textarea-container hidden";
 
-  // Header: agent icon + branding
   const header = document.createElement("div");
   header.className = "ai-floating-header";
 
@@ -108,7 +108,6 @@ export function attachAICompleter(editor: any) {
   floatingTextarea.placeholder = "Describe what you want to build, or paste a prompt…";
   floatingTextarea.rows = 4;
 
-  // Footer: hint + generate button
   const footer = document.createElement("div");
   footer.className = "ai-floating-footer";
 
@@ -127,7 +126,6 @@ export function attachAICompleter(editor: any) {
     onEmptyGenerateClick(prompt);
   });
 
-  // Enter to submit, Shift+Enter for newline
   floatingTextarea.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -141,12 +139,7 @@ export function attachAICompleter(editor: any) {
   footer.appendChild(floatingTextareaBtn);
   floatingTextareaContainer.appendChild(floatingTextarea);
   floatingTextareaContainer.appendChild(footer);
-  (editor.container as HTMLElement).appendChild(floatingTextareaContainer);
-
-  if (editor.getValue().trim() === "") {
-    showFloatingTextarea();
-  }
-
+  containerEl.appendChild(floatingTextareaContainer);
 
   // Create selection action menu
   actionMenu = document.createElement("div");
@@ -163,54 +156,65 @@ export function attachAICompleter(editor: any) {
     });
     actionMenu.appendChild(btn);
   }
-  (editor.container as HTMLElement).appendChild(actionMenu);
+  containerEl.appendChild(actionMenu);
+
+  // When model switches (new file opened), sync floating textarea visibility
+  editor.onDidChangeModel(() => {
+    hideSuggestBtn();
+    clearGhost();
+    hideActionMenu();
+    if ((editor.getModel()?.getValue() ?? "").trim() === "") {
+      showFloatingTextarea();
+    } else {
+      hideFloatingTextarea();
+    }
+  });
 
   // On change: hide button + ghost + action menu, restart debounce
-  editor.on("change", () => {
+  editor.onDidChangeModelContent(() => {
     hideSuggestBtn();
     hideFloatingTextarea();
     clearGhost();
     hideActionMenu();
     if (!enabled) return;
     scheduleSuggestBtnAtCursor();
-    if (editor.getValue().trim() === "") {
+    if ((editor.getModel()?.getValue() ?? "").trim() === "") {
       showFloatingTextarea();
     }
   });
 
-  // On selection change: hide action menu (it only shows via right-click context menu)
-  editor.selection.on("changeSelection", () => {
+  // On selection change: cancel suggest, clear ghost
+  editor.onDidChangeCursorSelection(() => {
     cancelSuggestIfCursorMoved();
     clearGhost();
     hideActionMenu();
   });
 
-  // Cursor move without selection: hide ghost + action menu
-  editor.selection.on("changeCursor", () => {
+  // On cursor position change: cancel suggest, clear ghost, hide action menu if no selection
+  editor.onDidChangeCursorPosition(() => {
     cancelSuggestIfCursorMoved();
     clearGhost();
-    const selectedText = editor.getSelectedText();
-    if (!selectedText || !selectedText.trim()) {
-      hideActionMenu();
-    }
+    const sel = editor.getSelection();
+    const hasSelection = sel && !(sel.startLineNumber === sel.endLineNumber && sel.startColumn === sel.endColumn);
+    if (!hasSelection) hideActionMenu();
   });
 
-  editor.session.on("changeScrollTop", repositionSuggestBtn);
-  editor.session.on("changeScrollLeft", repositionSuggestBtn);
-  editor.renderer.on("resize", repositionSuggestBtn);
-  editor.on("blur", () => {
+  editor.onDidScrollChange(repositionSuggestBtn);
+  editor.onDidLayoutChange(repositionSuggestBtn);
+  editor.onDidBlurEditorText(() => {
     if (document.activeElement === suggestBtn) return;
     hideSuggestBtn();
   });
 
   // Tab to accept ghost text
-  (editor.container as HTMLElement).addEventListener("keydown", (e: KeyboardEvent) => {
+  containerEl.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "Tab" && !e.shiftKey && ghostText) {
       e.preventDefault();
       e.stopPropagation();
       const text = ghostText;
       clearGhost();
-      activeEditor.insert(text);
+      const sel = activeEditor.getSelection();
+      if (sel) activeEditor.executeEdits("ai", [{ range: sel, text }]);
     }
     if (e.key === "Escape") {
       hideSuggestBtn();
@@ -219,7 +223,6 @@ export function attachAICompleter(editor: any) {
         clearGhost();
       }
     }
-    // Change events own the next debounce; keydown should only hide the current UI.
     if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
       suggestBtn?.classList.add("hidden");
     }
@@ -228,19 +231,22 @@ export function attachAICompleter(editor: any) {
 
 // ── Suggest Button ──
 
-function samePoint(a: { row: number; column: number } | null, b: { row: number; column: number }) {
-  return !!a && a.row === b.row && a.column === b.column;
+function samePoint(a: { lineNumber: number; column: number } | null, b: { lineNumber: number; column: number } | null) {
+  if (!a || !b) return false;
+  return a.lineNumber === b.lineNumber && a.column === b.column;
 }
 
 function scheduleSuggestBtnAtCursor() {
   if (!activeEditor) return;
-  suggestAnchor = { ...activeEditor.getCursorPosition() };
+  const pos = activeEditor.getPosition();
+  if (!pos) return;
+  suggestAnchor = { lineNumber: pos.lineNumber, column: pos.column };
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     if (!enabled || !activeEditor) return;
     const settings = getAISettings();
     if (!settings.apiKey) return;
-    if (!samePoint(suggestAnchor, activeEditor.getCursorPosition())) {
+    if (!samePoint(suggestAnchor, activeEditor.getPosition())) {
       hideSuggestBtn();
       return;
     }
@@ -250,7 +256,7 @@ function scheduleSuggestBtnAtCursor() {
 
 function cancelSuggestIfCursorMoved() {
   if (!activeEditor || !suggestAnchor) return;
-  if (samePoint(suggestAnchor, activeEditor.getCursorPosition())) return;
+  if (samePoint(suggestAnchor, activeEditor.getPosition())) return;
   hideSuggestBtn();
 }
 
@@ -260,28 +266,23 @@ function repositionSuggestBtn() {
 }
 
 function showSuggestBtn() {
-  if (!suggestBtn || !activeEditor || isLoading) return;
+  if (!suggestBtn || !activeEditor || !activeContainerEl || isLoading) return;
   if (!suggestAnchor) return;
 
-  const cursor = activeEditor.getCursorPosition();
+  const cursor = activeEditor.getPosition();
   if (!samePoint(suggestAnchor, cursor)) {
     hideSuggestBtn();
     return;
   }
 
-  // Don't show if editor is empty or has no meaningful content
-  const content = activeEditor.getValue().trim();
+  const content = (activeEditor.getModel()?.getValue() ?? "").trim();
   if (!content) return;
 
-  const renderer = activeEditor.renderer;
-  const coords = renderer.textToScreenCoordinates(suggestAnchor.row, suggestAnchor.column);
-  const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
+  const coords = activeEditor.getScrolledVisiblePosition(suggestAnchor);
+  if (!coords) return;
 
-  const x = coords.pageX - editorRect.left + 8;
-  const y = coords.pageY - editorRect.top;
-
-  suggestBtn.style.left = `${Math.max(0, x)}px`;
-  suggestBtn.style.top = `${Math.max(0, y)}px`;
+  suggestBtn.style.left = `${Math.max(0, coords.left + 8)}px`;
+  suggestBtn.style.top = `${Math.max(0, coords.top)}px`;
   suggestBtn.classList.remove("hidden");
   suggestBtn.textContent = "✨ Suggest";
   suggestBtn.disabled = false;
@@ -307,23 +308,26 @@ function hideSuggestBtn() {
 // ── Selection Action Menu ──
 
 function showActionMenu() {
-  if (!actionMenu || !activeEditor || isLoading) return;
+  if (!actionMenu || !activeEditor || !activeContainerEl || isLoading) return;
 
-  const renderer = activeEditor.renderer;
-  const lead = activeEditor.getCursorPosition();
-  const coords = renderer.textToScreenCoordinates(lead.row, lead.column);
-  const editorRect = (activeEditor.container as HTMLElement).getBoundingClientRect();
+  const cursor = activeEditor.getPosition();
+  if (!cursor) return;
+  const coords = activeEditor.getScrolledVisiblePosition(cursor);
+  if (!coords) return;
+
   actionMenu.classList.remove("hidden");
 
+  const lineH = coords.height ?? 20;
   const menuWidth = actionMenu.offsetWidth || 176;
   const menuHeight = actionMenu.offsetHeight || 320;
-  const anchorX = coords.pageX - editorRect.left + 8;
-  const anchorY = coords.pageY - editorRect.top + renderer.lineHeight + 4;
-  const maxLeft = Math.max(8, editorRect.width - menuWidth - 8);
-  const maxTop = Math.max(8, editorRect.height - menuHeight - 8);
+  const containerRect = activeContainerEl.getBoundingClientRect();
+  const anchorX = coords.left + 8;
+  const anchorY = coords.top + lineH + 4;
+  const maxLeft = Math.max(8, containerRect.width - menuWidth - 8);
+  const maxTop = Math.max(8, containerRect.height - menuHeight - 8);
   const belowTop = Math.max(8, Math.min(anchorY, maxTop));
-  const aboveTop = Math.max(8, Math.min(coords.pageY - editorRect.top - menuHeight - 8, maxTop));
-  const top = anchorY + menuHeight <= editorRect.height - 8 ? belowTop : aboveTop;
+  const aboveTop = Math.max(8, Math.min(coords.top - menuHeight - 8, maxTop));
+  const top = anchorY + menuHeight <= containerRect.height - 8 ? belowTop : aboveTop;
 
   actionMenu.style.left = `${Math.max(8, Math.min(anchorX, maxLeft))}px`;
   actionMenu.style.top = `${top}px`;
@@ -336,10 +340,10 @@ function hideActionMenu() {
 async function onActionClick(action: string, systemPrompt: string) {
   if (!activeEditor) return;
 
-  const selectedText = activeEditor.getSelectedText();
-  if (!selectedText || !selectedText.trim()) return;
+  const sel = activeEditor.getSelection();
+  const selectedText = sel ? (activeEditor.getModel()?.getValueInRange(sel) ?? "") : "";
+  if (!selectedText.trim()) return;
 
-  // "Edit" - ask user what to change
   if (action === "edit") {
     const instruction = await showInputDialog("Edit Code", "What should I change?", "");
     if (!instruction) { activeEditor.focus(); return; }
@@ -347,8 +351,8 @@ async function onActionClick(action: string, systemPrompt: string) {
     const settings = getAISettings();
     if (!settings.apiKey) { activeEditor.focus(); return; }
 
-    const selection = activeEditor.selection.getRange();
-    const fileName = activeEditor._athvaFileName || "file.ts";
+    const selection = activeEditor.getSelection();
+    const fileName = (activeEditor as any)._athvaFileName || "file.ts";
     const lang = fileName.split(".").pop() || "code";
     const editPrompt = `Apply the following edit to the code: "${instruction}". Return ONLY the modified raw code, no explanation, no markdown fences, no backticks.\n\nLanguage: ${lang}\n\n\`\`\`${lang}\n${selectedText}\n\`\`\``;
 
@@ -358,20 +362,18 @@ async function onActionClick(action: string, systemPrompt: string) {
       isLoading = false;
       if (result) {
         result = result.replace(/^```[\w]*\s*\n?/, "").replace(/\n?```\s*$/, "").trimEnd();
-        activeEditor.session.replace(selection, result);
+        if (selection) activeEditor.executeEdits("ai", [{ range: selection, text: result }]);
       }
     } catch { isLoading = false; }
     activeEditor.focus();
     return;
   }
 
-  // "Send to Chat" - no API call needed
   if (action === "chat") {
     if (onSendToChat) {
-      const fileName = activeEditor._athvaFileName || "file";
+      const fileName = (activeEditor as any)._athvaFileName || "file";
       const lang = fileName.split(".").pop() || "code";
-      const contextText = `\`\`\`${lang}\n${selectedText}\n\`\`\`\n\n`;
-      onSendToChat(contextText);
+      onSendToChat(`\`\`\`${lang}\n${selectedText}\n\`\`\`\n\n`);
     }
     activeEditor.focus();
     return;
@@ -382,12 +384,10 @@ async function onActionClick(action: string, systemPrompt: string) {
   const settings = getAISettings();
   if (!settings.apiKey) return;
 
-  const selection = activeEditor.selection.getRange();
-  const fileName = activeEditor._athvaFileName || "file.ts";
+  const selection = activeEditor.getSelection();
+  const fileName = (activeEditor as any)._athvaFileName || "file.ts";
   const lang = fileName.split(".").pop() || "code";
-
   const isReplace = !["explain", "review", "debug"].includes(action);
-
   const prompt = `${systemPrompt}\n\nLanguage: ${lang}\n\n\`\`\`${lang}\n${selectedText}\n\`\`\``;
 
   isLoading = true;
@@ -398,12 +398,11 @@ async function onActionClick(action: string, systemPrompt: string) {
 
     if (!result) return;
 
-    // Strip markdown code fences from result
     if (isReplace) {
       result = result.replace(/^```[\w]*\s*\n?/, "").replace(/\n?```\s*$/, "").trimEnd();
-      activeEditor.session.replace(selection, result);
+      if (selection) activeEditor.executeEdits("ai", [{ range: selection, text: result }]);
     } else {
-      showExplanation(result, selection.end.row, selection.end.column);
+      showExplanation(result, selection?.endLineNumber ?? 1, selection?.endColumn ?? 1);
     }
   } catch {
     isLoading = false;
@@ -412,41 +411,37 @@ async function onActionClick(action: string, systemPrompt: string) {
   activeEditor.focus();
 }
 
-function showExplanation(text: string, row: number, col: number) {
-  if (!activeEditor) return;
+function showExplanation(text: string, lineNumber: number, column: number) {
+  if (!activeEditor || !activeContainerEl) return;
 
-  // Remove existing explanation
   const existing = document.getElementById("ai-explanation");
   if (existing) existing.remove();
 
-  const editorEl = activeEditor.container as HTMLElement;
-  const renderer = activeEditor.renderer;
-  const coords = renderer.textToScreenCoordinates(row, col);
-  const editorRect = editorEl.getBoundingClientRect();
+  const coords = activeEditor.getScrolledVisiblePosition({ lineNumber, column });
+  if (!coords) return;
+
+  const lineH = coords.height ?? 20;
 
   const el = document.createElement("div");
   el.id = "ai-explanation";
   el.className = "ai-explanation";
   el.textContent = text;
 
-  // Close button
   const closeBtn = document.createElement("button");
   closeBtn.className = "ai-explanation-close";
   closeBtn.textContent = "✕";
   closeBtn.addEventListener("click", () => el.remove());
   el.appendChild(closeBtn);
 
-  el.style.left = `${coords.pageX - editorRect.left}px`;
-  el.style.top = `${coords.pageY - editorRect.top + renderer.lineHeight + 4}px`;
+  el.style.left = `${coords.left}px`;
+  el.style.top = `${coords.top + lineH + 4}px`;
 
-  editorEl.appendChild(el);
+  activeContainerEl.appendChild(el);
 
-  // Auto-dismiss on next keystroke
-  const dismiss = () => {
+  const disposable = activeEditor.onDidChangeModelContent(() => {
     el.remove();
-    activeEditor.off("change", dismiss);
-  };
-  activeEditor.on("change", dismiss);
+    disposable.dispose();
+  });
 }
 
 async function fetchActionResult(settings: AISettings, prompt: string): Promise<string> {
@@ -515,25 +510,25 @@ async function fetchActionResult(settings: AISettings, prompt: string): Promise<
 async function onSuggestClick() {
   if (!activeEditor || !suggestBtn || isLoading) return;
 
-  // Save cursor position and refocus editor immediately
-  const pos = activeEditor.getCursorPosition();
+  const pos = activeEditor.getPosition();
+  if (!pos) return;
   activeEditor.focus();
-  activeEditor.moveCursorToPosition(pos);
+  activeEditor.setPosition(pos);
 
   isLoading = true;
   suggestBtn.textContent = "⏳ Thinking...";
   suggestBtn.disabled = true;
 
-  const session = activeEditor.session;
-  const lines = session.getLines(0, session.getLength() - 1);
+  const allText = activeEditor.getModel()?.getValue() ?? "";
+  const lines = allText.split("\n");
 
-  const beforeLines = lines.slice(0, pos.row);
-  beforeLines.push(lines[pos.row]?.substring(0, pos.column) || "");
+  const beforeLines = lines.slice(0, pos.lineNumber - 1);
+  beforeLines.push(lines[pos.lineNumber - 1]?.substring(0, pos.column - 1) || "");
   const prefix = beforeLines.join("\n");
 
   const afterLines: string[] = [];
-  afterLines.push(lines[pos.row]?.substring(pos.column) || "");
-  afterLines.push(...lines.slice(pos.row + 1));
+  afterLines.push(lines[pos.lineNumber - 1]?.substring(pos.column - 1) || "");
+  afterLines.push(...lines.slice(pos.lineNumber));
   const suffix = afterLines.join("\n");
 
   if (prefix.trim().length < 2) {
@@ -542,7 +537,7 @@ async function onSuggestClick() {
     return;
   }
 
-  const fileName = activeEditor._athvaFileName || "file.ts";
+  const fileName = (activeEditor as any)._athvaFileName || "file.ts";
   const requestId = ++currentRequestId;
 
   const completion = await fetchCompletion(prefix, suffix, fileName);
@@ -554,48 +549,50 @@ async function onSuggestClick() {
 
   if (!completion) return;
 
-  // Verify cursor hasn't moved
-  const newPos = activeEditor.getCursorPosition();
-  if (newPos.row !== pos.row || newPos.column !== pos.column) return;
+  const newPos = activeEditor.getPosition();
+  if (!newPos || newPos.lineNumber !== pos.lineNumber || newPos.column !== pos.column) return;
 
-  showGhost(completion, pos.row, pos.column);
+  showGhost(completion, pos.lineNumber, pos.column);
 }
 
 async function onEmptyGenerateClick(prompt: string) {
   try {
-    const fileName = activeEditor._athvaFileName || "file.ts";
+    const fileName = (activeEditor as any)._athvaFileName || "file.ts";
     const completion = await fetchCompletion(prompt, "", fileName);
     if (!completion) return;
-    const pos = activeEditor.getCursorPosition();
-    activeEditor.session.insert(pos, completion);
+    const pos = activeEditor.getPosition();
+    if (!pos) return;
+    activeEditor.executeEdits("ai", [{
+      range: { startLineNumber: pos.lineNumber, startColumn: pos.column, endLineNumber: pos.lineNumber, endColumn: pos.column },
+      text: completion,
+    }]);
   } catch (error) {
-    console.error(error)
+    console.error(error);
   }
 }
 
 // ── Ghost Text ──
 
-function showGhost(text: string, row: number, col: number) {
-  if (!activeEditor) return;
+function showGhost(text: string, lineNumber: number, column: number) {
+  if (!activeEditor || !activeContainerEl) return;
   clearGhost();
   ghostText = text;
 
-  const editorEl = activeEditor.container as HTMLElement;
+  const coords = activeEditor.getScrolledVisiblePosition({ lineNumber, column });
+  if (!coords) return;
+
+  const lineH = coords.height ?? 20;
+
   ghostEl = document.createElement("div");
   ghostEl.className = "ai-ghost-text";
 
-  const renderer = activeEditor.renderer;
-  const coords = renderer.textToScreenCoordinates(row, col);
-  const editorRect = editorEl.getBoundingClientRect();
-
   const firstLine = text.split("\n")[0];
   ghostEl.textContent = firstLine;
-  ghostEl.style.left = `${coords.pageX - editorRect.left}px`;
-  ghostEl.style.top = `${coords.pageY - editorRect.top}px`;
-  ghostEl.style.height = `${renderer.lineHeight}px`;
-  ghostEl.style.fontSize = `${activeEditor.getFontSize()}px`;
+  ghostEl.style.left = `${coords.left}px`;
+  ghostEl.style.top = `${coords.top}px`;
+  ghostEl.style.height = `${lineH}px`;
 
-  editorEl.appendChild(ghostEl);
+  activeContainerEl.appendChild(ghostEl);
 }
 
 function clearGhost() {
@@ -708,8 +705,7 @@ async function fetchCompletion(prefix: string, suffix: string, fileName: string)
   }
 }
 
-// Keep this for backward compat with Ace completer registration (does nothing)
-export const aiCompleter = {
-  identifierRegexps: [/[a-zA-Z_0-9\.$\-\u00A2-\uFFFF]/],
-  getCompletions(_e: any, _s: any, _p: any, _pr: any, cb: any) { cb(null, []); },
-};
+// Exported for external use (e.g. triggering action menu from context menu)
+export function showAIActionMenu() {
+  showActionMenu();
+}

@@ -1,20 +1,20 @@
 import type { AppearanceSettings, ThemeColors } from "./settings";
 
-// Map UI theme → Ace editor theme name
-const THEME_TO_ACE: Record<string, string> = {
-  dark: "tomorrow_night",
-  light: "chrome",
-  dracula: "dracula",
-  solarized: "solarized_dark",
-  nord: "one_dark",
-  catppuccin: "one_dark",
-  "github-dark": "github_dark",
+// Map UI theme → Monaco theme name
+export const THEME_TO_MONACO: Record<string, string> = {
+  dark: "athva-dark",
+  light: "athva-light",
+  dracula: "athva-dracula",
+  solarized: "athva-solarized",
+  nord: "athva-nord",
+  catppuccin: "athva-catppuccin",
+  "github-dark": "athva-github-dark",
 };
 
 // External callback set by main.ts so theme-engine doesn't import Editor
-let _setAceTheme: ((theme: string) => void) | null = null;
-export function registerAceThemeSetter(fn: (theme: string) => void) {
-  _setAceTheme = fn;
+let _setMonacoTheme: ((theme: string) => void) | null = null;
+export function registerMonacoThemeSetter(fn: (theme: string) => void) {
+  _setMonacoTheme = fn;
 }
 
 // External callback set by main.ts so theme-engine doesn't import TerminalPanel
@@ -150,7 +150,6 @@ export function applyTheme(appearance: AppearanceSettings): void {
   const eb = parseInt(edHex.substring(4, 6), 16);
   const brightness = (er * 299 + eg * 587 + eb * 114) / 1000;
   if (brightness > 128) {
-    // Light theme - use dark text
     root.style.setProperty("--text-primary", "#1f1f1f");
     root.style.setProperty("--text-secondary", "#555555");
     root.style.setProperty("--text-muted", "#888888");
@@ -159,7 +158,6 @@ export function applyTheme(appearance: AppearanceSettings): void {
     root.style.setProperty("--bg-active", "rgba(0,0,0,0.1)");
     root.style.setProperty("--bg-input", "#f0f0f0");
   } else {
-    // Dark theme - use light text
     root.style.setProperty("--text-primary", "#cccccc");
     root.style.setProperty("--text-secondary", "#969696");
     root.style.setProperty("--text-muted", "#6e6e6e");
@@ -169,10 +167,10 @@ export function applyTheme(appearance: AppearanceSettings): void {
     root.style.setProperty("--bg-input", "#3c3c3c");
   }
 
-  // Set Ace editor theme to match the UI theme
-  if (_setAceTheme) {
-    const baseTheme = appearance.theme in THEME_TO_ACE ? appearance.theme : "dark";
-    _setAceTheme(THEME_TO_ACE[baseTheme]);
+  // Set Monaco editor theme to match the UI theme
+  if (_setMonacoTheme) {
+    const baseTheme = appearance.theme in THEME_TO_MONACO ? appearance.theme : "dark";
+    _setMonacoTheme(THEME_TO_MONACO[baseTheme]);
   }
 
   // Pass theme to Terminal if available
@@ -227,7 +225,6 @@ function applyBackgroundImage(layerId: string, container: HTMLElement | null, ur
     layer.style.backgroundImage = `url("${url}")`;
     layer.style.opacity = String(opacity);
     layer.style.filter = blur > 0 ? `blur(${blur}px)` : "none";
-    // Expand slightly beyond container bounds so blur edges don't show
     if (blur > 0) {
       const px = `${blur * 2}px`;
       layer.style.inset = `-${px}`;

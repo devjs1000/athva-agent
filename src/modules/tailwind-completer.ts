@@ -1,7 +1,4 @@
-// Tailwind CSS class name autocomplete for Ace editor
-// Provides suggestions when typing inside class/className attributes in HTML/JSX/TSX
-
-import type ace from "ace-builds";
+import type * as monaco from "monaco-editor";
 
 let enabled = false;
 
@@ -13,25 +10,20 @@ export function isTailwindEnabled(): boolean {
   return enabled;
 }
 
-// Subset of most-used Tailwind classes (v3), organized by category
 const TW_CLASSES: string[] = [
-  // Layout
   "block", "inline-block", "inline", "flex", "inline-flex", "grid", "inline-grid", "hidden", "contents",
   "container", "mx-auto",
-  // Flex
   "flex-row", "flex-col", "flex-row-reverse", "flex-col-reverse", "flex-wrap", "flex-nowrap",
   "flex-1", "flex-auto", "flex-initial", "flex-none", "grow", "grow-0", "shrink", "shrink-0",
   "items-start", "items-center", "items-end", "items-stretch", "items-baseline",
   "justify-start", "justify-center", "justify-end", "justify-between", "justify-around", "justify-evenly",
   "self-auto", "self-start", "self-center", "self-end", "self-stretch",
-  // Grid
   "grid-cols-1", "grid-cols-2", "grid-cols-3", "grid-cols-4", "grid-cols-5", "grid-cols-6", "grid-cols-12",
   "grid-rows-1", "grid-rows-2", "grid-rows-3", "grid-rows-4", "grid-rows-6",
   "col-span-1", "col-span-2", "col-span-3", "col-span-4", "col-span-6", "col-span-12", "col-span-full",
   "gap-0", "gap-1", "gap-2", "gap-3", "gap-4", "gap-5", "gap-6", "gap-8", "gap-10", "gap-12",
   "gap-x-1", "gap-x-2", "gap-x-4", "gap-x-6", "gap-x-8",
   "gap-y-1", "gap-y-2", "gap-y-4", "gap-y-6", "gap-y-8",
-  // Spacing
   "p-0", "p-1", "p-2", "p-3", "p-4", "p-5", "p-6", "p-8", "p-10", "p-12", "p-16",
   "px-0", "px-1", "px-2", "px-3", "px-4", "px-5", "px-6", "px-8", "px-10", "px-12",
   "py-0", "py-1", "py-2", "py-3", "py-4", "py-5", "py-6", "py-8", "py-10", "py-12",
@@ -48,7 +40,6 @@ const TW_CLASSES: string[] = [
   "mr-0", "mr-1", "mr-2", "mr-3", "mr-4", "mr-6", "mr-8",
   "space-x-1", "space-x-2", "space-x-3", "space-x-4", "space-x-6", "space-x-8",
   "space-y-1", "space-y-2", "space-y-3", "space-y-4", "space-y-6", "space-y-8",
-  // Sizing
   "w-0", "w-1", "w-2", "w-3", "w-4", "w-5", "w-6", "w-8", "w-10", "w-12", "w-16", "w-20", "w-24", "w-32", "w-40", "w-48", "w-56", "w-64",
   "w-full", "w-screen", "w-auto", "w-1/2", "w-1/3", "w-2/3", "w-1/4", "w-3/4", "w-fit", "w-min", "w-max",
   "h-0", "h-1", "h-2", "h-3", "h-4", "h-5", "h-6", "h-8", "h-10", "h-12", "h-16", "h-20", "h-24", "h-32", "h-40", "h-48", "h-56", "h-64",
@@ -56,7 +47,6 @@ const TW_CLASSES: string[] = [
   "min-w-0", "min-w-full", "min-w-min", "min-w-max",
   "min-h-0", "min-h-full", "min-h-screen",
   "max-w-xs", "max-w-sm", "max-w-md", "max-w-lg", "max-w-xl", "max-w-2xl", "max-w-3xl", "max-w-4xl", "max-w-5xl", "max-w-6xl", "max-w-7xl", "max-w-full", "max-w-none",
-  // Typography
   "text-xs", "text-sm", "text-base", "text-lg", "text-xl", "text-2xl", "text-3xl", "text-4xl", "text-5xl",
   "font-thin", "font-light", "font-normal", "font-medium", "font-semibold", "font-bold", "font-extrabold",
   "italic", "not-italic",
@@ -68,7 +58,6 @@ const TW_CLASSES: string[] = [
   "truncate", "text-ellipsis", "text-clip",
   "whitespace-normal", "whitespace-nowrap", "whitespace-pre", "whitespace-pre-line", "whitespace-pre-wrap",
   "break-words", "break-all",
-  // Colors
   "text-white", "text-black", "text-transparent",
   "text-gray-50", "text-gray-100", "text-gray-200", "text-gray-300", "text-gray-400", "text-gray-500", "text-gray-600", "text-gray-700", "text-gray-800", "text-gray-900",
   "text-red-500", "text-red-600", "text-red-700",
@@ -86,7 +75,6 @@ const TW_CLASSES: string[] = [
   "bg-yellow-50", "bg-yellow-100", "bg-yellow-500",
   "bg-indigo-50", "bg-indigo-100", "bg-indigo-500", "bg-indigo-600",
   "bg-purple-50", "bg-purple-100", "bg-purple-500", "bg-purple-600",
-  // Borders
   "border", "border-0", "border-2", "border-4", "border-8",
   "border-t", "border-b", "border-l", "border-r",
   "border-solid", "border-dashed", "border-dotted", "border-none",
@@ -96,17 +84,14 @@ const TW_CLASSES: string[] = [
   "rounded", "rounded-sm", "rounded-md", "rounded-lg", "rounded-xl", "rounded-2xl", "rounded-3xl", "rounded-full", "rounded-none",
   "rounded-t", "rounded-b", "rounded-l", "rounded-r",
   "rounded-tl", "rounded-tr", "rounded-bl", "rounded-br",
-  // Effects
   "shadow-sm", "shadow", "shadow-md", "shadow-lg", "shadow-xl", "shadow-2xl", "shadow-inner", "shadow-none",
   "opacity-0", "opacity-25", "opacity-50", "opacity-75", "opacity-100",
   "ring-0", "ring-1", "ring-2", "ring-4", "ring-8", "ring-inset",
   "ring-gray-300", "ring-blue-500",
-  // Backgrounds
   "bg-gradient-to-t", "bg-gradient-to-b", "bg-gradient-to-l", "bg-gradient-to-r", "bg-gradient-to-tl", "bg-gradient-to-tr", "bg-gradient-to-bl", "bg-gradient-to-br",
   "from-blue-500", "from-purple-500", "from-green-500", "from-red-500",
   "to-blue-500", "to-purple-500", "to-green-500", "to-red-500",
   "via-blue-500", "via-purple-500",
-  // Position
   "static", "fixed", "absolute", "relative", "sticky",
   "top-0", "top-1", "top-2", "top-4", "top-8", "top-auto",
   "bottom-0", "bottom-1", "bottom-2", "bottom-4", "bottom-auto",
@@ -114,96 +99,79 @@ const TW_CLASSES: string[] = [
   "right-0", "right-1", "right-2", "right-4", "right-auto",
   "inset-0", "inset-x-0", "inset-y-0",
   "z-0", "z-10", "z-20", "z-30", "z-40", "z-50", "z-auto",
-  // Overflow
   "overflow-auto", "overflow-hidden", "overflow-visible", "overflow-scroll",
   "overflow-x-auto", "overflow-x-hidden", "overflow-y-auto", "overflow-y-hidden",
-  // Transform
   "scale-0", "scale-50", "scale-75", "scale-90", "scale-95", "scale-100", "scale-105", "scale-110", "scale-125", "scale-150",
   "rotate-0", "rotate-1", "rotate-2", "rotate-3", "rotate-6", "rotate-12", "rotate-45", "rotate-90", "rotate-180",
   "translate-x-0", "translate-x-1", "translate-x-2", "translate-x-4",
   "translate-y-0", "translate-y-1", "translate-y-2", "translate-y-4",
-  // Transitions
   "transition", "transition-all", "transition-colors", "transition-opacity", "transition-shadow", "transition-transform", "transition-none",
   "duration-75", "duration-100", "duration-150", "duration-200", "duration-300", "duration-500", "duration-700",
   "ease-linear", "ease-in", "ease-out", "ease-in-out",
   "delay-75", "delay-100", "delay-150", "delay-200", "delay-300",
-  // Cursor
   "cursor-auto", "cursor-default", "cursor-pointer", "cursor-wait", "cursor-text", "cursor-move", "cursor-not-allowed",
-  // Pointer events
   "pointer-events-none", "pointer-events-auto",
-  // Select
   "select-none", "select-text", "select-all", "select-auto",
-  // Responsive prefixes (added as completions)
   "sm:", "md:", "lg:", "xl:", "2xl:",
-  // State prefixes
   "hover:", "focus:", "active:", "disabled:", "group-hover:", "dark:",
 ];
 
-/**
- * Check if cursor is inside a class/className attribute value
- */
-function isInClassAttribute(session: ace.Ace.EditSession, row: number, col: number): boolean {
-  const line = session.getLine(row).substring(0, col);
-  // Match class="...", className="...", className={`...`, className={'...
-  // Look backwards for an unclosed class attribute
-  const classMatch = line.match(/(?:class|className)\s*=\s*(?:{[`'"]|["'])[^"'`]*$/);
-  return !!classMatch;
+function isInClassAttribute(lineUpTo: string): boolean {
+  return /(?:class|className)\s*=\s*(?:{[`'"]|["'])[^"'`]*$/.test(lineUpTo);
 }
 
-/**
- * Extract the partial class name being typed (word at cursor)
- */
-function getPartialClass(session: ace.Ace.EditSession, row: number, col: number): string {
-  const line = session.getLine(row).substring(0, col);
-  const match = line.match(/([\w:/-]*)$/);
+function getPartialClass(lineUpTo: string): string {
+  const match = lineUpTo.match(/([\w:/-]*)$/);
   return match ? match[1] : "";
 }
 
-/**
- * Create an Ace completer for Tailwind CSS classes
- */
-export function createTailwindCompleter(): ace.Ace.Completer {
+export interface MonacoCompleter {
+  languages: string[];
+  provider: monaco.languages.CompletionItemProvider;
+}
+
+export function createTailwindCompleter(): MonacoCompleter {
   return {
-    identifierRegexps: [/[\w:/-]/],
-    getCompletions(
-      _editor: ace.Ace.Editor,
-      session: ace.Ace.EditSession,
-      pos: ace.Ace.Point,
-      _prefix: string,
-      callback: ace.Ace.CompleterCallback
-    ) {
-      if (!enabled) { callback(null, []); return; }
+    languages: ["html", "javascript", "typescript"],
+    provider: {
+      triggerCharacters: ['"', "'", " ", ":"],
+      provideCompletionItems(
+        model: monaco.editor.ITextModel,
+        position: monaco.Position
+      ): monaco.languages.CompletionList {
+        if (!enabled) return { suggestions: [] };
 
-      const mode = session.getMode() as any;
-      const modeName: string = mode?.$id || "";
-      // Only in HTML, JSX, TSX modes
-      if (
-        !modeName.includes("html") &&
-        !modeName.includes("jsx") &&
-        !modeName.includes("tsx")
-      ) {
-        callback(null, []);
-        return;
-      }
+        const langId = model.getLanguageId();
+        if (!langId.includes("html") && !langId.includes("javascript") && !langId.includes("typescript")) {
+          return { suggestions: [] };
+        }
 
-      if (!isInClassAttribute(session, pos.row, pos.column)) {
-        callback(null, []);
-        return;
-      }
+        const lineUpTo = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+        if (!isInClassAttribute(lineUpTo)) return { suggestions: [] };
 
-      const partial = getPartialClass(session, pos.row, pos.column);
+        const partial = getPartialClass(lineUpTo);
+        const wordInfo = model.getWordUntilPosition(position);
+        const range: monaco.IRange = {
+          startLineNumber: position.lineNumber,
+          startColumn: wordInfo.startColumn,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        };
 
-      const results = TW_CLASSES
-        .filter((c) => !partial || c.startsWith(partial) || c.includes(partial))
-        .slice(0, 50)
-        .map((c) => ({
-          caption: c,
-          value: c,
-          score: c.startsWith(partial) ? 1000 : 500,
-          meta: "tailwind",
-        }));
+        const suggestions: monaco.languages.CompletionItem[] = TW_CLASSES
+          .filter((c) => !partial || c.startsWith(partial) || c.includes(partial))
+          .slice(0, 80)
+          .map((c) => ({
+            label: c,
+            kind: 12 /* Value */ as monaco.languages.CompletionItemKind,
+            insertText: c,
+            detail: "tailwind",
+            sortText: c.startsWith(partial) ? `0${c}` : `1${c}`,
+            range,
+          }));
 
-      callback(null, results);
+        return { suggestions };
+      },
     },
-  } as ace.Ace.Completer;
+  };
 }

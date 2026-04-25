@@ -1,7 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import type { Ace } from "ace-builds";
+import type * as monaco from "monaco-editor";
 import { SNIPPET_CATEGORIES, type Snippet } from "./snippets-data";
+
+export interface MonacoCompleter {
+  languages: string[];
+  provider: monaco.languages.CompletionItemProvider;
+}
 
 export type SnippetScope = "global" | "project";
 export type SnippetSource = "builtin" | SnippetScope;
@@ -24,25 +29,19 @@ function createSnippetId(): string {
   return `snippet_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function modeToCategories(modeName: string): string[] {
-  const normalized = modeName.toLowerCase();
-  if (normalized.includes("tsx")) return ["typescript", "javascript", "react"];
-  if (normalized.includes("jsx")) return ["javascript", "typescript", "react"];
-  if (normalized.includes("typescript")) return ["typescript"];
-  if (normalized.includes("javascript")) return ["javascript"];
-  if (normalized.includes("html")) return ["html"];
-  if (normalized.includes("css")) return ["css"];
-  if (normalized.includes("python")) return ["python"];
+function langToCategories(langId: string): string[] {
+  if (langId === "typescript") return ["typescript"];
+  if (langId === "javascript") return ["javascript"];
+  if (langId === "html") return ["html"];
+  if (langId === "css" || langId === "scss") return ["css"];
+  if (langId === "python") return ["python"];
   return [];
 }
 
-function getSnippetPrefix(session: Ace.EditSession, pos: Ace.Point, fallback: string): string {
-  if (fallback) return fallback;
-
-  const line = session.getLine(pos.row).slice(0, pos.column);
-  let start = line.length;
-  while (start > 0 && SNIPPET_PREFIX_RE.test(line[start - 1])) start--;
-  return line.slice(start);
+function getSnippetPrefixFromLine(lineUpTo: string): string {
+  let start = lineUpTo.length;
+  while (start > 0 && SNIPPET_PREFIX_RE.test(lineUpTo[start - 1])) start--;
+  return lineUpTo.slice(start);
 }
 
 function dedupeSnippets(snippets: SnippetEntry[]): SnippetEntry[] {
@@ -104,50 +103,54 @@ export class SnippetStore {
     );
   }
 
-  getCustomCompleter(): Ace.Completer {
+  getCustomCompleter(): MonacoCompleter {
     const store = this;
     return {
-      identifierRegexps: [/[a-zA-Z_$0-9]/],
-      getCompletions(
-        _editor: Ace.Editor,
-        session: Ace.EditSession,
-        pos: Ace.Point,
-        prefix: string,
-        callback: Ace.CompleterCallback
-      ) {
-        const resolvedPrefix = getSnippetPrefix(session, pos, prefix).trim();
-        if (!resolvedPrefix) {
-          callback(null, []);
-          return;
-        }
+      languages: ["typescript", "javascript", "html", "css", "python"],
+      provider: {
+        provideCompletionItems(
+          model: monaco.editor.ITextModel,
+          position: monaco.Position
+        ): monaco.languages.CompletionList {
+          const lineUpTo = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+          const resolvedPrefix = getSnippetPrefixFromLine(lineUpTo).trim();
+          if (!resolvedPrefix) return { suggestions: [] };
 
-        const modeName = ((session.getMode() as any)?.$id || "") as string;
-        const categories = modeToCategories(modeName);
-        if (!categories.length) {
-          callback(null, []);
-          return;
-        }
+          const categories = langToCategories(model.getLanguageId());
+          if (!categories.length) return { suggestions: [] };
 
-        const lowerPrefix = resolvedPrefix.toLowerCase();
-        const results = dedupeSnippets([...store.globalSnippets, ...store.projectSnippets])
-          .filter((snippet) => categories.includes(snippet.category))
-          .filter(
-            (snippet) =>
-              snippet.prefix.toLowerCase().startsWith(lowerPrefix) ||
-              snippet.label.toLowerCase().includes(lowerPrefix) ||
-              snippet.description.toLowerCase().includes(lowerPrefix)
-          )
-          .map((snippet) => ({
-            caption: snippet.prefix,
-            value: snippet.prefix,
-            snippet: snippet.body,
-            meta: `${snippet.source} snippet`,
-            score: snippet.prefix.toLowerCase().startsWith(lowerPrefix) ? 960 : 920,
-          }));
+          const lowerPrefix = resolvedPrefix.toLowerCase();
+          const wordInfo = model.getWordUntilPosition(position);
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordInfo.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          };
 
-        callback(null, results);
+          const suggestions: monaco.languages.CompletionItem[] = dedupeSnippets([...store.globalSnippets, ...store.projectSnippets])
+            .filter((snippet) => categories.includes(snippet.category))
+            .filter(
+              (snippet) =>
+                snippet.prefix.toLowerCase().startsWith(lowerPrefix) ||
+                snippet.label.toLowerCase().includes(lowerPrefix) ||
+                snippet.description.toLowerCase().includes(lowerPrefix)
+            )
+            .map((snippet) => ({
+              label: snippet.prefix,
+              kind: 15 /* Snippet */ as monaco.languages.CompletionItemKind,
+              insertText: snippet.body,
+              insertTextRules: 4 /* InsertAsSnippet */ as monaco.languages.CompletionItemInsertTextRule,
+              detail: `${snippet.source} snippet`,
+              documentation: snippet.description || snippet.label,
+              sortText: snippet.prefix.toLowerCase().startsWith(lowerPrefix) ? `0${snippet.prefix}` : `1${snippet.prefix}`,
+              range,
+            }));
+
+          return { suggestions };
+        },
       },
-    } as Ace.Completer;
+    };
   }
 
   async createSnippet(input: {

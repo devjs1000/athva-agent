@@ -22,7 +22,7 @@ import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 import { ExportsTracker } from "./modules/exports-tracker";
-import { applyTheme, registerAceThemeSetter, registerTerminalThemeSetter } from "./modules/theme-engine";
+import { applyTheme, registerMonacoThemeSetter, registerTerminalThemeSetter } from "./modules/theme-engine";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -456,10 +456,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   refreshSecuritySession(appSettings);
 
   // Init editor
-  editor = new Editor("ace-editor", "editor-tabs", "editor-empty");
+  editor = new Editor("monaco-editor", "editor-tabs", "editor-empty");
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);
-  registerAceThemeSetter((theme) => editor.setAceTheme(theme));
+  registerMonacoThemeSetter((theme) => editor.setMonacoTheme(theme));
 
   // Apply theme after registering the Ace setter so the editor theme is set correctly
   applyTheme(appSettings.appearance);
@@ -467,11 +467,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init snippets panel
   snippetsPanel = new SnippetsPanel("snippets-panel");
   snippetsPanel.onInsert((snippet) => editor.insertSnippet(snippet));
-  editor.addCompleter(snippetsPanel.getCompleter());
+  const snippetsCompleter = snippetsPanel.getCompleter();
+  editor.addCompletionProvider(snippetsCompleter.languages, snippetsCompleter.provider);
 
   // Init Tailwind completer
   setTailwindEnabled(!!appSettings.editor.tailwindAutocomplete);
-  editor.addCompleter(createTailwindCompleter());
+  const twCompleter = createTailwindCompleter();
+  editor.addCompletionProvider(twCompleter.languages, twCompleter.provider);
 
   // Init file explorer
   fileExplorer = new FileExplorer("file-tree", (path, name) => {
@@ -789,10 +791,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // ── Exports tracker ──
   exportsTracker = new ExportsTracker();
-  editor.addCompleter(exportsTracker.getCompleter());
-  editor.addCompleter(exportsTracker.getPathCompleter());
-  editor.addCompleter(exportsTracker.getNamedImportCompleter());
-  editor.addCompleter(exportsTracker.getMemberCompleter());
+  const etC = exportsTracker.getCompleter();
+  editor.addCompletionProvider(etC.languages, etC.provider);
+  const etP = exportsTracker.getPathCompleter();
+  editor.addCompletionProvider(etP.languages, etP.provider);
+  const etN = exportsTracker.getNamedImportCompleter();
+  editor.addCompletionProvider(etN.languages, etN.provider);
+  const etM = exportsTracker.getMemberCompleter();
+  editor.addCompletionProvider(etM.languages, etM.provider);
   editor.setOnNavigate(async ({ path, content, row, column }) => {
     const target = await exportsTracker.resolveDefinition(path, content, row, column);
     if (!target) return;

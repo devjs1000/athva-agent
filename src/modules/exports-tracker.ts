@@ -3,8 +3,13 @@
 // Also provides import-path and package completions for import/require strings.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { Ace } from "ace-builds";
+import type * as monaco from "monaco-editor";
 import ts from "typescript";
+
+export interface MonacoCompleter {
+  languages: string[];
+  provider: monaco.languages.CompletionItemProvider;
+}
 
 type ExportKind = "named" | "default";
 type ModuleKind = "esm" | "cjs";
@@ -527,22 +532,14 @@ function addNamedToImportClause(existing: string, importName: string): string {
   return parts.sort((a, b) => a.localeCompare(b)).join(", ");
 }
 
-function replaceSessionLine(session: Ace.EditSession, row: number, nextLine: string) {
-  const currentLine = session.getLine(row);
-  session.replace(
-    { start: { row, column: 0 }, end: { row, column: currentLine.length } } as any,
-    nextLine
-  );
-}
-
-function ensureImportInserted(
-  session: Ace.EditSession,
+// Returns a Monaco text edit that inserts or updates an import statement, or null if already present.
+function computeImportEdit(
+  lines: string[],
   importPath: string,
   importName: string,
   kind: ExportKind,
   style: ImportStyle
-) {
-  const lines = session.getValue().split("\n");
+): { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; text: string } | null {
   if (style === "import") {
     if (kind === "named") {
       const namedImportRe = new RegExp(`^\\s*import\\s+([^\\n]+?)\\s+from\\s+["']${escapeRegExp(importPath)}["'];?\\s*$`);
@@ -550,67 +547,80 @@ function ensureImportInserted(
         const match = lines[i].match(namedImportRe);
         if (!match) continue;
         const clause = match[1];
-        if (clause.includes(`{`) && clause.includes(`}`)) {
+        if (clause.includes("{") && clause.includes("}")) {
           const namedMatch = clause.match(/^(.*?)(\{([^}]*)\})(.*)$/);
           if (!namedMatch) break;
           const namedList = addNamedToImportClause(namedMatch[3], importName);
-          replaceSessionLine(
-            session,
-            i,
-            `import ${namedMatch[1]}{ ${namedList} }${namedMatch[4]} from "${importPath}";`
-              .replace(/\s+,/g, ",")
-              .replace(/,\s+\}/g, " }")
-          );
-          return;
+          const newLine = `import ${namedMatch[1]}{ ${namedList} }${namedMatch[4]} from "${importPath}";`
+            .replace(/\s+,/g, ",")
+            .replace(/,\s+\}/g, " }");
+          return {
+            range: { startLineNumber: i + 1, startColumn: 1, endLineNumber: i + 1, endColumn: lines[i].length + 1 },
+            text: newLine,
+          };
         }
       }
-
       const stmt = `import { ${importName} } from "${importPath}";`;
-      if (lines.some((line) => line.trim() === stmt)) return;
+      if (lines.some((line) => line.trim() === stmt)) return null;
       const row = findInsertRow(lines, style);
-      session.insert({ row, column: 0 }, stmt + "\n");
-      return;
+      return {
+        range: { startLineNumber: row + 1, startColumn: 1, endLineNumber: row + 1, endColumn: 1 },
+        text: stmt + "\n",
+      };
     }
 
     const defaultImportRe = new RegExp(`^\\s*import\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*(?:,\\s*\\{[^}]*\\})?\\s+from\\s+["']${escapeRegExp(importPath)}["'];?\\s*$`);
-    if (lines.some((line) => defaultImportRe.test(line))) return;
+    if (lines.some((line) => defaultImportRe.test(line))) return null;
 
     const namedOnlyRe = new RegExp(`^\\s*import\\s+\\{([^}]*)\\}\\s+from\\s+["']${escapeRegExp(importPath)}["'];?\\s*$`);
     for (let i = 0; i < lines.length; i++) {
       const match = lines[i].match(namedOnlyRe);
       if (!match) continue;
-      replaceSessionLine(session, i, `import ${importName}, { ${match[1].trim()} } from "${importPath}";`);
-      return;
+      const newLine = `import ${importName}, { ${match[1].trim()} } from "${importPath}";`;
+      return {
+        range: { startLineNumber: i + 1, startColumn: 1, endLineNumber: i + 1, endColumn: lines[i].length + 1 },
+        text: newLine,
+      };
     }
 
     const stmt = `import ${importName} from "${importPath}";`;
     const row = findInsertRow(lines, style);
-    session.insert({ row, column: 0 }, stmt + "\n");
-    return;
+    return {
+      range: { startLineNumber: row + 1, startColumn: 1, endLineNumber: row + 1, endColumn: 1 },
+      text: stmt + "\n",
+    };
   }
 
+  // require style
   if (kind === "named") {
     const namedRequireRe = new RegExp(`^\\s*(const|let|var)\\s+\\{([^}]*)\\}\\s*=\\s*require\\(["']${escapeRegExp(importPath)}["']\\);?\\s*$`);
     for (let i = 0; i < lines.length; i++) {
       const match = lines[i].match(namedRequireRe);
       if (!match) continue;
       const updated = addNamedToImportClause(match[2], importName);
-      replaceSessionLine(session, i, `${match[1]} { ${updated} } = require("${importPath}");`);
-      return;
+      const newLine = `${match[1]} { ${updated} } = require("${importPath}");`;
+      return {
+        range: { startLineNumber: i + 1, startColumn: 1, endLineNumber: i + 1, endColumn: lines[i].length + 1 },
+        text: newLine,
+      };
     }
-
     const stmt = `const { ${importName} } = require("${importPath}");`;
-    if (lines.some((line) => line.trim() === stmt)) return;
+    if (lines.some((line) => line.trim() === stmt)) return null;
     const row = findInsertRow(lines, style);
-    session.insert({ row, column: 0 }, stmt + "\n");
-    return;
+    return {
+      range: { startLineNumber: row + 1, startColumn: 1, endLineNumber: row + 1, endColumn: 1 },
+      text: stmt + "\n",
+    };
   }
 
   const defaultRequireRe = new RegExp(`^\\s*(?:const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*require\\(["']${escapeRegExp(importPath)}["']\\);?\\s*$`);
-  if (lines.some((line) => defaultRequireRe.test(line))) return;
+  if (lines.some((line) => defaultRequireRe.test(line))) return null;
   const stmt = `const ${importName} = require("${importPath}");`;
   const row = findInsertRow(lines, style);
-  session.insert({ row, column: 0 }, stmt + "\n");
+  return {
+    range: { startLineNumber: row + 1, startColumn: 1, endLineNumber: row + 1, endColumn: 1 },
+    text: stmt + "\n",
+  };
 }
 
 const SKIP_DIRS = new Set([
@@ -1120,308 +1130,289 @@ export class ExportsTracker {
     return null;
   }
 
-  getCompleter(): Ace.Completer {
+  getCompleter(): MonacoCompleter {
     const tracker = this;
-    const completer: Ace.Completer = {
-      identifierRegexps: [/[a-zA-Z_$0-9]/],
+    return {
+      languages: ["typescript", "javascript"],
+      provider: {
+        provideCompletionItems(
+          model: monaco.editor.ITextModel,
+          position: monaco.Position
+        ): monaco.languages.CompletionList {
+          const lineUpTo = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+          const wordInfo = model.getWordUntilPosition(position);
+          const prefix = wordInfo.word;
+          if (!prefix || prefix.length < 1) return { suggestions: [] };
 
-      getCompletions(
-        editor: Ace.Editor,
-        session: Ace.EditSession,
-        pos: Ace.Point,
-        prefix: string,
-        callback: Ace.CompleterCallback
-      ) {
-        if (!prefix || prefix.length < 1) { callback(null, []); return; }
+          if (/(?:from|import|require\s*\()\s*['"][^'"]*$/.test(lineUpTo)) return { suggestions: [] };
+          if (/^\s*import\b/.test(model.getLineContent(position.lineNumber))) return { suggestions: [] };
 
-        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
-        if (/(?:from|import|require\s*\()\s*['"][^'"]*$/.test(lineUpTo)) {
-          callback(null, []);
-          return;
-        }
+          const currentAbsPath = (model.uri as any).path as string ?? "";
+          const currentRelPath = currentAbsPath.startsWith("/" + tracker.projectPath.replace(/^\//, ""))
+            ? currentAbsPath.slice(tracker.projectPath.length + 1)
+            : currentAbsPath.startsWith(tracker.projectPath)
+              ? currentAbsPath.slice(tracker.projectPath.length + 1)
+              : "";
+          const lowerPrefix = prefix.toLowerCase();
+          const lines = model.getValue().split("\n");
+          const importStyle = detectImportStyle(lines, currentAbsPath);
 
-        const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
-        const currentRelPath = currentAbsPath.startsWith(tracker.projectPath)
-          ? currentAbsPath.slice(tracker.projectPath.length + 1)
-          : "";
-        const lowerPrefix = prefix.toLowerCase();
+          const allEntries = [
+            ...tracker.exports.filter(
+              (e) =>
+                (!e.rule || !currentRelPath || matchGlob(e.rule, currentRelPath)) &&
+                e.file !== currentRelPath
+            ),
+            ...tracker.packageExports,
+          ];
 
-        // Skip entries from the current file (avoid self-import)
-        // Also skip if cursor is already inside an import statement
-        const onImportLine = /^\s*import\b/.test(session.getLine(pos.row));
-        if (onImportLine) { callback(null, []); return; }
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordInfo.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          };
 
-        const allEntries = [
-          ...tracker.exports.filter(
-            (e) =>
-              (!e.rule || !currentRelPath || matchGlob(e.rule, currentRelPath)) &&
-              e.file !== currentRelPath
-          ),
-          ...tracker.packageExports,
-        ];
+          const suggestions: monaco.languages.CompletionItem[] = allEntries
+            .filter((entry) => entry.name.toLowerCase().startsWith(lowerPrefix))
+            .map((entry) => {
+              const importPath = entry.isPackage
+                ? entry.file
+                : currentRelPath
+                  ? stripExt(relativePath(currentRelPath, entry.file))
+                  : `./${stripExt(entry.file)}`;
+              const importEdit = computeImportEdit(lines, importPath, entry.name, entry.kind, importStyle);
+              return {
+                label: entry.name,
+                kind: entry.kind === "default" ? 6 /* Class */ : 5 /* Function */ as monaco.languages.CompletionItemKind,
+                insertText: entry.name,
+                detail: `${entry.kind === "default" ? "default" : "named"} · ${importPath}`,
+                sortText: entry.kind === "default" ? `0${entry.name}` : `1${entry.name}`,
+                additionalTextEdits: importEdit ? [importEdit] : [],
+                range,
+              };
+            });
 
-        const results = allEntries
-          .filter((entry) => entry.name.toLowerCase().startsWith(lowerPrefix))
-          .map((entry) => {
-            const importPath = entry.isPackage
-              ? entry.file
-              : currentRelPath
-                ? stripExt(relativePath(currentRelPath, entry.file))
-                : `./${stripExt(entry.file)}`;
+          return { suggestions };
+        },
+      },
+    };
+  }
+
+  getPathCompleter(): MonacoCompleter {
+    const tracker = this;
+    return {
+      languages: ["typescript", "javascript"],
+      provider: {
+        triggerCharacters: ["'", '"', "/", "."],
+        provideCompletionItems(
+          model: monaco.editor.ITextModel,
+          position: monaco.Position
+        ): monaco.languages.ProviderResult<monaco.languages.CompletionList> {
+          const lineUpTo = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+          const match = lineUpTo.match(/(?:from|import|require\s*\()\s*['"]([^'"]*)/);
+          if (!match) return { suggestions: [] };
+
+          const partialPath = match[1];
+          const replaceStart = position.column - partialPath.length;
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            startColumn: replaceStart,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          };
+
+          if (partialPath.startsWith(".")) {
+            const currentAbsPath = (model.uri as any).path as string ?? "";
+            if (!currentAbsPath) return { suggestions: [] };
+
+            const currentDir = currentAbsPath.slice(0, currentAbsPath.lastIndexOf("/"));
+            const lastSlash = partialPath.lastIndexOf("/");
+            const dirPart = lastSlash >= 0 ? partialPath.slice(0, lastSlash) : ".";
+            const filePrefix = lastSlash >= 0 ? partialPath.slice(lastSlash + 1) : partialPath;
+            const absDir = resolveDir(currentDir, dirPart);
+            const displayBase = dirPart === "." ? "./" : `${dirPart}/`;
+
+            return invoke<FileEntry[]>("read_dir", { path: absDir })
+              .then((entries) => {
+                const lowerPrefix = filePrefix.toLowerCase();
+                const suggestions: monaco.languages.CompletionItem[] = entries
+                  .filter((entry) => lowerPrefix === "" || entry.name.toLowerCase().startsWith(lowerPrefix))
+                  .map((entry) => {
+                    const targetName = entry.is_dir ? `${entry.name}/` : stripExt(entry.name);
+                    const fullPath = `${displayBase}${targetName}`;
+                    return {
+                      label: fullPath,
+                      kind: entry.is_dir ? 19 /* Folder */ : 17 /* File */ as monaco.languages.CompletionItemKind,
+                      insertText: fullPath,
+                      detail: entry.is_dir ? "dir" : "file",
+                      range,
+                    };
+                  });
+                return { suggestions };
+              })
+              .catch(() => ({ suggestions: [] }));
+          }
+
+          const lowerPrefix = partialPath.toLowerCase();
+          const suggestions: monaco.languages.CompletionItem[] = tracker.packageNames
+            .filter((packageName) => !partialPath || packageName.toLowerCase().startsWith(lowerPrefix))
+            .map((packageName) => ({
+              label: packageName,
+              kind: 9 /* Module */ as monaco.languages.CompletionItemKind,
+              insertText: packageName,
+              detail: "package",
+              range,
+            }));
+          return { suggestions };
+        },
+      },
+    };
+  }
+
+  getNamedImportCompleter(): MonacoCompleter {
+    const tracker = this;
+    return {
+      languages: ["typescript", "javascript"],
+      provider: {
+        provideCompletionItems(
+          model: monaco.editor.ITextModel,
+          position: monaco.Position
+        ): monaco.languages.CompletionList {
+          const wordInfo = model.getWordUntilPosition(position);
+          const prefix = wordInfo.word;
+          if (!prefix) return { suggestions: [] };
+
+          const fullLine = model.getLineContent(position.lineNumber);
+          const fromMatch = fullLine.match(/from\s+['"]([^'"]+)['"]/);
+          if (!fromMatch) return { suggestions: [] };
+
+          const openBrace = fullLine.indexOf("{");
+          const closeBrace = fullLine.indexOf("}");
+          if (openBrace === -1 || closeBrace === -1) return { suggestions: [] };
+          if (position.column - 1 <= openBrace || position.column - 1 > closeBrace) return { suggestions: [] };
+          if (!/^\s*import\b/.test(fullLine)) return { suggestions: [] };
+
+          const pkgOrPath = fromMatch[1];
+          const lowerPrefix = prefix.toLowerCase();
+
+          let entries: ExportEntry[];
+          if (pkgOrPath.startsWith(".")) {
+            const currentAbsPath = (model.uri as any).path as string ?? "";
+            const currentRelPath = currentAbsPath.startsWith(tracker.projectPath)
+              ? currentAbsPath.slice(tracker.projectPath.length + 1)
+              : "";
+            const resolved = resolveRelativeImport(currentRelPath, pkgOrPath);
+            entries = tracker.exports.filter(
+              (e) =>
+                (stripExt(e.file) === resolved || stripExt(e.file) === `${resolved}/index`) &&
+                e.kind === "named"
+            );
+          } else {
+            entries = tracker.packageExports.filter(
+              (e) => e.file === pkgOrPath && e.kind === "named"
+            );
+          }
+
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordInfo.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          };
+
+          const suggestions: monaco.languages.CompletionItem[] = entries
+            .filter((e) => e.name.toLowerCase().startsWith(lowerPrefix))
+            .map((e) => ({
+              label: e.name,
+              kind: 5 /* Function */ as monaco.languages.CompletionItemKind,
+              insertText: e.name,
+              detail: pkgOrPath,
+              sortText: `0${e.name}`,
+              range,
+            }));
+
+          return { suggestions };
+        },
+      },
+    };
+  }
+
+  getMemberCompleter(): MonacoCompleter {
+    const tracker = this;
+    return {
+      languages: ["typescript", "javascript"],
+      provider: {
+        triggerCharacters: [".", "["],
+        provideCompletionItems(
+          model: monaco.editor.ITextModel,
+          position: monaco.Position
+        ): monaco.languages.ProviderResult<monaco.languages.CompletionList> {
+          const lineUpTo = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+          const wordInfo = model.getWordUntilPosition(position);
+          const context = parseMemberAccessContext(lineUpTo, wordInfo.word);
+          if (!context) return { suggestions: [] };
+
+          const currentAbsPath = (model.uri as any).path as string ?? "";
+
+          const dotIdx = lineUpTo.lastIndexOf(".");
+          const bracketIdx = Math.max(lineUpTo.lastIndexOf('["'), lineUpTo.lastIndexOf("['"));
+          const replaceFrom = Math.max(dotIdx, bracketIdx) + (bracketIdx >= dotIdx ? 2 : 1) + 1; // 1-based
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            startColumn: replaceFrom,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          };
+
+          return tracker.getTypeScriptMemberCompletions(
+            currentAbsPath,
+            model.getValue(),
+            position.lineNumber - 1,
+            position.column - 1,
+            context.memberPrefix,
+            context.bracket,
+            context.bracketQuote
+          ).then((tsResults) => {
+            if (tsResults.length > 0) {
+              return {
+                suggestions: tsResults.map((r: any) => ({
+                  label: r.caption,
+                  kind: 9 /* Module */ as monaco.languages.CompletionItemKind,
+                  insertText: r.value,
+                  detail: r.meta,
+                  sortText: `0${r.caption}`,
+                  range,
+                })),
+              };
+            }
+            const fallback = tracker.getRegexMemberCompletions(
+              model.getValue(), context.chain, context.memberPrefix, context.bracket, context.bracketQuote
+            );
             return {
-              caption: entry.name,
-              value: entry.name,
-              meta: `${entry.kind === "default" ? "default" : "named"} · ${importPath}`,
-              score: entry.kind === "default" ? 925 : 900,
-              completer,
-              _exportEntry: entry,
-              _importPath: importPath,
+              suggestions: fallback.map((r: any) => ({
+                label: r.caption,
+                kind: 9 /* Module */ as monaco.languages.CompletionItemKind,
+                insertText: r.value,
+                detail: r.meta,
+                range,
+              })),
+            };
+          }).catch(() => {
+            const fallback = tracker.getRegexMemberCompletions(
+              model.getValue(), context.chain, context.memberPrefix, context.bracket, context.bracketQuote
+            );
+            return {
+              suggestions: fallback.map((r: any) => ({
+                label: r.caption,
+                kind: 9 /* Module */ as monaco.languages.CompletionItemKind,
+                insertText: r.value,
+                detail: r.meta,
+                range,
+              })),
             };
           });
-
-        callback(null, results);
-      },
-
-      insertMatch(editor: Ace.Editor, data: any) {
-        const session = editor.getSession();
-        const pos = editor.getCursorPosition();
-        const line = session.getLine(pos.row);
-
-        let startCol = pos.column;
-        while (startCol > 0 && /[\w$]/.test(line[startCol - 1])) startCol--;
-
-        session.replace(
-          { start: { row: pos.row, column: startCol }, end: { row: pos.row, column: pos.column } } as any,
-          data.value ?? ""
-        );
-
-        const entry = data._exportEntry as ExportEntry | undefined;
-        const importPath = data._importPath as string | undefined;
-        if (!entry || !importPath) return;
-
-        const currentFilePath = ((editor as any).__athvaFilePath ?? "") as string;
-        const importStyle = detectImportStyle(session.getValue().split("\n"), currentFilePath);
-        ensureImportInserted(session, importPath, data.value ?? entry.name, entry.kind, importStyle);
-      },
-    };
-
-    return completer;
-  }
-
-  getPathCompleter(): Ace.Completer {
-    const tracker = this;
-    const completer: Ace.Completer = {
-      identifierRegexps: [/[a-zA-Z_$0-9./\\@\-]/],
-
-      getCompletions(
-        editor: Ace.Editor,
-        session: Ace.EditSession,
-        pos: Ace.Point,
-        _prefix: string,
-        callback: Ace.CompleterCallback
-      ) {
-        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
-        const match = lineUpTo.match(/(?:from|import|require\s*\()\s*['"]([^'"]*)/);
-        if (!match) { callback(null, []); return; }
-
-        const partialPath = match[1];
-        if (partialPath.startsWith(".")) {
-          const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
-          if (!currentAbsPath) { callback(null, []); return; }
-
-          const currentDir = currentAbsPath.slice(0, currentAbsPath.lastIndexOf("/"));
-          const lastSlash = partialPath.lastIndexOf("/");
-          const dirPart = lastSlash >= 0 ? partialPath.slice(0, lastSlash) : ".";
-          const filePrefix = lastSlash >= 0 ? partialPath.slice(lastSlash + 1) : partialPath;
-          const absDir = resolveDir(currentDir, dirPart);
-          const displayBase = dirPart === "." ? "./" : `${dirPart}/`;
-
-          invoke<FileEntry[]>("read_dir", { path: absDir })
-            .then((entries) => {
-              const lowerPrefix = filePrefix.toLowerCase();
-              const results = entries
-                .filter((entry) => lowerPrefix === "" || entry.name.toLowerCase().startsWith(lowerPrefix))
-                .map((entry) => {
-                  const targetName = entry.is_dir ? `${entry.name}/` : stripExt(entry.name);
-                  const fullPath = `${displayBase}${targetName}`;
-                  return {
-                    caption: fullPath,
-                    value: fullPath,
-                    meta: entry.is_dir ? "dir" : "file",
-                    score: entry.is_dir ? 875 : 850,
-                    completer,
-                  };
-                });
-              callback(null, results);
-            })
-            .catch(() => callback(null, []));
-          return;
-        }
-
-        const lowerPrefix = partialPath.toLowerCase();
-        const packageResults = tracker.packageNames
-          .filter((packageName) => !partialPath || packageName.toLowerCase().startsWith(lowerPrefix))
-          .map((packageName) => ({
-            caption: packageName,
-            value: packageName,
-            meta: "package",
-            score: 800,
-            completer,
-          }));
-        callback(null, packageResults);
-      },
-
-      insertMatch(editor: Ace.Editor, data: any) {
-        const session = editor.getSession();
-        const pos = editor.getCursorPosition();
-        const line = session.getLine(pos.row);
-        const lineUpTo = line.slice(0, pos.column);
-        const match = lineUpTo.match(/(?:from|import|require\s*\()\s*['"]([^'"]*)$/);
-        if (!match) return;
-
-        const partialPath = match[1];
-        const replaceStart = pos.column - partialPath.length;
-        session.replace(
-          { start: { row: pos.row, column: replaceStart }, end: { row: pos.row, column: pos.column } } as any,
-          data.value ?? ""
-        );
-      },
-    };
-
-    return completer;
-  }
-
-  getNamedImportCompleter(): Ace.Completer {
-    const tracker = this;
-    return {
-      identifierRegexps: [/[a-zA-Z_$0-9]/],
-
-      getCompletions(
-        editor: Ace.Editor,
-        session: Ace.EditSession,
-        pos: Ace.Point,
-        prefix: string,
-        callback: Ace.CompleterCallback
-      ) {
-        if (!prefix) { callback(null, []); return; }
-
-        const fullLine = session.getLine(pos.row);
-
-        // Detect single-line: import [type] { ... } from "pkg"
-        const fromMatch = fullLine.match(/from\s+['"]([^'"]+)['"]/);
-        if (!fromMatch) { callback(null, []); return; }
-
-        // Cursor must be between { and }
-        const openBrace = fullLine.indexOf("{");
-        const closeBrace = fullLine.indexOf("}");
-        if (openBrace === -1 || closeBrace === -1) { callback(null, []); return; }
-        if (pos.column <= openBrace || pos.column > closeBrace) { callback(null, []); return; }
-        if (!/^\s*import\b/.test(fullLine)) { callback(null, []); return; }
-
-        const pkgOrPath = fromMatch[1];
-        const lowerPrefix = prefix.toLowerCase();
-
-        let entries: ExportEntry[];
-        if (pkgOrPath.startsWith(".")) {
-          const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
-          const currentRelPath = currentAbsPath.startsWith(tracker.projectPath)
-            ? currentAbsPath.slice(tracker.projectPath.length + 1)
-            : "";
-          const resolved = resolveRelativeImport(currentRelPath, pkgOrPath);
-          entries = tracker.exports.filter(
-            (e) =>
-              (stripExt(e.file) === resolved || stripExt(e.file) === `${resolved}/index`) &&
-              e.kind === "named"
-          );
-        } else {
-          entries = tracker.packageExports.filter(
-            (e) => e.file === pkgOrPath && e.kind === "named"
-          );
-        }
-
-        const results = entries
-          .filter((e) => e.name.toLowerCase().startsWith(lowerPrefix))
-          .map((e) => ({
-            caption: e.name,
-            value: e.name,
-            meta: pkgOrPath,
-            score: 1000,
-          }));
-
-        callback(null, results);
-      },
-    };
-  }
-
-  getMemberCompleter(): Ace.Completer {
-    const tracker = this;
-    return {
-      identifierRegexps: [/[a-zA-Z_$0-9]/],
-
-      getCompletions(
-        editor: Ace.Editor,
-        session: Ace.EditSession,
-        pos: Ace.Point,
-        prefix: string,
-        callback: Ace.CompleterCallback
-      ) {
-        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
-        const context = parseMemberAccessContext(lineUpTo, prefix);
-        if (!context) { callback(null, []); return; }
-
-        const currentAbsPath: string = (editor as any).__athvaFilePath ?? "";
-        const tsCompletionPromise = tracker.getTypeScriptMemberCompletions(
-          currentAbsPath,
-          session.getValue(),
-          pos.row,
-          pos.column,
-          context.memberPrefix,
-          context.bracket,
-          context.bracketQuote
-        );
-
-        void tsCompletionPromise
-          .then((tsResults) => {
-            if (tsResults.length > 0) {
-              callback(null, tsResults);
-              return;
-            }
-
-            const fallbackResults = tracker.getRegexMemberCompletions(
-              session.getValue(),
-              context.chain,
-              context.memberPrefix,
-              context.bracket,
-              context.bracketQuote
-            );
-            callback(null, fallbackResults);
-          })
-          .catch(() => {
-            const fallbackResults = tracker.getRegexMemberCompletions(
-              session.getValue(),
-              context.chain,
-              context.memberPrefix,
-              context.bracket,
-              context.bracketQuote
-            );
-            callback(null, fallbackResults);
-          });
-      },
-
-      insertMatch(editor: Ace.Editor, data: any) {
-        const session = editor.getSession();
-        const pos = editor.getCursorPosition();
-        const lineUpTo = session.getLine(pos.row).slice(0, pos.column);
-
-        // Replace only the partial member name after `.` or `["`
-        const dotIdx = lineUpTo.lastIndexOf(".");
-        const bracketIdx = Math.max(lineUpTo.lastIndexOf('["'), lineUpTo.lastIndexOf("['"));
-        const replaceFrom = Math.max(dotIdx, bracketIdx) + (bracketIdx >= dotIdx ? 2 : 1);
-
-        session.replace(
-          { start: { row: pos.row, column: replaceFrom }, end: { row: pos.row, column: pos.column } } as any,
-          data.value ?? ""
-        );
+        },
       },
     };
   }
