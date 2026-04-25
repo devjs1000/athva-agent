@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { readFile, readDir } from "@tauri-apps/plugin-fs";
 import { listen } from "@tauri-apps/api/event";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
+import { renderMarkdown } from "./markdown-renderer";
+import { TodoPanel } from "./todo-panel";
 import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
@@ -172,6 +174,10 @@ export class Editor {
   private svgPreviewEl: HTMLElement = document.createElement("div");
   private svgToggleBtn: HTMLElement = document.createElement("button");
   private svgPreviewActive = false;
+  /** 'svg' | 'markdown' — what the current preview toggle renders */
+  private currentPreviewType: "svg" | "markdown" | null = null;
+  private todoPanelEl: HTMLElement = document.createElement("div");
+  private activeTodoPanel: TodoPanel | null = null;
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
 
@@ -281,12 +287,16 @@ export class Editor {
     this.svgPreviewEl.className = "svg-preview-container hidden";
     editorContainer.appendChild(this.svgPreviewEl);
 
-    // SVG toggle button (code ↔ preview)
+    // SVG / Markdown toggle button (code ↔ preview)
     this.svgToggleBtn.className = "svg-toggle-btn hidden";
     this.svgToggleBtn.setAttribute("type", "button");
     this.svgToggleBtn.textContent = "Preview";
-    this.svgToggleBtn.addEventListener("click", () => this.toggleSvgPreview());
+    this.svgToggleBtn.addEventListener("click", () => this.toggleRichPreview());
     editorContainer.appendChild(this.svgToggleBtn);
+
+    // TODO panel container
+    this.todoPanelEl.className = "todo-panel-container hidden";
+    editorContainer.appendChild(this.todoPanelEl);
 
     // Undo / Redo toolbar — injected into the tab bar's parent (editor-top)
     const editorTop = this.tabsContainer.parentElement;
@@ -579,16 +589,21 @@ export class Editor {
       tab.modified = false;
       tab.lockedView = false;
       if (this.activeTab === path) {
-        const cursor = this.monacoEditor.getPosition();
-        const model = this.models.get(path);
-        if (model) {
-          model.setValue(content);
-          if (cursor) {
-            this.monacoEditor.setPosition(cursor);
-            this.monacoEditor.revealPositionInCenter(cursor);
+        if (this.activeTodoPanel) {
+          // Reload the TODO panel in-place
+          this.activeTodoPanel.reload(content);
+        } else {
+          const cursor = this.monacoEditor.getPosition();
+          const model = this.models.get(path);
+          if (model) {
+            model.setValue(content);
+            if (cursor) {
+              this.monacoEditor.setPosition(cursor);
+              this.monacoEditor.revealPositionInCenter(cursor);
+            }
           }
+          this.monacoEditor.updateOptions({ readOnly: false });
         }
-        this.monacoEditor.updateOptions({ readOnly: false });
       }
       this.renderTabs();
       this.updateProtectedBanner(tab);
@@ -634,6 +649,9 @@ export class Editor {
         this.svgPreviewEl.innerHTML = "";
         this.svgToggleBtn.classList.add("hidden");
         this.svgPreviewActive = false;
+        this.currentPreviewType = null;
+        this.todoPanelEl.classList.add("hidden");
+        this.activeTodoPanel = null;
         this.emptyEl.style.display = "flex";
         this.protectedBannerEl.classList.add("hidden");
       }
@@ -707,6 +725,9 @@ export class Editor {
       this.svgPreviewEl.classList.add("hidden");
       this.svgToggleBtn.classList.add("hidden");
       this.svgPreviewActive = false;
+      this.currentPreviewType = null;
+      this.todoPanelEl.classList.add("hidden");
+      this.activeTodoPanel = null;
       this.protectedBannerEl.classList.add("hidden");
       this.activeWebLabel = this.webTabLabels.get(path) ?? null;
       if (prevWebLabel && prevWebLabel !== this.activeWebLabel) {
@@ -741,6 +762,9 @@ export class Editor {
     this.svgPreviewEl.innerHTML = "";
     this.svgToggleBtn.classList.add("hidden");
     this.svgPreviewActive = false;
+    this.currentPreviewType = null;
+    this.todoPanelEl.classList.add("hidden");
+    this.activeTodoPanel = null;
 
     // Image preview — read binary → base64 data URL (asset:// protocol not configured)
     if (IMAGE_EXTS.has(ext)) {
@@ -764,10 +788,40 @@ export class Editor {
       return;
     }
 
+    // TODO file — special task-manager UI
+    const baseName = tab.name.toLowerCase().replace(/\.(md|txt|json)$/, "");
+    if (baseName === "todo" || baseName === "todos") {
+      this.editorEl.style.display = "none";
+      this.todoPanelEl.classList.remove("hidden");
+      this.activeTodoPanel = new TodoPanel(
+        this.todoPanelEl,
+        tab.content,
+        (serialized) => {
+          tab.content = serialized;
+          tab.modified = true;
+          this.renderTabs();
+          if (this.saveTimeout) clearTimeout(this.saveTimeout);
+          this.saveTimeout = setTimeout(() => {
+            if (this.onSaveCallback) this.onSaveCallback(path, serialized);
+            tab.modified = false;
+            this.renderTabs();
+          }, 800);
+        }
+      );
+      this.updateProtectedBanner(tab);
+      this.renderTabs();
+      return;
+    }
+
     this.editorEl.style.display = "block";
 
-    // Show SVG toggle for .svg files
+    // Show preview toggle for SVG and Markdown files
     if (ext === "svg") {
+      this.currentPreviewType = "svg";
+      this.svgToggleBtn.classList.remove("hidden");
+      this.svgToggleBtn.textContent = "Preview";
+    } else if (ext === "md" || ext === "mdx" || ext === "markdown") {
+      this.currentPreviewType = "markdown";
       this.svgToggleBtn.classList.remove("hidden");
       this.svgToggleBtn.textContent = "Preview";
     }
@@ -805,7 +859,7 @@ export class Editor {
     this.protectedBannerEl.classList.toggle("hidden", !shouldShow);
   }
 
-  private toggleSvgPreview() {
+  private toggleRichPreview() {
     const tab = this.tabs.find((t) => t.path === this.activeTab);
     if (!tab) return;
 
@@ -814,10 +868,21 @@ export class Editor {
     if (this.svgPreviewActive) {
       this.editorEl.style.display = "none";
       this.svgPreviewEl.classList.remove("hidden");
-      this.svgPreviewEl.innerHTML = `<div class="svg-preview-inner">${tab.content}</div>`;
+
+      if (this.currentPreviewType === "markdown") {
+        this.svgPreviewEl.classList.add("md-mode");
+        // Re-read latest model content (user may have edited since opening)
+        const content = this.monacoEditor.getModel()?.getValue() ?? tab.content;
+        this.svgPreviewEl.innerHTML = `<div class="md-preview-body">${renderMarkdown(content)}</div>`;
+      } else {
+        this.svgPreviewEl.classList.remove("md-mode");
+        this.svgPreviewEl.innerHTML = `<div class="svg-preview-inner">${tab.content}</div>`;
+      }
+
       this.svgToggleBtn.textContent = "Code";
     } else {
       this.svgPreviewEl.classList.add("hidden");
+      this.svgPreviewEl.classList.remove("md-mode");
       this.svgPreviewEl.innerHTML = "";
       this.editorEl.style.display = "block";
       this.svgToggleBtn.textContent = "Preview";
