@@ -180,6 +180,7 @@ export class Editor {
   private activeTodoPanel: TodoPanel | null = null;
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
+  private readonly importableSourceExts = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
 
   constructor(editorId: string, tabsId: string, emptyId: string) {
     this.tabsContainer = document.getElementById(tabsId)!;
@@ -413,6 +414,8 @@ export class Editor {
         allowJs: true,
         esModuleInterop: true,
       });
+      tsLang.typescriptDefaults.setEagerModelSync(true);
+      tsLang.javascriptDefaults.setEagerModelSync(true);
 
       // Suppress errors that are always false positives in Monaco's sandboxed environment.
       // Monaco has no access to node_modules on disk until we explicitly load them.
@@ -797,15 +800,17 @@ export class Editor {
         this.todoPanelEl,
         tab.content,
         (serialized) => {
+          // Write directly to disk — same flow as saveCurrentFile().
+          // We cannot use onSaveCallback() alone (that only updates the exports tracker, not the file)
+          // and we cannot use saveCurrentFile() (it checks tab.modified and uses activeTab).
           tab.content = serialized;
-          tab.modified = true;
-          this.renderTabs();
-          if (this.saveTimeout) clearTimeout(this.saveTimeout);
-          this.saveTimeout = setTimeout(() => {
-            if (this.onSaveCallback) this.onSaveCallback(path, serialized);
-            tab.modified = false;
-            this.renderTabs();
-          }, 800);
+          void invoke("write_file", { path, content: serialized })
+            .then(() => {
+              tab.modified = false;
+              this.renderTabs();
+              this.onSaveCallback?.(path, serialized);
+            })
+            .catch((e) => console.error("Failed to save TODO:", e));
         }
       );
       this.updateProtectedBanner(tab);
@@ -829,9 +834,11 @@ export class Editor {
     const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
     const uri = monaco.Uri.parse("file://" + path);
 
-    let model = this.models.get(path);
+    let model = this.models.get(path) ?? monaco.editor.getModel(uri);
     if (!model) {
       model = monaco.editor.createModel(tab.content, language, uri);
+      this.models.set(path, model);
+    } else if (!this.models.has(path)) {
       this.models.set(path, model);
     }
 
@@ -936,6 +943,7 @@ export class Editor {
 
     // Load each package's types concurrently (errors are swallowed per-package)
     await Promise.allSettled(deps.map((d) => this.loadPackageTypes(projectRoot, d)));
+    await this.loadProjectSourceModels(projectRoot, filePath);
 
     // Set baseUrl to the project root so TypeScript's module resolver can find
     // node_modules from the registered file:// paths (e.g. "react" → node_modules/@types/react)
@@ -948,6 +956,78 @@ export class Editor {
       patchOpts(tsLang.typescriptDefaults);
       patchOpts(tsLang.javascriptDefaults);
     }
+  }
+
+  private async loadProjectSourceModels(projectRoot: string, activeFilePath: string): Promise<void> {
+    const sourceFiles = await this.collectProjectSourceFiles(projectRoot, 0, []);
+    const tasks = sourceFiles
+      .filter((filePath) => filePath !== activeFilePath && !this.models.has(filePath))
+      .map(async (filePath) => {
+        try {
+          const content = await invoke<string>("read_file", { path: filePath });
+          const ext = filePath.split(".").pop()?.toLowerCase() || "";
+          const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
+          const uri = monaco.Uri.parse(`file://${filePath}`);
+          const existingModel = monaco.editor.getModel(uri);
+          if (existingModel) {
+            this.models.set(filePath, existingModel);
+            return;
+          }
+          const model = monaco.editor.createModel(content, language, uri);
+          this.models.set(filePath, model);
+        } catch {
+          // Skip unreadable files without breaking the rest of the project index.
+        }
+      });
+
+    await Promise.allSettled(tasks);
+  }
+
+  private async collectProjectSourceFiles(
+    dir: string,
+    depth: number,
+    files: string[]
+  ): Promise<string[]> {
+    if (depth > 6 || files.length >= 250) return files;
+
+    let entries: { name: string; isFile: boolean; isDirectory: boolean }[];
+    try {
+      entries = await readDir(dir);
+    } catch {
+      return files;
+    }
+
+    const tasks: Promise<void>[] = [];
+    for (const entry of entries) {
+      if (files.length >= 250) break;
+
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory) {
+        if (
+          entry.name === "node_modules" ||
+          entry.name === ".git" ||
+          entry.name === "dist" ||
+          entry.name === "build" ||
+          entry.name === "coverage" ||
+          entry.name.startsWith(".")
+        ) {
+          continue;
+        }
+        tasks.push(
+          this.collectProjectSourceFiles(path, depth + 1, files).then(() => undefined)
+        );
+        continue;
+      }
+
+      if (!entry.isFile) continue;
+      if (entry.name.endsWith(".d.ts")) continue;
+
+      const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+      if (this.importableSourceExts.has(ext)) files.push(path);
+    }
+
+    await Promise.allSettled(tasks);
+    return files;
   }
 
   private async findProjectRoot(filePath: string): Promise<string | null> {
