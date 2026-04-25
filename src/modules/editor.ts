@@ -195,6 +195,10 @@ export class Editor {
   private projectTypesLoaded: Set<string> = new Set();
   /** Virtual paths already registered via addExtraLib — prevents duplicate registration */
   private readonly extraLibPaths: Set<string> = new Set();
+  /** Maps import specifier → resolved .d.ts or source file path for named-import completions */
+  private readonly packageDtsMap: Map<string, string> = new Map();
+  /** Cache of already-extracted export names keyed by file path */
+  private readonly exportNamesCache: Map<string, string[]> = new Map();
   private readonly importableSourceExts = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
   private readonly importableSourceSuffixRe = /\.(?:[cm]?[jt]sx?)$/;
   private readonly projectDependencyCache: Map<string, string[]> = new Map();
@@ -210,6 +214,7 @@ export class Editor {
 
     this.setupMonacoDefaults();
     this.registerImportPathCompletionProvider();
+    this.registerNamedImportCompletionProvider();
 
     this.monacoEditor = monaco.editor.create(this.editorEl, {
       value: "",
@@ -570,6 +575,87 @@ export class Editor {
     });
   }
 
+  private registerNamedImportCompletionProvider() {
+    this.addCompletionProvider(["typescript", "javascript"], {
+      triggerCharacters: ["{", ",", " "],
+      provideCompletionItems: async (model, position) => {
+        const lineText = model.getLineContent(position.lineNumber);
+        const col = position.column - 1;
+
+        // Must be inside { } of a named import
+        const braceOpen = lineText.lastIndexOf("{", col);
+        const braceClose = lineText.indexOf("}", col);
+        if (braceOpen === -1 || braceClose === -1) return { suggestions: [] };
+
+        // Extract the from specifier on this line or the next
+        const fullText = model.getValue();
+        const lineOffset = model.getOffsetAt({ lineNumber: position.lineNumber, column: 1 });
+        const window = fullText.slice(lineOffset, lineOffset + 300);
+        const fromMatch = window.match(/from\s+['"]([^'"]+)['"]/);
+        if (!fromMatch) return { suggestions: [] };
+
+        const specifier = fromMatch[1];
+        const dtsPath = this.packageDtsMap.get(specifier);
+        if (!dtsPath) return { suggestions: [] };
+
+        const names = await this.getExportedNames(dtsPath);
+        if (!names.length) return { suggestions: [] };
+
+        // Already-imported names on this line (avoid duplication)
+        const alreadyImported = new Set(
+          (lineText.slice(braceOpen + 1, braceClose).match(/\w+/g) ?? [])
+        );
+
+        const range: monaco.IRange = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endColumn: position.column,
+        };
+
+        return {
+          suggestions: names
+            .filter((n) => !alreadyImported.has(n))
+            .map((name) => ({
+              label: name,
+              kind: monaco.languages.CompletionItemKind.Field,
+              insertText: name,
+              range,
+              sortText: `0:${name}`,
+            })),
+        };
+      },
+    });
+  }
+
+  private async getExportedNames(filePath: string): Promise<string[]> {
+    const cached = this.exportNamesCache.get(filePath);
+    if (cached) return cached;
+    try {
+      const content = await invoke<string>("read_file", { path: filePath });
+      const names = this.extractExportedNames(content);
+      this.exportNamesCache.set(filePath, names);
+      return names;
+    } catch {
+      return [];
+    }
+  }
+
+  private extractExportedNames(content: string): string[] {
+    const names = new Set<string>();
+    // export (declare) function/class/const/let/var/type/interface/enum Name
+    for (const m of content.matchAll(
+      /export\s+(?:declare\s+)?(?:function|class|const|let|var|type|interface|enum|abstract\s+class)\s+(\w+)/g
+    )) names.add(m[1]);
+    // export { Name, Name as Alias }
+    for (const m of content.matchAll(/export\s+\{([^}]+)\}/g))
+      for (const part of m[1].split(",")) {
+        const alias = part.trim().split(/\s+as\s+/).pop()?.trim();
+        if (alias && alias !== "default") names.add(alias);
+      }
+    return [...names].filter((n) => n && n !== "default");
+  }
+
   applySettings(settings: EditorSettings) {
     this.currentSettings = { ...settings };
     this.monacoEditor.updateOptions({
@@ -598,7 +684,7 @@ export class Editor {
       try {
         content = await invoke<string>("read_file", { path });
       } catch (e) {
-        console.error("Failed to read file:", e);
+        console.error(`Failed to read file [${path}]:`, e);
         return;
       }
     }
@@ -664,7 +750,7 @@ export class Editor {
       this.renderTabs();
       this.updateProtectedBanner(tab);
     } catch (e) {
-      console.error("Failed to reload file:", e);
+      console.error(`Failed to reload file [${path}]:`, e);
     }
   }
 
@@ -1052,6 +1138,10 @@ export class Editor {
       }
       case "csv": {
         this.svgPreviewEl.classList.remove("md-mode");
+        if (content.length > 500_000) {
+          this.svgPreviewEl.innerHTML = `<div class="preview-error">File too large to preview (&gt;500KB).</div>`;
+          break;
+        }
         const html = renderCSVPreview(content);
         this.svgPreviewEl.innerHTML = html;
         break;
@@ -1083,6 +1173,10 @@ export class Editor {
       }
       case "xlsx": {
         this.svgPreviewEl.classList.remove("md-mode");
+        if (content.length > 2_000_000) {
+          this.svgPreviewEl.innerHTML = `<div class="preview-error">File too large to preview (&gt;2MB).</div>`;
+          break;
+        }
         try {
           const uint8 = new TextEncoder().encode(content);
           const html = await renderXlsxPreview(uint8.buffer);
@@ -1095,7 +1189,12 @@ export class Editor {
       case "svg":
       default: {
         this.svgPreviewEl.classList.remove("md-mode");
-        this.svgPreviewEl.innerHTML = `<div class="svg-preview-inner">${content}</div>`;
+        const sanitizedSvg = content
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/\s+on\w+\s*=\s*"[^"]*"/gi, "")
+          .replace(/\s+on\w+\s*=\s*'[^']*'/gi, "")
+          .replace(/javascript\s*:/gi, "");
+        this.svgPreviewEl.innerHTML = `<div class="svg-preview-inner">${sanitizedSvg}</div>`;
         break;
       }
     }
@@ -1147,28 +1246,65 @@ export class Editor {
     this.projectDependencyCache.set(projectRoot, deps.sort((a, b) => a.localeCompare(b)));
     const projectCompilerConfig = await this.loadProjectCompilerConfig(projectRoot);
 
-    // Load each package's types concurrently (errors are swallowed per-package)
-    await Promise.allSettled(deps.map((d) => this.loadPackageTypes(projectRoot, d)));
-    await this.loadProjectSourceModels(projectRoot, filePath);
+    // Load library types concurrently, collecting exact entry-point paths
+    const pathsEntries = (await Promise.all(deps.map((d) => this.loadPackageTypes(projectRoot, d))))
+      .filter((e): e is { name: string; dtsPath: string; pkgDir: string } => e !== null);
+    const sourceFiles = await this.loadProjectSourceModels(projectRoot, filePath);
+
+    // Build exact (non-wildcard) paths map so TypeScript resolves via fileExists() only —
+    // Monaco's TS worker does not implement directoryExists(), so wildcard paths entries
+    // silently fail. We expand them into per-file exact mappings here.
+    const exactPaths: Record<string, string[]> = {};
+
+    // Library entries: "mermaid" → ["/abs/path/mermaid/dist/mermaid.d.ts"]
+    for (const entry of pathsEntries) {
+      exactPaths[entry.name] = [entry.dtsPath];
+      // Register for named-import completions: import { } from 'mermaid'
+      this.packageDtsMap.set(entry.name, entry.dtsPath);
+    }
+
+    // Tsconfig alias entries: expand "@/*" → ["./src/*"] into per-file exact mappings
+    if (projectCompilerConfig.paths) {
+      const configBaseUrl = projectCompilerConfig.baseUrl ?? projectRoot;
+      for (const [aliasPattern, targets] of Object.entries(projectCompilerConfig.paths)) {
+        if (!aliasPattern.endsWith("/*")) {
+          exactPaths[aliasPattern] = targets;
+          continue;
+        }
+        const aliasPrefix = aliasPattern.slice(0, -2); // "@/*" → "@/"
+        for (const target of targets) {
+          if (!target.endsWith("/*")) continue;
+          // Strip leading ./ and /* to get the base dir, then resolve against configBaseUrl
+          const stripped = target.slice(0, -2).replace(/^\.\//, "");
+          const targetBase = stripped.startsWith("/") ? stripped : `${configBaseUrl}/${stripped}`;
+          for (const sf of sourceFiles) {
+            if (!sf.startsWith(targetBase + "/")) continue;
+            const suffix = sf.slice(targetBase.length + 1).replace(/\.[^.]+$/, "");
+            const alias = `${aliasPrefix}${suffix}`;
+            if (!exactPaths[alias]) exactPaths[alias] = [sf];
+            // Register for named-import completions: import { } from '@/utils'
+            if (!this.packageDtsMap.has(alias)) this.packageDtsMap.set(alias, sf);
+          }
+        }
+      }
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
       const patchOpts = (defaults: any) => {
-        const opts: Record<string, unknown> = {
+        defaults.setCompilerOptions({
           ...defaults.getCompilerOptions(),
-          baseUrl: projectCompilerConfig.baseUrl ?? projectRoot,
-          typeRoots: projectCompilerConfig.typeRoots ?? [`${projectRoot}/node_modules/@types`],
-        };
-        if (projectCompilerConfig.paths) opts.paths = projectCompilerConfig.paths;
-        defaults.setCompilerOptions(opts);
+          baseUrl: projectRoot,
+          paths: exactPaths,
+        });
       };
       patchOpts(tsLang.typescriptDefaults);
       patchOpts(tsLang.javascriptDefaults);
     }
   }
 
-  private async loadProjectSourceModels(projectRoot: string, activeFilePath: string): Promise<void> {
+  private async loadProjectSourceModels(projectRoot: string, activeFilePath: string): Promise<string[]> {
     const sourceFiles = await this.getProjectSourceFiles(projectRoot);
     const tasks = sourceFiles
       .filter((filePath) => filePath !== activeFilePath && !this.models.has(filePath))
@@ -1191,6 +1327,7 @@ export class Editor {
       });
 
     await Promise.allSettled(tasks);
+    return sourceFiles;
   }
 
   private async getProjectSourceFiles(projectRoot: string): Promise<string[]> {
@@ -1376,7 +1513,7 @@ export class Editor {
         const compilerOptions = parsed.compilerOptions ?? {};
         const config: ProjectCompilerConfig = {
           baseUrl: this.resolveConfigBaseUrl(projectRoot, compilerOptions.baseUrl),
-          paths: this.normalizeConfigPaths(compilerOptions.paths),
+          paths: this.normalizeConfigPaths(compilerOptions.paths, projectRoot),
           typeRoots: this.normalizeConfigTypeRoots(projectRoot, compilerOptions.typeRoots),
         };
         this.projectCompilerConfigCache.set(projectRoot, config);
@@ -1410,12 +1547,20 @@ export class Editor {
     return this.resolveProjectPath(projectRoot, baseUrlValue);
   }
 
-  private normalizeConfigPaths(value: unknown): Record<string, string[]> | undefined {
+  private normalizeConfigPaths(value: unknown, projectRoot?: string): Record<string, string[]> | undefined {
     if (!value || typeof value !== "object") return undefined;
     const entries = Object.entries(value as Record<string, unknown>)
       .map(([key, rawValue]) => {
         if (!Array.isArray(rawValue)) return null;
-        const next = rawValue.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+        const next = rawValue
+          .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          .map((item) => {
+            // Resolve relative paths against projectRoot so Monaco's TS worker finds them
+            if (projectRoot && (item.startsWith("./") || item.startsWith("../"))) {
+              return this.resolveProjectPath(projectRoot, item);
+            }
+            return item;
+          });
         return next.length ? [key, next] as const : null;
       })
       .filter((entry): entry is readonly [string, string[]] => Boolean(entry));
@@ -1503,29 +1648,49 @@ export class Editor {
     return null;
   }
 
-  private async loadPackageTypes(projectRoot: string, pkgName: string): Promise<void> {
-    // Normalize for @types lookup: "@scope/pkg" → "scope__pkg"
+  private async loadPackageTypes(
+    projectRoot: string,
+    pkgName: string
+  ): Promise<{ name: string; dtsPath: string; pkgDir: string } | null> {
     const typesKey = pkgName.startsWith("@")
       ? pkgName.slice(1).replace("/", "__")
       : pkgName;
 
-    const dirsToScan = [
-      {
-        actualDir: `${projectRoot}/node_modules/@types/${typesKey}`,
-        virtualDir: `/node_modules/@types/${typesKey}`,
-      },
-      {
-        actualDir: `${projectRoot}/node_modules/${pkgName}`,
-        virtualDir: `/node_modules/${pkgName}`,
-      },
+    const candidates = [
+      `${projectRoot}/node_modules/@types/${typesKey}`,
+      `${projectRoot}/node_modules/${pkgName}`,
     ];
 
-    for (const { actualDir, virtualDir } of dirsToScan) {
-      await this.loadDtsFromDir(actualDir, virtualDir, 0);
+    for (const dir of candidates) {
+      const dtsPath = await this.resolvePackageDtsEntry(dir);
+      if (!dtsPath) continue;
+      await this.loadDtsFromDir(dir, 0);
+      return { name: pkgName, dtsPath, pkgDir: dir };
+    }
+    return null;
+  }
+
+  private async resolvePackageDtsEntry(pkgDir: string): Promise<string | null> {
+    try {
+      const raw = await invoke<string>("read_file", { path: `${pkgDir}/package.json` });
+      const pkg = JSON.parse(raw) as Record<string, unknown>;
+      const typesField = (pkg["types"] ?? pkg["typings"]) as string | undefined;
+      const relative = typesField ? typesField.replace(/^\.\//, "") : "index.d.ts";
+      const resolved = `${pkgDir}/${relative}`;
+      await invoke<string>("read_file", { path: resolved });
+      return resolved;
+    } catch {
+      try {
+        const fallback = `${pkgDir}/index.d.ts`;
+        await invoke<string>("read_file", { path: fallback });
+        return fallback;
+      } catch {
+        return null;
+      }
     }
   }
 
-  private async loadDtsFromDir(dir: string, virtualDir: string, depth: number): Promise<void> {
+  private async loadDtsFromDir(dir: string, depth: number): Promise<void> {
     if (depth > 3) return;
     let entries: { name: string; isFile: boolean; isDirectory: boolean }[];
     try {
@@ -1536,31 +1701,32 @@ export class Editor {
 
     const tasks: Promise<void>[] = [];
     for (const entry of entries) {
-      if (entry.isFile && (entry.name.endsWith(".d.ts") || entry.name === "package.json")) {
-        tasks.push(this.registerExtraLib(`${dir}/${entry.name}`, `${virtualDir}/${entry.name}`));
+      if (entry.isFile && entry.name.endsWith(".d.ts")) {
+        tasks.push(this.registerExtraLib(`${dir}/${entry.name}`));
       } else if (
         entry.isDirectory &&
         depth < 3 &&
         entry.name !== "node_modules" &&
         !entry.name.startsWith(".")
       ) {
-        tasks.push(this.loadDtsFromDir(`${dir}/${entry.name}`, `${virtualDir}/${entry.name}`, depth + 1));
+        tasks.push(this.loadDtsFromDir(`${dir}/${entry.name}`, depth + 1));
       }
     }
     await Promise.allSettled(tasks);
   }
 
-  private async registerExtraLib(filePath: string, virtualPath: string): Promise<void> {
-    const libUri = `file://${virtualPath}`;
-    if (this.extraLibPaths.has(libUri)) return;
-    this.extraLibPaths.add(libUri);
+  private async registerExtraLib(filePath: string): Promise<void> {
+    if (this.extraLibPaths.has(filePath)) return;
+    this.extraLibPaths.add(filePath);
     try {
       const content = await invoke<string>("read_file", { path: filePath });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tsLang = (monaco.languages as any).typescript as any;
       if (tsLang) {
-        tsLang.typescriptDefaults.addExtraLib(content, libUri);
-        tsLang.javascriptDefaults.addExtraLib(content, libUri);
+        // Key must be the plain absolute path — TypeScript's fileExists() receives
+        // plain paths (not file:// URIs) when resolving via the paths[] compiler option.
+        tsLang.typescriptDefaults.addExtraLib(content, filePath);
+        tsLang.javascriptDefaults.addExtraLib(content, filePath);
       }
     } catch { /* unreadable — skip */ }
   }
@@ -2200,7 +2366,7 @@ export class Editor {
       this.renderTabs();
       this.onSaveCallback?.(tab.path, tab.content);
     } catch (e) {
-      console.error("Failed to save file:", e);
+      console.error(`Failed to save file [${tab.path}]:`, e);
     }
   }
 

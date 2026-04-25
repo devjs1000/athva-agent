@@ -275,20 +275,28 @@ fn read_file(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
+fn validate_path(path: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    if p.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err("Path traversal not allowed".to_string());
+    }
+    Ok(p)
+}
+
 #[tauri::command]
 fn write_file(path: String, content: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
+    let p = validate_path(&path)?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, content).map_err(|e| e.to_string())
+    fs::write(&p, content).map_err(|e| e.to_string())
 }
 
 // ── File operations (for context menu) ──
 
 #[tauri::command]
 fn create_file(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
+    let p = validate_path(&path)?;
     if p.exists() {
         return Err("File already exists".to_string());
     }
@@ -300,7 +308,7 @@ fn create_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn create_dir(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
+    let p = validate_path(&path)?;
     if p.exists() {
         return Err("Directory already exists".to_string());
     }
@@ -309,12 +317,14 @@ fn create_dir(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
-    fs::rename(&old_path, &new_path).map_err(|e| e.to_string())
+    let src = validate_path(&old_path)?;
+    let dst = validate_path(&new_path)?;
+    fs::rename(&src, &dst).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn delete_path(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
+    let p = validate_path(&path)?;
     if p.is_dir() {
         fs::remove_dir_all(&p).map_err(|e| e.to_string())
     } else {
