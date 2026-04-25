@@ -344,12 +344,18 @@ export class Editor {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tsLang = (monaco.languages as any).typescript as any;
     if (tsLang) {
+      // Bundler (100) = TypeScript 5.0+ mode designed for webpack/Vite/Turbopack projects.
+      // It does NOT require explicit file extensions on relative imports (unlike NodeNext=99).
+      // Falls back to Node (2) for older Monaco/TS builds.
+      const moduleResolution = tsLang.ModuleResolutionKind?.Bundler ?? tsLang.ModuleResolutionKind?.Node ?? 2;
+      // Use hardcoded 4 = ReactJSX as safety fallback — never let jsx be undefined/0 (None)
+      const jsxEmit = tsLang.JsxEmit?.ReactJSX ?? 4;
+
       const tsCompilerOpts = {
-        target: tsLang.ScriptTarget.ESNext,
-        module: tsLang.ModuleKind.ESNext,
-        // NodeNext lets the TS service resolve node_modules from addExtraLib-registered paths
-        moduleResolution: tsLang.ModuleResolutionKind.NodeNext ?? 99,
-        jsx: tsLang.JsxEmit.ReactJSX,
+        target: tsLang.ScriptTarget?.ESNext ?? 99,
+        module: tsLang.ModuleKind?.ESNext ?? 99,
+        moduleResolution,
+        jsx: jsxEmit,
         allowJs: true,
         checkJs: true,
         esModuleInterop: true,
@@ -361,9 +367,9 @@ export class Editor {
       };
       tsLang.typescriptDefaults.setCompilerOptions(tsCompilerOpts);
       tsLang.javascriptDefaults.setCompilerOptions({
-        target: tsLang.ScriptTarget.ESNext,
-        moduleResolution: tsLang.ModuleResolutionKind.NodeNext ?? 99,
-        jsx: tsLang.JsxEmit.ReactJSX,
+        target: tsLang.ScriptTarget?.ESNext ?? 99,
+        moduleResolution,
+        jsx: jsxEmit,
         allowJs: true,
         esModuleInterop: true,
       });
@@ -371,13 +377,14 @@ export class Editor {
       // Suppress errors that are always false positives in Monaco's sandboxed environment.
       // Monaco has no access to node_modules on disk until we explicitly load them.
       //   2307 — Cannot find module 'X'
-      //   2875 — JSX tag requires 'react/jsx-runtime' path (suppressed until types load)
+      //   2834 — Relative imports need explicit extensions (NodeNext/Node16 strict ESM — wrong for bundler projects)
+      //   2875 — JSX tag requires 'react/jsx-runtime' path
       //   7016 — Could not find declaration file for module
       //   2580 — Cannot find name 'require' (Node.js global)
       //   2591 — Cannot find name 'module'
       //   2593 — Cannot find name 'exports'
       //   2669 — Augmentations for global scope nesting
-      const diagnosticCodesToIgnore = [2307, 2875, 7016, 2580, 2591, 2593, 2669];
+      const diagnosticCodesToIgnore = [2307, 2834, 2875, 7016, 2580, 2591, 2593, 2669];
       tsLang.typescriptDefaults.setDiagnosticsOptions({
         noSemanticValidation: false,
         noSyntaxValidation: false,
