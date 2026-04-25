@@ -6,6 +6,8 @@ import { listen } from "@tauri-apps/api/event";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
 import { renderMarkdown } from "./markdown-renderer";
 import { TodoPanel } from "./todo-panel";
+import { DocumentEditor } from "./doc-editor";
+import { renderCSVPreview, renderFlowPreview, renderTextPreview, renderXlsxPreview } from "./preview-renderers";
 import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
@@ -174,10 +176,14 @@ export class Editor {
   private svgPreviewEl: HTMLElement = document.createElement("div");
   private svgToggleBtn: HTMLElement = document.createElement("button");
   private svgPreviewActive = false;
-  /** 'svg' | 'markdown' — what the current preview toggle renders */
-  private currentPreviewType: "svg" | "markdown" | null = null;
+  /** What the current preview toggle renders: 'svg' | 'markdown' | 'csv' | 'flow' | 'txt' | 'xlsx' | null */
+  private currentPreviewType: "svg" | "markdown" | "csv" | "flow" | "txt" | "xlsx" | null = null;
+  /** True if this file type should default to preview mode on open */
+  private previewDefaultsToOn = false;
   private todoPanelEl: HTMLElement = document.createElement("div");
   private activeTodoPanel: TodoPanel | null = null;
+  private activeDocEditor: DocumentEditor | null = null;
+  private docEditorActive = false;
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
   private readonly importableSourceExts = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
@@ -595,6 +601,9 @@ export class Editor {
         if (this.activeTodoPanel) {
           // Reload the TODO panel in-place
           this.activeTodoPanel.reload(content);
+        } else if (this.activeDocEditor) {
+          // Reload the document editor in-place
+          this.activeDocEditor.reload(content);
         } else {
           const cursor = this.monacoEditor.getPosition();
           const model = this.models.get(path);
@@ -655,6 +664,7 @@ export class Editor {
         this.currentPreviewType = null;
         this.todoPanelEl.classList.add("hidden");
         this.activeTodoPanel = null;
+        this.activeDocEditor = null;
         this.emptyEl.style.display = "flex";
         this.protectedBannerEl.classList.add("hidden");
       }
@@ -696,6 +706,68 @@ export class Editor {
     this.monacoEditor.trigger("keyboard", "redo", null);
   }
 
+  private openDocumentEditor(path: string, content: string) {
+    this.docEditorActive = true;
+    this.activeDocEditor = new DocumentEditor(
+      this.todoPanelEl,
+      content,
+      (text) => {
+        // Direct save, no debounce for document editor
+        const tab = this.tabs.find((t) => t.path === path);
+        if (tab) {
+          tab.content = text;
+          void invoke("write_file", { path, content: text })
+            .then(() => {
+              tab.modified = false;
+              this.renderTabs();
+              this.onSaveCallback?.(path, text);
+            })
+            .catch((e) => console.error("Failed to save document:", e));
+        }
+      },
+      () => {
+        // Toggle to Monaco editor
+        this.toggleDocEditorMode(path);
+      }
+    );
+  }
+
+  private toggleDocEditorMode(path: string) {
+    const tab = this.tabs.find((t) => t.path === path);
+    if (!tab) return;
+
+    if (this.docEditorActive) {
+      // Switch from doc editor to Monaco
+      this.docEditorActive = false;
+      this.todoPanelEl.classList.add("hidden");
+      this.activeDocEditor = null;
+      this.editorEl.style.display = "block";
+
+      // Set up Monaco with current content
+      const ext = tab.name.split(".").pop()?.toLowerCase() || "";
+      const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
+      const uri = monaco.Uri.parse("file://" + path);
+
+      let model = this.models.get(path);
+      if (!model) {
+        model = monaco.editor.createModel(tab.content, language, uri);
+        this.models.set(path, model);
+      }
+
+      this.monacoEditor.setModel(model);
+      (this.monacoEditor as any)._athvaFilePath = path;
+      (this.monacoEditor as any)._athvaFileName = tab.name;
+      this.monacoEditor.focus();
+    } else {
+      // Switch from Monaco back to doc editor
+      this.docEditorActive = true;
+      this.editorEl.style.display = "none";
+      this.todoPanelEl.classList.remove("hidden");
+      const content = this.monacoEditor.getModel()?.getValue() ?? tab.content;
+      this.openDocumentEditor(path, content);
+    }
+  }
+
   setOnCreateEditorTab(callback: () => void) {
     this.onCreateEditorTab = callback;
   }
@@ -731,6 +803,7 @@ export class Editor {
       this.currentPreviewType = null;
       this.todoPanelEl.classList.add("hidden");
       this.activeTodoPanel = null;
+      this.activeDocEditor = null;
       this.protectedBannerEl.classList.add("hidden");
       this.activeWebLabel = this.webTabLabels.get(path) ?? null;
       if (prevWebLabel && prevWebLabel !== this.activeWebLabel) {
@@ -768,6 +841,7 @@ export class Editor {
     this.currentPreviewType = null;
     this.todoPanelEl.classList.add("hidden");
     this.activeTodoPanel = null;
+    this.activeDocEditor = null;
 
     // Image preview — read binary → base64 data URL (asset:// protocol not configured)
     if (IMAGE_EXTS.has(ext)) {
@@ -819,8 +893,10 @@ export class Editor {
     }
 
     this.editorEl.style.display = "block";
+    this.previewDefaultsToOn = false;
 
-    // Show preview toggle for SVG and Markdown files
+    // Show preview toggle for files with preview renderers.
+    // CSV, XLSX, and Flowchart default to preview ON.
     if (ext === "svg") {
       this.currentPreviewType = "svg";
       this.svgToggleBtn.classList.remove("hidden");
@@ -829,6 +905,30 @@ export class Editor {
       this.currentPreviewType = "markdown";
       this.svgToggleBtn.classList.remove("hidden");
       this.svgToggleBtn.textContent = "Preview";
+    } else if (ext === "csv") {
+      this.currentPreviewType = "csv";
+      this.svgToggleBtn.classList.remove("hidden");
+      this.svgToggleBtn.textContent = "Code";
+      this.previewDefaultsToOn = true;
+    } else if (ext === "flow") {
+      this.currentPreviewType = "flow";
+      this.svgToggleBtn.classList.remove("hidden");
+      this.svgToggleBtn.textContent = "Code";
+      this.previewDefaultsToOn = true;
+    } else if (ext === "xlsx" || ext === "xls") {
+      this.currentPreviewType = "xlsx";
+      this.svgToggleBtn.classList.remove("hidden");
+      this.svgToggleBtn.textContent = "Code";
+      this.previewDefaultsToOn = true;
+    } else if (ext === "txt") {
+      // TXT files open in document editor view (not Monaco), not as a toggleable preview
+      this.editorEl.style.display = "none";
+      this.todoPanelEl.classList.remove("hidden");
+      // Reuse todoPanelEl container for document editor
+      this.openDocumentEditor(path, tab.content);
+      this.updateProtectedBanner(tab);
+      this.renderTabs();
+      return;
     }
 
     const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
@@ -856,9 +956,18 @@ export class Editor {
       void this.loadProjectTypesForFile(path);
     }
 
+    // Auto-enable preview for CSV/XLSX/Flowchart files
+    if (this.previewDefaultsToOn && this.currentPreviewType) {
+      this.svgPreviewActive = true;
+      this.editorEl.style.display = "none";
+      this.svgPreviewEl.classList.remove("hidden");
+      this.svgPreviewEl.innerHTML = '<span class="preview-loading">Rendering…</span>';
+      void this.renderPreview(tab);
+    }
+
     this.updateProtectedBanner(tab);
     this.renderTabs();
-    this.monacoEditor.focus();
+    if (!this.svgPreviewActive) this.monacoEditor.focus();
   }
 
   private updateProtectedBanner(tab: OpenTab) {
@@ -875,25 +984,76 @@ export class Editor {
     if (this.svgPreviewActive) {
       this.editorEl.style.display = "none";
       this.svgPreviewEl.classList.remove("hidden");
+      this.svgPreviewEl.innerHTML = '<span class="preview-loading">Rendering…</span>';
 
-      if (this.currentPreviewType === "markdown") {
-        this.svgPreviewEl.classList.add("md-mode");
-        // Re-read latest model content (user may have edited since opening)
-        const content = this.monacoEditor.getModel()?.getValue() ?? tab.content;
-        this.svgPreviewEl.innerHTML = `<div class="md-preview-body">${renderMarkdown(content)}</div>`;
-      } else {
-        this.svgPreviewEl.classList.remove("md-mode");
-        this.svgPreviewEl.innerHTML = `<div class="svg-preview-inner">${tab.content}</div>`;
-      }
-
+      void this.renderPreview(tab);
       this.svgToggleBtn.textContent = "Code";
     } else {
       this.svgPreviewEl.classList.add("hidden");
-      this.svgPreviewEl.classList.remove("md-mode");
       this.svgPreviewEl.innerHTML = "";
       this.editorEl.style.display = "block";
       this.svgToggleBtn.textContent = "Preview";
       this.monacoEditor.focus();
+    }
+  }
+
+  private async renderPreview(tab: OpenTab) {
+    const content = this.monacoEditor.getModel()?.getValue() ?? tab.content;
+
+    switch (this.currentPreviewType) {
+      case "markdown": {
+        this.svgPreviewEl.classList.add("md-mode");
+        this.svgPreviewEl.innerHTML = `<div class="md-preview-body">${renderMarkdown(content)}</div>`;
+        break;
+      }
+      case "csv": {
+        this.svgPreviewEl.classList.remove("md-mode");
+        const html = renderCSVPreview(content);
+        this.svgPreviewEl.innerHTML = html;
+        break;
+      }
+      case "txt": {
+        this.svgPreviewEl.classList.remove("md-mode");
+        const html = renderTextPreview(content);
+        this.svgPreviewEl.innerHTML = html;
+        break;
+      }
+      case "flow": {
+        this.svgPreviewEl.classList.remove("md-mode");
+        const html = await renderFlowPreview(content);
+        this.svgPreviewEl.innerHTML = html;
+        // Mermaid needs to be re-rendered after DOM insertion
+        setTimeout(() => {
+          const mermaid = (globalThis as any).mermaid;
+          if (mermaid && mermaid.run) {
+            // Clear any existing diagrams and re-render
+            mermaid.run().catch((err: any) => {
+              console.warn("Mermaid rendering warning:", err);
+              // Mermaid renders best-effort, some diagrams may not support all layouts
+            });
+          } else {
+            console.warn("Mermaid not loaded");
+          }
+        }, 0);
+        break;
+      }
+      case "xlsx": {
+        this.svgPreviewEl.classList.remove("md-mode");
+        try {
+          const uint8 = new TextEncoder().encode(content);
+          const html = await renderXlsxPreview(uint8.buffer);
+          this.svgPreviewEl.innerHTML = html;
+        } catch (e) {
+          this.svgPreviewEl.innerHTML = `<div class="preview-error">Failed to render XLSX: ${e}</div>`;
+        }
+        break;
+      }
+      case "svg":
+      default: {
+        this.svgPreviewEl.classList.remove("md-mode");
+        this.svgPreviewEl.innerHTML = `<div class="svg-preview-inner">${content}</div>`;
+        break;
+      }
     }
   }
 
