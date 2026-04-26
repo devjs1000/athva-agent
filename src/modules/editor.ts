@@ -546,6 +546,18 @@ export class Editor {
     monaco.editor.setTheme(theme);
   }
 
+  defineMonacoTheme(
+    name: string,
+    theme: {
+      base: "vs" | "vs-dark";
+      inherit: boolean;
+      rules: Array<{ token: string; foreground?: string; background?: string; fontStyle?: string }>;
+      colors: Record<string, string>;
+    }
+  ) {
+    monaco.editor.defineTheme(name, theme);
+  }
+
   /** Register a Monaco completion provider for one or more languages */
   addCompletionProvider(languages: string[], provider: monaco.languages.CompletionItemProvider) {
     for (const lang of languages) {

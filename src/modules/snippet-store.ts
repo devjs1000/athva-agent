@@ -9,7 +9,7 @@ export interface MonacoCompleter {
 }
 
 export type SnippetScope = "global" | "project";
-export type SnippetSource = "builtin" | SnippetScope;
+export type SnippetSource = "builtin" | SnippetScope | `extension:${string}`;
 
 export interface SnippetEntry extends Snippet {
   id: string;
@@ -24,6 +24,7 @@ interface StoredSnippetFile {
 const GLOBAL_SNIPPETS_PATH = ".athva/snippets.json";
 const PROJECT_SNIPPETS_FILE = ".athva/snippets.json";
 const SNIPPET_PREFIX_RE = /[A-Za-z0-9_$-]/;
+let extensionSnippets: SnippetEntry[] = [];
 
 function createSnippetId(): string {
   return `snippet_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -99,7 +100,7 @@ export class SnippetStore {
 
   getSnippets(category: string): SnippetEntry[] {
     return dedupeSnippets(
-      [...this.projectSnippets, ...this.globalSnippets, ...this.builtIn].filter((snippet) => snippet.category === category)
+      [...this.projectSnippets, ...this.globalSnippets, ...extensionSnippets, ...this.builtIn].filter((snippet) => snippet.category === category)
     );
   }
 
@@ -128,7 +129,7 @@ export class SnippetStore {
             endColumn: position.column,
           };
 
-          const suggestions: monaco.languages.CompletionItem[] = dedupeSnippets([...store.globalSnippets, ...store.projectSnippets])
+          const suggestions: monaco.languages.CompletionItem[] = dedupeSnippets([...store.globalSnippets, ...store.projectSnippets, ...extensionSnippets])
             .filter((snippet) => categories.includes(snippet.category))
             .filter(
               (snippet) =>
@@ -226,4 +227,8 @@ export class SnippetStore {
       content: JSON.stringify(payload, null, 2),
     });
   }
+}
+
+export function setExtensionSnippets(snippets: SnippetEntry[]) {
+  extensionSnippets = dedupeSnippets(snippets);
 }

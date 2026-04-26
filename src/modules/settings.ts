@@ -22,6 +22,7 @@ export interface CustomTheme {
 
 export interface AppearanceSettings {
   theme: string;
+  fileIconTheme: string;
   colorOverrides: Partial<ThemeColors>;
   customThemes: CustomTheme[];
   backgroundImage: {
@@ -106,6 +107,7 @@ export interface AppSettings {
 
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   theme: "dark",
+  fileIconTheme: "",
   colorOverrides: {},
   customThemes: [],
   backgroundImage: {
@@ -192,6 +194,7 @@ export async function loadSettings(): Promise<AppSettings> {
       appearance: {
         ...DEFAULT_APPEARANCE_SETTINGS,
         ...parsed.appearance,
+        fileIconTheme: parsed.appearance?.fileIconTheme ?? DEFAULT_APPEARANCE_SETTINGS.fileIconTheme,
         colorOverrides: parsed.appearance?.colorOverrides ?? {},
         customThemes: parsed.appearance?.customThemes ?? [],
         backgroundImage: { ...DEFAULT_APPEARANCE_SETTINGS.backgroundImage, ...parsed.appearance?.backgroundImage },
@@ -795,6 +798,7 @@ export class SettingsUI {
     this.appearanceRestoreBtn.addEventListener("click", () => {
       this.settings.appearance = {
         theme: "dark",
+        fileIconTheme: "",
         colorOverrides: {},
         customThemes: this.settings.appearance.customThemes,
         backgroundImage: { editorUrl: "", editorOpacity: 0.3, editorBlur: 0, workspaceUrl: "", workspaceOpacity: 0.2, workspaceBlur: 0 },

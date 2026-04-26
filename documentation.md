@@ -33,7 +33,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, HTML/JSX/TSX Emmet expansion, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
 - `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while filtering member-access contexts to relevant object/property completions.
 - `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
-- `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI, including persisted workspace action placements across titlebar, side rails, and status bar zones.
+- `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI, including persisted workspace action placements across titlebar, side rails, and status bar zones plus the active runtime file icon theme selection.
 - `src/modules/chatbot.ts`: manages chat sessions and provider API calls, including rolling agent-history compaction and capped project/session context to keep token use stable.
 - `src/modules/chat-store.ts`: stores chat sessions in IndexedDB.
 - `src/modules/quick-open.ts`: keyboard-driven file search overlay.
@@ -46,7 +46,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports, resolves definitions/hover quick-info via TypeScript, and suggests installed package names plus object members in relevant contexts.
 - `src/modules/quality-core.ts`: reusable static-analysis engine that parses JS/TS files, computes naming/import/complexity/quality/type/architecture/dependency/security metrics, and returns a JSON quality report. The quality config supports per-category naming expectations for files, functions, variables, classes, and constants in addition to complexity and length thresholds.
 - `src/modules/quality-panel.ts`: workspace-side quality dashboard that scans the current project, runs the quality engine in a worker, renders actionable findings, provides a guided project-level config flow saved to `.athva/quality-panel.json`, includes score/severity charts, and supports click-through navigation from section cards into detailed issue sections.
-- `src/modules/extensions-panel.ts`: presents Installed, Recommended, and Search tabs for Visual Studio Marketplace extensions, shows a detail view for the selected extension, and installs or uninstalls global VSIX packages for Athva.
+- `src/modules/extensions-panel.ts`: presents Installed, Recommended, and Search tabs for Visual Studio Marketplace extensions, opens selected extensions inside the editor area as marketplace pages, shows support-aware detail actions, and installs or uninstalls global VSIX packages for Athva.
+- `src/modules/vscode-extension-support.ts`: parses installed VSIX manifests and supported contributions, imports usable color themes, file icon themes, and snippets into Athva, and flags unsupported VS Code-only contribution types.
 - `src/modules/ts-lint.ts`: TypeScript worker bridge for editor diagnostics.
 
 ### Backend Modules
@@ -199,5 +200,7 @@ pnpm quality:analyze <project-path> --config /path/to/quality-config.json --outp
 - AI provider requests originate in the frontend, so API keys are present in renderer-managed settings.
 - Quick-open relies on recursive search from the backend and excludes common heavy directories such as `node_modules`, `dist`, `target`, `.git`, `build`, and `__pycache__`.
 - Downloaded VS Code extensions are stored in Athva's global app data directory, but Athva does not host or execute VS Code extensions at runtime.
+- Athva now consumes a limited subset of installed VSIX assets directly: color themes, SVG-based file icon themes, and snippet contributions. These apply through Athva's native theme, explorer icon, and snippet systems rather than a VS Code extension host.
+- Extensions that depend on executable activation, VS Code APIs, language servers, TextMate grammar injection, debugger hooks, or custom views still do not run inside Athva.
 - Workspace action placement is configured in-app via per-button move menus and persisted in settings rather than project files, and placements attach to real IDE chrome regions instead of floating overlays.
 - The repository README is still minimal and does not yet replace this file as authoritative technical documentation.

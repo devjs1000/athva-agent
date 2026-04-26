@@ -68,6 +68,19 @@ interface FileIcon {
   svg: string;
 }
 
+export interface RuntimeFileIconTheme {
+  id: string;
+  label: string;
+  extensionIdentifier: string;
+  defaultFile?: string;
+  defaultFolder?: string;
+  defaultFolderExpanded?: string;
+  filesByName: Record<string, string>;
+  filesByExtension: Record<string, string>;
+  foldersByName: Record<string, string>;
+  foldersExpandedByName: Record<string, string>;
+}
+
 function fileIcon(bodyColor: string, tagColor: string, tagText: string): string {
   return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none">` +
     `<path d="M3 1C2.45 1 2 1.45 2 2V14C2 14.55 2.45 15 3 15H13C13.55 15 14 14.55 14 14V5L10 1H3Z" fill="${bodyColor}"/>` +
@@ -235,14 +248,59 @@ const FILENAME_ICON_MAP: Record<string, FileIcon> = {
   "deno.json":         { svg: langIcon("#000000", "Dn") },
 };
 
+const runtimeFileIconThemes = new Map<string, RuntimeFileIconTheme>();
+let activeRuntimeFileIconThemeId = "";
+
+export function registerRuntimeFileIconThemes(themes: RuntimeFileIconTheme[]) {
+  runtimeFileIconThemes.clear();
+  for (const theme of themes) {
+    runtimeFileIconThemes.set(theme.id, theme);
+  }
+}
+
+export function setActiveRuntimeFileIconTheme(themeId: string) {
+  activeRuntimeFileIconThemeId = themeId;
+}
+
+export function getRuntimeFileIconTheme(themeId: string): RuntimeFileIconTheme | null {
+  return runtimeFileIconThemes.get(themeId) ?? null;
+}
+
+export function getRuntimeFileIconThemes(): RuntimeFileIconTheme[] {
+  return Array.from(runtimeFileIconThemes.values());
+}
+
+function getActiveRuntimeTheme(): RuntimeFileIconTheme | null {
+  return activeRuntimeFileIconThemeId ? runtimeFileIconThemes.get(activeRuntimeFileIconThemeId) ?? null : null;
+}
+
 // ── Public API ──
 
 export function getFolderIcon(name: string, isOpen: boolean): string {
+  const runtimeTheme = getActiveRuntimeTheme();
+  if (runtimeTheme) {
+    const lowerName = name.toLowerCase();
+    const themedIcon = isOpen
+      ? runtimeTheme.foldersExpandedByName[lowerName] || runtimeTheme.foldersByName[lowerName] || runtimeTheme.defaultFolderExpanded || runtimeTheme.defaultFolder
+      : runtimeTheme.foldersByName[lowerName] || runtimeTheme.defaultFolder;
+    if (themedIcon) return themedIcon;
+  }
   const style = FOLDER_STYLES[name.toLowerCase()] || { color: DEFAULT_FOLDER_COLOR };
   return isOpen ? FOLDER_OPEN(style.color) : FOLDER_CLOSED(style.color);
 }
 
 export function getFileIcon(filename: string): string {
+  const runtimeTheme = getActiveRuntimeTheme();
+  if (runtimeTheme) {
+    const lowerName = filename.toLowerCase();
+    const byName = runtimeTheme.filesByName[filename] || runtimeTheme.filesByName[lowerName];
+    if (byName) return byName;
+    const ext = filename.split(".").pop()?.toLowerCase() || "";
+    const byExt = runtimeTheme.filesByExtension[ext];
+    if (byExt) return byExt;
+    if (runtimeTheme.defaultFile) return runtimeTheme.defaultFile;
+  }
+
   // Check exact filename first
   const nameIcon = FILENAME_ICON_MAP[filename];
   if (nameIcon) return nameIcon.svg;

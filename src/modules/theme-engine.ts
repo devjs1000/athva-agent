@@ -1,5 +1,17 @@
 import type { AppearanceSettings, ThemeColors } from "./settings";
 
+export interface RuntimeThemeDefinition {
+  id: string;
+  name: string;
+  colors: ThemeColors;
+  monacoTheme: {
+    base: "vs" | "vs-dark";
+    inherit: boolean;
+    rules: Array<{ token: string; foreground?: string; background?: string; fontStyle?: string }>;
+    colors: Record<string, string>;
+  };
+}
+
 // Map UI theme → Monaco theme name
 export const THEME_TO_MONACO: Record<string, string> = {
   dark: "athva-dark",
@@ -15,6 +27,11 @@ export const THEME_TO_MONACO: Record<string, string> = {
 let _setMonacoTheme: ((theme: string) => void) | null = null;
 export function registerMonacoThemeSetter(fn: (theme: string) => void) {
   _setMonacoTheme = fn;
+}
+
+let _defineMonacoTheme: ((name: string, theme: RuntimeThemeDefinition["monacoTheme"]) => void) | null = null;
+export function registerMonacoThemeDefiner(fn: (name: string, theme: RuntimeThemeDefinition["monacoTheme"]) => void) {
+  _defineMonacoTheme = fn;
 }
 
 // External callback set by main.ts so theme-engine doesn't import TerminalPanel
@@ -89,6 +106,24 @@ export const PRESET_THEMES: Record<string, ThemeColors & { label: string }> = {
   },
 };
 
+const runtimeThemes = new Map<string, RuntimeThemeDefinition>();
+
+export function registerRuntimeThemes(themes: RuntimeThemeDefinition[]) {
+  runtimeThemes.clear();
+  for (const theme of themes) {
+    runtimeThemes.set(theme.id, theme);
+    _defineMonacoTheme?.(theme.id, theme.monacoTheme);
+  }
+}
+
+export function getRuntimeTheme(id: string): RuntimeThemeDefinition | null {
+  return runtimeThemes.get(id) ?? null;
+}
+
+export function getRuntimeThemes(): RuntimeThemeDefinition[] {
+  return Array.from(runtimeThemes.values());
+}
+
 export function getThemeColors(appearance: AppearanceSettings): ThemeColors {
   // Look in built-in presets first, then user custom themes
   const preset = PRESET_THEMES[appearance.theme];
@@ -97,7 +132,8 @@ export function getThemeColors(appearance: AppearanceSettings): ThemeColors {
     base = { ...preset };
   } else {
     const custom = appearance.customThemes.find((t) => t.id === appearance.theme);
-    base = custom ? { ...custom.colors } : { ...PRESET_THEMES.dark };
+    const runtime = runtimeThemes.get(appearance.theme);
+    base = custom ? { ...custom.colors } : runtime ? { ...runtime.colors } : { ...PRESET_THEMES.dark };
   }
 
   // Apply per-area overrides
@@ -169,8 +205,12 @@ export function applyTheme(appearance: AppearanceSettings): void {
 
   // Set Monaco editor theme to match the UI theme
   if (_setMonacoTheme) {
-    const baseTheme = appearance.theme in THEME_TO_MONACO ? appearance.theme : "dark";
-    _setMonacoTheme(THEME_TO_MONACO[baseTheme]);
+    if (runtimeThemes.has(appearance.theme)) {
+      _setMonacoTheme(appearance.theme);
+    } else {
+      const baseTheme = appearance.theme in THEME_TO_MONACO ? appearance.theme : "dark";
+      _setMonacoTheme(THEME_TO_MONACO[baseTheme]);
+    }
   }
 
   // Pass theme to Terminal if available

@@ -7330,6 +7330,13 @@ thead .md-td {
   margin-top: 14px;
 }
 
+.extensions-detail-support {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .quality-insights-list,
 .quality-section-grid,
 .quality-violations-list {

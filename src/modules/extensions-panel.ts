@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ExtensionSupportSnapshot } from "./vscode-extension-support";
 
 interface MarketplaceExtension {
   identifier: string;
@@ -33,6 +34,14 @@ interface ExtensionDetailState {
   identifier: string;
 }
 
+interface ExtensionsPanelOptions {
+  openInEditor?: (identifier: string, displayName: string) => void;
+  getSupport?: (identifier: string) => ExtensionSupportSnapshot | null;
+  afterInstallChange?: () => Promise<void> | void;
+  applyColorTheme?: (themeId: string) => Promise<void> | void;
+  applyFileIconTheme?: (themeId: string) => Promise<void> | void;
+}
+
 export class ExtensionsPanel {
   private panelEl: HTMLElement;
   private resizeEl: HTMLElement;
@@ -52,6 +61,7 @@ export class ExtensionsPanel {
   private tabButtons: Record<ExtensionsTab, HTMLButtonElement>;
   private onResize: () => void;
   private getProjectPath: () => string;
+  private options: ExtensionsPanelOptions;
   private installed: InstalledExtension[] = [];
   private recommended: MarketplaceExtension[] = [];
   private results: MarketplaceExtension[] = [];
@@ -60,9 +70,10 @@ export class ExtensionsPanel {
   private selectedDetail: ExtensionDetailState | null = null;
   private isBusy = false;
 
-  constructor(onResize: () => void, getProjectPath: () => string) {
+  constructor(onResize: () => void, getProjectPath: () => string, options: ExtensionsPanelOptions = {}) {
     this.onResize = onResize;
     this.getProjectPath = getProjectPath;
+    this.options = options;
     this.panelEl = document.getElementById("extensions-panel")!;
     this.resizeEl = document.getElementById("extensions-resize")!;
     this.triggerBtn = document.getElementById("btn-extensions-panel") as HTMLButtonElement;
@@ -121,6 +132,12 @@ export class ExtensionsPanel {
       } else if (action === "select-marketplace") {
         const identifier = target.dataset.identifier;
         if (identifier) this.selectMarketplace(identifier);
+      } else if (action === "apply-color-theme") {
+        const themeId = target.dataset.themeId;
+        if (themeId) void this.options.applyColorTheme?.(themeId);
+      } else if (action === "apply-file-icon-theme") {
+        const themeId = target.dataset.themeId;
+        if (themeId) void this.options.applyFileIconTheme?.(themeId);
       }
     });
 
@@ -260,6 +277,7 @@ export class ExtensionsPanel {
         downloadUrl: extension.download_url,
       });
       this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      await this.options.afterInstallChange?.();
       this.selectedDetail = { kind: "marketplace", identifier };
       this.renderAllLists();
       this.renderDetail();
@@ -282,6 +300,7 @@ export class ExtensionsPanel {
     try {
       await invoke("uninstall_vscode_extension", { identifier });
       this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      await this.options.afterInstallChange?.();
       if (this.selectedDetail?.identifier === identifier) {
         const fallbackMarketplace = this.findMarketplace(identifier);
         this.selectedDetail = fallbackMarketplace ? { kind: "marketplace", identifier } : null;
@@ -457,6 +476,7 @@ export class ExtensionsPanel {
     const marketplaceDetail = isMarketplaceExtension(detail) ? detail : null;
     const installed = this.isInstalled(detail.identifier);
     const installedInfo = this.findInstalled(detail.identifier);
+    const support = this.options.getSupport?.(detail.identifier) ?? null;
     const stats = marketplaceDetail
       ? `<div class="extensions-detail-stats">
           <span>${formatInstalls(marketplaceDetail.installs)} installs</span>
@@ -467,6 +487,17 @@ export class ExtensionsPanel {
           <span>Installed globally in Athva</span>
           <span>${escapeHtml(detail.publisher)}</span>
         </div>`;
+    const supportSummary = support
+      ? `
+        <div class="extensions-detail-support">
+          ${support.supportedFeatures.length ? `<div class="extensions-detail-note">Athva support: ${escapeHtml(support.supportedFeatures.join(", "))}</div>` : ""}
+          ${support.fileIconThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-file-icon-theme" data-theme-id="${escapeAttribute(theme.id)}">Set File Icons: ${escapeHtml(theme.label)}</button>`).join("")}
+          ${support.colorThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-color-theme" data-theme-id="${escapeAttribute(theme.id)}">Set Theme: ${escapeHtml(theme.label)}</button>`).join("")}
+          ${support.snippetCount ? `<div class="extensions-detail-note">${support.snippetCount} snippet${support.snippetCount === 1 ? "" : "s"} are active in Athva.</div>` : ""}
+          ${support.unsupportedFeatures.length ? `<div class="extensions-detail-note">Not supported here: ${escapeHtml(support.unsupportedFeatures.join(", "))}</div>` : ""}
+        </div>
+      `
+      : "";
 
     this.detailEl.innerHTML = `
       <div class="extensions-detail-card">
@@ -490,6 +521,8 @@ export class ExtensionsPanel {
               : ""
           }
         </div>
+        <div class="extensions-detail-note">Opening this extension launches the marketplace page in the editor area.</div>
+        ${supportSummary}
         ${installedInfo
           ? `<div class="extensions-detail-note">Installed version: ${escapeHtml(installedInfo.version)}</div>`
           : `<div class="extensions-detail-note">Not installed in Athva yet.</div>`
@@ -513,12 +546,20 @@ export class ExtensionsPanel {
     this.selectedDetail = { kind: "installed", identifier };
     this.renderAllLists();
     this.renderDetail();
+    const extension = this.findInstalled(identifier);
+    if (extension) {
+      this.options.openInEditor?.(identifier, extension.display_name);
+    }
   }
 
   private selectMarketplace(identifier: string) {
     this.selectedDetail = { kind: "marketplace", identifier };
     this.renderAllLists();
     this.renderDetail();
+    const extension = this.findMarketplace(identifier);
+    if (extension) {
+      this.options.openInEditor?.(identifier, extension.display_name);
+    }
   }
 
   private findMarketplace(identifier: string): MarketplaceExtension | undefined {

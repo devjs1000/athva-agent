@@ -30,7 +30,10 @@ import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 import { ExportsTracker } from "./modules/exports-tracker";
-import { applyTheme, registerMonacoThemeSetter, registerTerminalThemeSetter } from "./modules/theme-engine";
+import { applyTheme, registerMonacoThemeDefiner, registerMonacoThemeSetter, registerRuntimeThemes, registerTerminalThemeSetter } from "./modules/theme-engine";
+import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./modules/file-icons";
+import { setExtensionSnippets } from "./modules/snippet-store";
+import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type InstalledExtensionRecord } from "./modules/vscode-extension-support";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -53,6 +56,7 @@ let currentProjectPath: string = "";
 let appUnlocked = false;
 let lastSecuritySignature = "";
 let actionMenuEl: HTMLElement | null = null;
+let extensionSupportByIdentifier = new Map<string, ExtensionSupportSnapshot>();
 
 const ACTION_PLACEMENT_LABELS: Record<WorkspaceActionPlacement, string> = {
   "top-left": "Top Left",
@@ -591,8 +595,91 @@ function onSettingsChange(settings: AppSettings) {
   setTailwindEnabled(!!settings.editor.tailwindAutocomplete);
   syncChatAutoApproveToggle();
   refreshSecuritySession(settings);
+  setActiveRuntimeFileIconTheme(settings.appearance.fileIconTheme || "");
   applyTheme(settings.appearance);
   renderWorkspaceActionPlacements();
+  if (currentProjectPath) {
+    void fileExplorer.loadRoot(currentProjectPath);
+  }
+}
+
+async function reloadInstalledExtensionSupport() {
+  const installed = await invoke<InstalledExtensionRecord[]>("list_installed_vscode_extensions", { projectPath: currentProjectPath || "" }).catch(() => []);
+  const resolved = await loadInstalledExtensionSupport(installed);
+  extensionSupportByIdentifier = resolved.supportByIdentifier;
+  registerRuntimeThemes(resolved.runtimeThemes);
+  registerRuntimeFileIconThemes(resolved.runtimeFileIconThemes);
+  setExtensionSnippets(resolved.snippets);
+
+  let shouldSaveSettings = false;
+  if (appSettings.appearance.theme.startsWith("ext-theme-") && !resolved.runtimeThemes.some((theme) => theme.id === appSettings.appearance.theme)) {
+    appSettings = {
+      ...appSettings,
+      appearance: {
+        ...appSettings.appearance,
+        theme: "dark",
+      },
+    };
+    shouldSaveSettings = true;
+  }
+  if (appSettings.appearance.fileIconTheme && !resolved.runtimeFileIconThemes.some((theme) => theme.id === appSettings.appearance.fileIconTheme)) {
+    appSettings = {
+      ...appSettings,
+      appearance: {
+        ...appSettings.appearance,
+        fileIconTheme: "",
+      },
+    };
+    shouldSaveSettings = true;
+  }
+
+  setActiveRuntimeFileIconTheme(appSettings.appearance.fileIconTheme || "");
+  applyTheme(appSettings.appearance);
+
+  if (currentProjectPath) {
+    await snippetsPanel.setProjectPath(currentProjectPath);
+    await fileExplorer.loadRoot(currentProjectPath);
+  }
+  if (shouldSaveSettings) {
+    await saveSettings(appSettings);
+  }
+}
+
+function getExtensionSupport(identifier: string): ExtensionSupportSnapshot | null {
+  return extensionSupportByIdentifier.get(identifier) ?? null;
+}
+
+async function applyExtensionColorTheme(themeId: string) {
+  appSettings = {
+    ...appSettings,
+    appearance: {
+      ...appSettings.appearance,
+      theme: themeId,
+    },
+  };
+  settingsUI.updateSettings(appSettings);
+  applyTheme(appSettings.appearance);
+  await saveSettings(appSettings);
+}
+
+async function applyExtensionFileIconTheme(themeId: string) {
+  appSettings = {
+    ...appSettings,
+    appearance: {
+      ...appSettings.appearance,
+      fileIconTheme: themeId,
+    },
+  };
+  settingsUI.updateSettings(appSettings);
+  setActiveRuntimeFileIconTheme(themeId);
+  if (currentProjectPath) {
+    await fileExplorer.loadRoot(currentProjectPath);
+  }
+  await saveSettings(appSettings);
+}
+
+function openExtensionMarketplacePage(identifier: string, displayName: string) {
+  editor.openWebTab(`https://marketplace.visualstudio.com/items?itemName=${encodeURIComponent(identifier)}`, `Extension: ${displayName}`);
 }
 
 async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
@@ -635,6 +722,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);
   registerMonacoThemeSetter((theme) => editor.setMonacoTheme(theme));
+  registerMonacoThemeDefiner((name, theme) => editor.defineMonacoTheme(name, theme));
 
   // Apply theme after registering the Ace setter so the editor theme is set correctly
   applyTheme(appSettings.appearance);
@@ -771,8 +859,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   );
   extensionsPanel = new ExtensionsPanel(
     () => editor.resize(),
-    () => currentProjectPath
+    () => currentProjectPath,
+    {
+      openInEditor: openExtensionMarketplacePage,
+      getSupport: getExtensionSupport,
+      afterInstallChange: async () => {
+        await reloadInstalledExtensionSupport();
+      },
+      applyColorTheme: async (themeId) => {
+        await applyExtensionColorTheme(themeId);
+      },
+      applyFileIconTheme: async (themeId) => {
+        await applyExtensionFileIconTheme(themeId);
+      },
+    }
   );
+
+  await reloadInstalledExtensionSupport();
 
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
