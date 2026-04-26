@@ -33,7 +33,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, HTML/JSX/TSX Emmet expansion, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
 - `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while filtering member-access contexts to relevant object/property completions.
 - `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
-- `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI, including persisted workspace action placements.
+- `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI, including persisted workspace action placements across titlebar, side rails, and status bar zones.
 - `src/modules/chatbot.ts`: manages chat sessions and provider API calls, including rolling agent-history compaction and capped project/session context to keep token use stable.
 - `src/modules/chat-store.ts`: stores chat sessions in IndexedDB.
 - `src/modules/quick-open.ts`: keyboard-driven file search overlay.
@@ -71,7 +71,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 4. Explorer loads the root directory
 5. Quick-open, git status, source control, terminal, and script runner all receive the project path
 6. Quality Panel can scan the opened workspace on demand without executing project code
-7. Workspace action buttons are rendered into their saved IDE positions and can be repositioned individually
+7. Workspace action buttons are rendered into their saved IDE positions across the titlebar, side rails, and status bar and can be repositioned individually
 
 ### File Editing
 
@@ -198,5 +198,5 @@ pnpm quality:analyze <project-path> --config /path/to/quality-config.json --outp
 - AI provider requests originate in the frontend, so API keys are present in renderer-managed settings.
 - Quick-open relies on recursive search from the backend and excludes common heavy directories such as `node_modules`, `dist`, `target`, `.git`, `build`, and `__pycache__`.
 - Downloaded VS Code extensions are stored in `.athva/extensions`, but Athva does not host or execute VS Code extensions at runtime.
-- Workspace action placement is configured in-app via per-button move menus and persisted in settings rather than project files.
+- Workspace action placement is configured in-app via per-button move menus and persisted in settings rather than project files, and placements attach to real IDE chrome regions instead of floating overlays.
 - The repository README is still minimal and does not yet replace this file as authoritative technical documentation.

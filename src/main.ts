@@ -497,11 +497,18 @@ function openWorkspaceActionMenu(actionId: WorkspaceActionId, anchorRect: DOMRec
       `
     ).join("")}
   `;
-  const top = Math.min(window.innerHeight - 16, anchorRect.bottom + 8);
-  const left = Math.min(window.innerWidth - 220, Math.max(8, anchorRect.left));
+  actionMenuEl.classList.remove("hidden");
+  const menuWidth = 210;
+  const menuHeight = Math.min(360, actionMenuEl.offsetHeight || 320);
+  const spaceBelow = window.innerHeight - anchorRect.bottom;
+  const spaceAbove = anchorRect.top;
+  const preferAbove = spaceBelow < menuHeight + 16 && spaceAbove > spaceBelow;
+  const top = preferAbove
+    ? Math.max(8, anchorRect.top - menuHeight - 8)
+    : Math.min(window.innerHeight - menuHeight - 8, anchorRect.bottom + 8);
+  const left = Math.min(window.innerWidth - menuWidth - 8, Math.max(8, anchorRect.left));
   actionMenuEl.style.top = `${top}px`;
   actionMenuEl.style.left = `${left}px`;
-  actionMenuEl.classList.remove("hidden");
 }
 
 function setupWorkspaceActionCustomization() {
