@@ -194,6 +194,9 @@
         </div>
       </div>
 
+      <!-- ========== Global Toast ========== -->
+      <div id="global-toast" class="global-toast hidden"></div>
+
       <!-- ========== Workspace Page ========== -->
       <div id="workspace-page" class="page hidden">
         <!-- Title bar -->
@@ -657,6 +660,22 @@
                 </div>
               </aside>
             </div>
+          </div>
+
+          <!-- Extension View Panel -->
+          <div id="ext-view-panel-resize" class="resize-handle-v hidden"></div>
+          <div id="ext-view-panel" class="extensions-panel hidden">
+            <div class="extensions-header">
+              <div class="extensions-header-copy">
+                <span id="ext-view-panel-title" class="extensions-header-title">EXTENSION VIEW</span>
+              </div>
+              <div class="extensions-header-actions">
+                <button id="btn-close-ext-view-panel" class="btn-icon btn-icon-sm" title="Close">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                </button>
+              </div>
+            </div>
+            <div id="ext-view-panel-body" class="extensions-body" style="padding:12px;overflow-y:auto;flex:1;"></div>
           </div>
 
           <!-- Chat panel resize handle -->

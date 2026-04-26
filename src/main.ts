@@ -732,6 +732,18 @@ async function applyExtensionFileIconTheme(themeId: string) {
   await saveSettings(appSettings);
 }
 
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+function showToast(message: string, duration = 3000) {
+  const el = document.getElementById("global-toast");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove("hidden");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), duration);
+}
+
+let activeVcId: string | null = null;
+
 function renderExtensionViewContainerRail(viewContainers: ExtensionViewContainer[]) {
   const rail = document.getElementById("workspace-action-zone-left-sidebar-strip");
   if (!rail) return;
@@ -748,10 +760,72 @@ function renderExtensionViewContainerRail(viewContainers: ExtensionViewContainer
       btn.textContent = vc.title.slice(0, 2).toUpperCase();
     }
     btn.addEventListener("click", () => {
-      commandPalette?.openFilteredToContainer(vc.id, vc.title);
+      openExtensionViewPanel(vc);
     });
     rail.appendChild(btn);
   }
+}
+
+function openExtensionViewPanel(vc: ExtensionViewContainer) {
+  const panel = document.getElementById("ext-view-panel");
+  const resizeEl = document.getElementById("ext-view-panel-resize");
+  const titleEl = document.getElementById("ext-view-panel-title");
+  const bodyEl = document.getElementById("ext-view-panel-body");
+  if (!panel || !bodyEl) return;
+
+  if (activeVcId === vc.id && !panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    resizeEl?.classList.add("hidden");
+    activeVcId = null;
+    document.querySelectorAll(".ext-view-container-btn").forEach((b) => b.classList.remove("active"));
+    editor.resize();
+    return;
+  }
+
+  activeVcId = vc.id;
+  document.querySelectorAll(".ext-view-container-btn").forEach((b) => {
+    b.classList.toggle("active", (b as HTMLElement).dataset.vcId === vc.id);
+  });
+
+  if (titleEl) titleEl.textContent = vc.title.toUpperCase();
+
+  const snapshot = extensionSupportByIdentifier.get(vc.extensionIdentifier);
+  const views = snapshot?.views.filter((v) => v.containerId === vc.id) ?? [];
+
+  bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, snapshot?.hasRuntime ?? false, snapshot?.displayName ?? vc.extensionIdentifier);
+
+  panel.classList.remove("hidden");
+  resizeEl?.classList.remove("hidden");
+  editor.resize();
+}
+
+function renderExtensionViewPanelBody(
+  _vc: ExtensionViewContainer,
+  views: Array<{ id: string; name: string }>,
+  hasRuntime: boolean,
+  extensionDisplayName: string
+): string {
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  if (!views.length) {
+    return `<div class="extensions-empty-state"><div class="extensions-empty-title">No views declared</div></div>`;
+  }
+
+  return views.map((view) => `
+    <div class="ext-view-section">
+      <div class="ext-view-section-header">${escape(view.name.toUpperCase())}</div>
+      ${hasRuntime
+        ? `<div class="ext-view-runtime-notice">
+            <div class="ext-view-runtime-icon">⚡</div>
+            <div class="ext-view-runtime-copy">
+              <strong>${escape(extensionDisplayName)}</strong> needs to run its extension code to populate this view.
+              Athva does not yet execute VS Code extension runtimes — this panel shows the declared structure only.
+            </div>
+          </div>`
+        : `<div class="extensions-detail-note">View ID: ${escape(view.id)}</div>`
+      }
+    </div>
+  `).join("");
 }
 
 function openExtensionMarketplacePage(identifier: string, displayName: string) {
@@ -955,7 +1029,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init command palette
   commandPalette = new CommandPalette((command) => {
-    console.log("[CommandPalette] execute:", command);
+    const ownerSnapshot = [...extensionSupportByIdentifier.values()].find((s) =>
+      s.commands.some((c) => c.command === command.command)
+    );
+    if (ownerSnapshot?.hasRuntime) {
+      showToast(`"${command.title}" requires the VS Code extension runtime — not supported in Athva yet.`, 4000);
+    } else {
+      showToast(`Command "${command.title}" has no handler in Athva.`, 3000);
+    }
   });
 
   await reloadInstalledExtensionSupport();
@@ -987,12 +1068,22 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   );
 
+  // Extension view panel close button
+  document.getElementById("btn-close-ext-view-panel")?.addEventListener("click", () => {
+    document.getElementById("ext-view-panel")?.classList.add("hidden");
+    document.getElementById("ext-view-panel-resize")?.classList.add("hidden");
+    document.querySelectorAll(".ext-view-container-btn").forEach((b) => b.classList.remove("active"));
+    activeVcId = null;
+    editor.resize();
+  });
+
   // Setup resize handles
   setupResizeHandle("sidebar-resize", $("sidebar"), "left");
   setupResizeHandle("source-control-resize", $("source-control-panel"), "right");
   setupResizeHandle("review-resize", $("review-panel"), "right");
   setupResizeHandle("quality-resize", $("quality-panel"), "right");
   setupResizeHandle("extensions-resize", $("extensions-panel"), "right");
+  setupResizeHandle("ext-view-panel-resize", $("ext-view-panel"), "right");
   setupResizeHandle("chat-resize", $("chat-panel"), "right");
 
   // ── Welcome page buttons ──

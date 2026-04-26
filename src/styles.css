@@ -8182,3 +8182,120 @@ thead .md-td {
 #ace-editor .ace_gutter {
   background-color: transparent !important;
 }
+
+/* ── Global Toast ── */
+.global-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-surface-raised, #2d2d2d);
+  color: var(--color-text, #ccc);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  max-width: 480px;
+  z-index: 9999;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+/* ── Extension view-container activity bar buttons ── */
+.ext-view-container-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  font-size: 10px;
+  font-weight: 700;
+}
+.ext-view-container-btn:hover,
+.ext-view-container-btn.active {
+  opacity: 1;
+}
+.ext-view-container-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+/* ── Extension view panel body ── */
+.ext-view-section {
+  margin-bottom: 16px;
+}
+.ext-view-section-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted, #888);
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--color-border, #333);
+  margin-bottom: 8px;
+}
+.ext-view-runtime-notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--color-surface-raised, #252526);
+  border: 1px solid var(--color-border, #333);
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted, #aaa);
+}
+.ext-view-runtime-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.ext-view-runtime-copy strong {
+  color: var(--color-text, #ddd);
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ── Command palette command rows ── */
+.extensions-command-list {
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.extensions-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border, #2a2a2a);
+}
+.extensions-command-row:last-child {
+  border-bottom: none;
+}
+.extensions-command-label {
+  flex: 1;
+  color: var(--color-text, #ccc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.extensions-command-id {
+  color: var(--color-text-muted, #666);
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Command palette icon column ── */
+.command-palette-icon {
+  font-size: 12px;
+  min-width: 18px;
+  text-align: center;
+}

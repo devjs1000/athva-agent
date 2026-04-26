@@ -36,6 +36,8 @@ export interface ExtensionViewContainer {
   title: string;
   icon?: string;
   iconSvg?: string;
+  extensionIdentifier: string;
+  hasRuntime: boolean;
 }
 
 export interface ExtensionView {
@@ -65,6 +67,7 @@ export interface ExtensionSupportSnapshot {
   viewContainers: ExtensionViewContainer[];
   views: ExtensionView[];
   languages: ExtensionLanguage[];
+  hasRuntime: boolean;
 }
 
 export interface ResolvedExtensionsSupport {
@@ -138,6 +141,7 @@ export async function loadInstalledExtensionSupport(
         viewContainers: [],
         views: [],
         languages: [],
+        hasRuntime: false,
       });
       continue;
     }
@@ -149,7 +153,7 @@ export async function loadInstalledExtensionSupport(
     const iconThemes = await loadIconThemes(extension.identifier, extension.display_name, extension.install_path, manifest);
     const extensionSnippets = await loadSnippets(extension.identifier, extension.install_path, manifest);
     const commands = parseCommands(manifest);
-    const viewContainers = await parseViewContainers(extension.install_path, manifest);
+    const viewContainers = await parseViewContainers(extension.identifier, extension.install_path, manifest);
     const views = parseViews(manifest);
     const languages = parseLanguages(manifest);
 
@@ -185,6 +189,7 @@ export async function loadInstalledExtensionSupport(
       viewContainers,
       views,
       languages,
+      hasRuntime: !!(manifest?.main || manifest?.browser),
     });
   }
 
@@ -193,20 +198,54 @@ export async function loadInstalledExtensionSupport(
 
 async function readExtensionManifest(installPath: string): Promise<any | null> {
   const manifestCandidates = [
-    joinFsPath(installPath, "extension/package.json"),
-    joinFsPath(installPath, "package.json"),
+    { manifest: joinFsPath(installPath, "extension/package.json"), base: joinFsPath(installPath, "extension") },
+    { manifest: joinFsPath(installPath, "package.json"), base: installPath },
   ];
 
-  for (const path of manifestCandidates) {
+  for (const { manifest: manifestPath, base } of manifestCandidates) {
     try {
-      const raw = await invoke<string>("read_file", { path });
-      return parseJsonc(raw);
+      const raw = await invoke<string>("read_file", { path: manifestPath });
+      const parsed = parseJsonc(raw);
+      if (!parsed) continue;
+      const nls = await loadNls(base);
+      return nls ? applyNls(parsed, nls) : parsed;
     } catch {
       continue;
     }
   }
 
   return null;
+}
+
+async function loadNls(base: string): Promise<Record<string, string> | null> {
+  const candidates = [
+    joinFsPath(base, "package.nls.json"),
+    joinFsPath(base, "package.nls.en.json"),
+  ];
+  for (const path of candidates) {
+    const raw = await readTextFileSafe(path);
+    if (!raw) continue;
+    const parsed = parseJsonc(raw);
+    if (parsed && typeof parsed === "object") return parsed as Record<string, string>;
+  }
+  return null;
+}
+
+function applyNls(value: unknown, nls: Record<string, string>): unknown {
+  if (typeof value === "string") {
+    const match = value.match(/^%(.+)%$/);
+    if (match) return nls[match[1]] ?? value;
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => applyNls(item, nls));
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = applyNls(v, nls);
+    }
+    return result;
+  }
+  return value;
 }
 
 async function loadColorThemes(
@@ -346,11 +385,12 @@ function parseCommands(manifest: any): ExtensionCommand[] {
     }));
 }
 
-async function parseViewContainers(installPath: string, manifest: any): Promise<ExtensionViewContainer[]> {
+async function parseViewContainers(extensionIdentifier: string, installPath: string, manifest: any): Promise<ExtensionViewContainer[]> {
   const contributes = manifest?.contributes ?? {};
   const activitybar = Array.isArray(contributes.viewsContainers?.activitybar)
     ? contributes.viewsContainers.activitybar
     : [];
+  const hasRuntime = !!(manifest?.main || manifest?.browser);
 
   const result: ExtensionViewContainer[] = [];
   for (const item of activitybar) {
@@ -367,6 +407,8 @@ async function parseViewContainers(installPath: string, manifest: any): Promise<
       title: String(item.title || item.id),
       icon: typeof item.icon === "string" ? item.icon : undefined,
       iconSvg: iconSvg || undefined,
+      extensionIdentifier,
+      hasRuntime,
     });
   }
   return result;
@@ -647,10 +689,46 @@ function parseJsonc(raw: string): any | null {
   }
 }
 
+// String-aware JSONC comment stripper — never touches content inside string literals.
 function stripJsonComments(raw: string): string {
-  return raw
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
+  let out = "";
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i];
+    // String literal — copy verbatim until closing unescaped quote
+    if (ch === '"') {
+      out += ch;
+      i++;
+      while (i < raw.length) {
+        const sc = raw[i];
+        out += sc;
+        if (sc === "\\") {
+          i++;
+          if (i < raw.length) { out += raw[i]; i++; }
+          continue;
+        }
+        i++;
+        if (sc === '"') break;
+      }
+      continue;
+    }
+    // Block comment
+    if (ch === "/" && raw[i + 1] === "*") {
+      i += 2;
+      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    // Line comment
+    if (ch === "/" && raw[i + 1] === "/") {
+      i += 2;
+      while (i < raw.length && raw[i] !== "\n") i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
 
 async function readFirstTextFile(paths: string[]): Promise<string> {
