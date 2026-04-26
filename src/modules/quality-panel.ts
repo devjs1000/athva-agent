@@ -186,6 +186,10 @@ export class QualityPanel {
     void this.run_analysis();
   }
 
+  isOpen() {
+    return !this.panel_el.classList.contains("hidden");
+  }
+
   close() {
     this.panel_el.classList.add("hidden");
     this.resize_el.classList.add("hidden");

@@ -195,36 +195,68 @@
           </button>
           <img src="/src/assets/logo.png" alt="Athva" class="titlebar-logo" />
           <span id="workspace-project-name" class="workspace-title"></span>
-          <div class="titlebar-actions">
+          <div id="workspace-action-zone-top-right" class="titlebar-actions workspace-action-zone" data-action-zone="top-right">
+            <div class="workspace-action-item" data-action-id="settings">
             <button id="btn-settings" class="btn-icon" title="Settings">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/><path fill-rule="evenodd" d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.421 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.421-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="run-script">
             <button id="btn-run-script" class="btn-icon" title="Run Script">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2a.5.5 0 0 1 .812-.39l8 5.5a.5.5 0 0 1 0 .78l-8 5.5A.5.5 0 0 1 4 13V2z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="format">
             <button id="btn-format" class="btn-icon" title="Format Document (Shift+Alt+F)">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2 3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2 3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2 3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="ai-review">
             <button id="btn-ai-review" class="btn-icon" title="Code Review">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5a.5.5 0 0 0-1 0v1.293L6.354 3.94a.5.5 0 1 0 .707.707L8 3.707l.939.94a.5.5 0 0 0 .707-.707L8.5 2.793V1.5zM3 5.5A1.5 1.5 0 0 1 4.5 4h7A1.5 1.5 0 0 1 13 5.5v6a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 11.5v-6zm1.5-.5a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-6a.5.5 0 0 0-.5-.5h-7z"/><path d="M5.5 7a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="quality-panel">
             <button id="btn-quality-panel" class="btn-icon" title="Quality Panel">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 2A1.75 1.75 0 0 1 3.5.25h9A1.75 1.75 0 0 1 14.25 2v9A1.75 1.75 0 0 1 12.5 12.75H8.707l-2.853 2.854A.5.5 0 0 1 5 15.25v-2.5H3.5A1.75 1.75 0 0 1 1.75 11V2zm1.75-.75a.75.75 0 0 0-.75.75v9c0 .414.336.75.75.75H6v1.793l2.146-2.147A.5.5 0 0 1 8.5 11.25h4a.75.75 0 0 0 .75-.75V2a.75.75 0 0 0-.75-.75h-9z"/><path d="M4.5 4.5a.5.5 0 0 1 .5-.5h1v4h-1a.5.5 0 0 1-.5-.5v-3zm3 0a.5.5 0 0 1 .5-.5h1v4h-1a.5.5 0 0 1-.5-.5v-3zm3 0a.5.5 0 0 1 .5-.5h1v4h-1a.5.5 0 0 1-.5-.5v-3z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="extensions-panel">
+            <button id="btn-extensions-panel" class="btn-icon" title="Extensions">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5.5a1.5 1.5 0 0 1 2.914-.5l.394 1.576a.5.5 0 0 0 .485.379H12a2 2 0 0 1 2 2v1.707a.5.5 0 0 0 .379.485l1.576.394a1.5 1.5 0 0 1 0 2.914l-1.576.394A.5.5 0 0 0 14 10.293V12a2 2 0 0 1-2 2h-1.707a.5.5 0 0 0-.485.379l-.394 1.576a1.5 1.5 0 0 1-2.914 0l-.394-1.576A.5.5 0 0 0 5.621 14H4a2 2 0 0 1-2-2v-1.707a.5.5 0 0 0-.379-.485L.045 9.414a1.5 1.5 0 0 1 0-2.914l1.576-.394A.5.5 0 0 0 2 5.621V4a2 2 0 0 1 2-2h1.707a.5.5 0 0 0 .485-.379L6.586.045A1.5 1.5 0 0 1 6.5.5zm1.06 1.213-.394 1.576A1.5 1.5 0 0 1 5.707 4H4a1 1 0 0 0-1 1v1.707a1.5 1.5 0 0 1-1.166 1.455l-1.576.394a.5.5 0 0 0 0 .97l1.576.394A1.5 1.5 0 0 1 3 11.293V13a1 1 0 0 0 1 1h1.707a1.5 1.5 0 0 1 1.455 1.166l.394 1.576a.5.5 0 0 0 .97 0l.394-1.576A1.5 1.5 0 0 1 10.293 14H12a1 1 0 0 0 1-1v-1.707a1.5 1.5 0 0 1 1.166-1.455l1.576-.394a.5.5 0 0 0 0-.97l-1.576-.394A1.5 1.5 0 0 1 13 6.707V5a1 1 0 0 0-1-1h-1.707a1.5 1.5 0 0 1-1.455-1.166l-.394-1.576a.5.5 0 0 0-.878-.045z"/><path d="M8 5a3 3 0 1 0 0 6A3 3 0 0 0 8 5zm0 1a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></svg>
+            </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="snippets">
             <button id="btn-toggle-snippets" class="btn-icon" title="Snippets">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 0a.5.5 0 0 0-.5.5V2H3.5A1.5 1.5 0 0 0 2 3.5v10A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5v-10A1.5 1.5 0 0 0 12.5 2H11V.5a.5.5 0 0 0-1 0V2H6V.5a.5.5 0 0 0-.5-.5zM3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5V5H3V3.5zM3 6h10v7.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V6z"/><path d="M5 8h2v2H5V8zm4 0h2v2H9V8zm-4 3h2v2H5v-2z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="source-control">
             <button id="btn-toggle-scm" class="btn-icon btn-icon-badge" title="Source Control (Ctrl+Shift+G)">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"/></svg>
               <span id="scm-badge" class="nav-badge hidden">0</span>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="terminal">
             <button id="btn-toggle-terminal" class="btn-icon" title="Toggle Terminal (Ctrl+`)">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 9a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3A.5.5 0 0 1 6 9zM3.854 4.146a.5.5 0 1 0-.708.708L4.793 6.5 3.146 8.146a.5.5 0 1 0 .708.708l2-2a.5.5 0 0 0 0-.708l-2-2z"/><path d="M2 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2H2zm12 1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h12z"/></svg>
             </button>
+            </div>
+            <div class="workspace-action-item" data-action-id="chat">
             <button id="btn-toggle-chat" class="btn-icon" title="Toggle AI Chat">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4.414A2 2 0 0 0 3 11.586l-2 2V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12.793a.5.5 0 0 0 .854.353l2.853-2.853A1 1 0 0 1 4.414 12H14a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/><path d="M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zM3 6a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 6zm0 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/></svg>
             </button>
+            </div>
           </div>
+        </div>
+        <div id="workspace-action-layer" class="workspace-action-layer">
+          <div id="workspace-action-zone-top-left" class="workspace-action-zone workspace-action-zone-top" data-action-zone="top-left"></div>
+          <div id="workspace-action-zone-top-center" class="workspace-action-zone workspace-action-zone-top" data-action-zone="top-center"></div>
+          <div id="workspace-action-zone-left-sidebar-strip" class="workspace-action-zone workspace-action-zone-vertical" data-action-zone="left-sidebar-strip"></div>
+          <div id="workspace-action-zone-right-sidebar-strip" class="workspace-action-zone workspace-action-zone-vertical" data-action-zone="right-sidebar-strip"></div>
+          <div id="workspace-action-zone-bottom-left" class="workspace-action-zone workspace-action-zone-bottom" data-action-zone="bottom-left"></div>
+          <div id="workspace-action-zone-bottom-center" class="workspace-action-zone workspace-action-zone-bottom" data-action-zone="bottom-center"></div>
+          <div id="workspace-action-zone-bottom-right" class="workspace-action-zone workspace-action-zone-bottom" data-action-zone="bottom-right"></div>
         </div>
 
         <!-- Main workspace area -->
@@ -560,6 +592,59 @@
                 <span id="quality-title">Quality Panel</span>
               </div>
               <div id="quality-content" class="quality-content"></div>
+            </div>
+          </div>
+
+          <!-- Extensions Panel resize handle -->
+          <div id="extensions-resize" class="resize-handle-v hidden"></div>
+
+          <!-- Extensions Panel -->
+          <div id="extensions-panel" class="extensions-panel hidden">
+            <div class="extensions-header">
+              <div class="extensions-header-copy">
+                <span class="extensions-header-title">EXTENSIONS</span>
+                <span id="extensions-subtitle" class="extensions-header-subtitle">Browse VSIX packages for this project</span>
+              </div>
+              <div class="extensions-header-actions">
+                <button id="btn-extensions-refresh" class="btn-icon btn-icon-sm" title="Refresh">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                </button>
+                <button id="btn-close-extensions" class="btn-icon btn-icon-sm" title="Close">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="extensions-toolbar">
+              <input
+                id="extensions-search-input"
+                class="extensions-search-input"
+                type="text"
+                placeholder="Search extensions or leave empty for popular picks"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="btn-extensions-search" class="extensions-run-btn" type="button">Search</button>
+            </div>
+
+            <div id="extensions-status" class="extensions-status extensions-status-idle"></div>
+
+            <div class="extensions-body">
+              <section class="extensions-section">
+                <div class="extensions-section-header">
+                  <h3>Installed in this project</h3>
+                  <span>.athva/extensions</span>
+                </div>
+                <div id="extensions-installed-list" class="extensions-list"></div>
+              </section>
+
+              <section class="extensions-section">
+                <div class="extensions-section-header">
+                  <h3>Marketplace results</h3>
+                  <span>Visual Studio Marketplace</span>
+                </div>
+                <div id="extensions-results-list" class="extensions-list"></div>
+              </section>
             </div>
           </div>
 

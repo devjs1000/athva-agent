@@ -101,12 +101,15 @@ export class SourceControl {
 
   toggle() {
     const isVisible = !this.panelEl.classList.contains("hidden");
+    const trigger = document.getElementById("btn-toggle-scm");
     if (isVisible) {
       this.panelEl.classList.add("hidden");
       this.resizeEl.classList.add("hidden");
+      trigger?.classList.remove("active");
     } else {
       this.panelEl.classList.remove("hidden");
       this.resizeEl.classList.remove("hidden");
+      trigger?.classList.add("active");
       this.refresh();
     }
     setTimeout(() => this.onResize(), 0);

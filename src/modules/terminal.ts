@@ -87,6 +87,7 @@ export class TerminalPanel {
     this.panel.classList.remove("hidden");
     this.resizeHandle.classList.remove("hidden");
     this.isVisible = true;
+    document.getElementById("btn-toggle-terminal")?.classList.add("active");
 
     if (!this.term) {
       this.createTerminal();
@@ -104,6 +105,7 @@ export class TerminalPanel {
     this.panel.classList.add("hidden");
     this.resizeHandle.classList.add("hidden");
     this.isVisible = false;
+    document.getElementById("btn-toggle-terminal")?.classList.remove("active");
     this.onResize();
   }
 

@@ -68,6 +68,32 @@ export interface SecuritySettings {
   protectEnvFiles: boolean;
 }
 
+export type WorkspaceActionPlacement =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "left-sidebar-strip"
+  | "right-sidebar-strip"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export type WorkspaceActionId =
+  | "settings"
+  | "run-script"
+  | "format"
+  | "ai-review"
+  | "quality-panel"
+  | "extensions-panel"
+  | "snippets"
+  | "source-control"
+  | "terminal"
+  | "chat";
+
+export interface WorkspaceActionSettings {
+  placements: Record<WorkspaceActionId, WorkspaceActionPlacement>;
+}
+
 export interface AppSettings {
   editor: EditorSettings;
   ai: AISettings;
@@ -75,6 +101,7 @@ export interface AppSettings {
   memory: MemorySettings;
   security: SecuritySettings;
   appearance: AppearanceSettings;
+  workspaceActions: WorkspaceActionSettings;
 }
 
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
@@ -130,6 +157,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentAccess: { ...DEFAULT_AGENT_ACCESS },
   memory: { ...DEFAULT_MEMORY_SETTINGS },
   security: { ...DEFAULT_SECURITY_SETTINGS },
+  workspaceActions: {
+    placements: {
+      settings: "top-right",
+      "run-script": "top-right",
+      format: "top-right",
+      "ai-review": "top-right",
+      "quality-panel": "top-right",
+      "extensions-panel": "top-right",
+      snippets: "top-right",
+      "source-control": "top-right",
+      terminal: "top-right",
+      chat: "top-right",
+    },
+  },
 };
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -142,6 +183,12 @@ export async function loadSettings(): Promise<AppSettings> {
       agentAccess: { ...DEFAULT_AGENT_ACCESS, ...parsed.agentAccess },
       memory: { ...DEFAULT_MEMORY_SETTINGS, ...parsed.memory },
       security: { ...DEFAULT_SECURITY_SETTINGS, ...parsed.security },
+      workspaceActions: {
+        placements: {
+          ...DEFAULT_SETTINGS.workspaceActions.placements,
+          ...parsed.workspaceActions?.placements,
+        },
+      },
       appearance: {
         ...DEFAULT_APPEARANCE_SETTINGS,
         ...parsed.appearance,
@@ -432,6 +479,7 @@ export class SettingsUI {
         lockBeforeProjectOpen: this.securityLockProjectOpenEl.checked,
         protectEnvFiles: this.securityProtectEnvEl.checked,
       },
+      workspaceActions: { ...this.settings.workspaceActions },
       appearance: { ...this.settings.appearance },
     };
   }

@@ -131,6 +131,13 @@
     ],
     "imports": ["./quality-core"]
   },
+  "src/modules/extensions-panel.ts": {
+    "hash": null,
+    "exports": [
+      {"name": "ExtensionsPanel", "type": "class", "line": null}
+    ],
+    "imports": []
+  },
   "src/modules/script-runner.ts": {
     "hash": null,
     "exports": [

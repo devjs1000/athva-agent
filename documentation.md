@@ -33,7 +33,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, HTML/JSX/TSX Emmet expansion, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
 - `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while filtering member-access contexts to relevant object/property completions.
 - `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
-- `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI.
+- `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI, including persisted workspace action placements.
 - `src/modules/chatbot.ts`: manages chat sessions and provider API calls, including rolling agent-history compaction and capped project/session context to keep token use stable.
 - `src/modules/chat-store.ts`: stores chat sessions in IndexedDB.
 - `src/modules/quick-open.ts`: keyboard-driven file search overlay.
@@ -46,6 +46,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/modules/exports-tracker.ts`: indexes project exports, powers custom auto-imports, resolves definitions/hover quick-info via TypeScript, and suggests installed package names plus object members in relevant contexts.
 - `src/modules/quality-core.ts`: reusable static-analysis engine that parses JS/TS files, computes naming/import/complexity/quality/type/architecture/dependency/security metrics, and returns a JSON quality report. The quality config supports per-category naming expectations for files, functions, variables, classes, and constants in addition to complexity and length thresholds.
 - `src/modules/quality-panel.ts`: workspace-side quality dashboard that scans the current project, runs the quality engine in a worker, renders actionable findings, provides a guided project-level config flow saved to `.athva/quality-panel.json`, includes score/severity charts, and supports click-through navigation from section cards into detailed issue sections.
+- `src/modules/extensions-panel.ts`: searches the Visual Studio Marketplace, lists installed project-local VSIX packages, and installs extensions into `.athva/extensions`.
 - `src/modules/ts-lint.ts`: TypeScript worker bridge for editor diagnostics.
 
 ### Backend Modules
@@ -70,6 +71,7 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 4. Explorer loads the root directory
 5. Quick-open, git status, source control, terminal, and script runner all receive the project path
 6. Quality Panel can scan the opened workspace on demand without executing project code
+7. Workspace action buttons are rendered into their saved IDE positions and can be repositioned individually
 
 ### File Editing
 
@@ -125,6 +127,9 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `git_diff_file(path: String, file: String, staged: bool) -> Result<String, String>`
 - `load_settings(app: tauri::AppHandle) -> String`
 - `save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String>`
+- `search_vscode_extensions(query: String, limit: usize) -> Result<Vec<MarketplaceExtension>, String>`
+- `list_installed_vscode_extensions(project_path: String) -> Result<Vec<InstalledExtension>, String>`
+- `install_vscode_extension(project_path: String, publisher: String, extension_name: String, version: String, download_url: Option<String>) -> Result<InstalledExtension, String>`
 
 ## Reusable Components Overview
 
@@ -185,10 +190,13 @@ pnpm quality:analyze <project-path> --config /path/to/quality-config.json --outp
 - Chat and AI-assisted git messaging require a provider API key configured in the app settings.
 - Network access is only required for provider API calls; core editing and local project workflows are local.
 - The terminal and git features depend on the host environment having the relevant binaries available.
+- VS Code marketplace search/install also depend on host tooling: `curl` plus `unzip` on macOS/Linux, or PowerShell archive extraction on Windows.
 
 ## Known Implementation Constraints
 
 - The terminal uses spawned shell commands, not a true PTY session.
 - AI provider requests originate in the frontend, so API keys are present in renderer-managed settings.
 - Quick-open relies on recursive search from the backend and excludes common heavy directories such as `node_modules`, `dist`, `target`, `.git`, `build`, and `__pycache__`.
+- Downloaded VS Code extensions are stored in `.athva/extensions`, but Athva does not host or execute VS Code extensions at runtime.
+- Workspace action placement is configured in-app via per-button move menus and persisted in settings rather than project files.
 - The repository README is still minimal and does not yet replace this file as authoritative technical documentation.

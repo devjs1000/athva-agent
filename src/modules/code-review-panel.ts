@@ -137,6 +137,10 @@ export class CodeReviewPanel {
     }
   }
 
+  isOpen() {
+    return !this.panelEl.classList.contains("hidden");
+  }
+
   close() {
     this.abortController?.abort();
     this.abortController = null;

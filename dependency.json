@@ -32,7 +32,7 @@
     "regex": "1"
   },
   "internal": {
-    "src/main.ts": ["./store/projects", "./modules/file-explorer", "./modules/editor", "./modules/settings", "./modules/chatbot", "./modules/agent-memory", "./modules/memory-settings-ui", "./modules/quick-open", "./modules/global-search", "./modules/git-status", "./modules/source-control", "./modules/terminal", "./modules/script-runner", "./modules/sidebar-time-widget", "./modules/code-review-panel", "./modules/quality-panel", "./modules/ai-completer", "./modules/token-usage"],
+    "src/main.ts": ["./store/projects", "./modules/file-explorer", "./modules/editor", "./modules/settings", "./modules/chatbot", "./modules/agent-memory", "./modules/memory-settings-ui", "./modules/quick-open", "./modules/global-search", "./modules/git-status", "./modules/source-control", "./modules/terminal", "./modules/script-runner", "./modules/sidebar-time-widget", "./modules/code-review-panel", "./modules/quality-panel", "./modules/extensions-panel", "./modules/ai-completer", "./modules/token-usage"],
     "src/modules/editor.ts": ["./ts-lint", "./minimap", "./ai-completer", "./settings"],
     "src/modules/chatbot.ts": ["./settings", "./agent-memory", "./token-usage"],
     "src/modules/file-explorer.ts": ["./file-icons", "./context-menu"],
@@ -42,6 +42,7 @@
     "src/modules/git-status.ts": ["./dialogs"],
     "src/modules/code-review-panel.ts": ["./settings", "./token-usage"],
     "src/modules/quality-panel.ts": ["./quality-core"],
+    "src/modules/extensions-panel.ts": [],
     "src/modules/quality-core.ts": ["typescript"],
     "src/modules/script-runner.ts": ["./terminal"],
     "src/modules/ai-completer.ts": ["./settings", "./dialogs"],

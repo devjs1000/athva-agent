@@ -70,12 +70,14 @@ export class SnippetsPanel {
 
   show() {
     this.panelEl.classList.remove("hidden");
+    document.getElementById("btn-toggle-snippets")?.classList.add("active");
     this.searchEl.focus();
     void this.ensureLoaded().then(() => this.render());
   }
 
   hide() {
     this.panelEl.classList.add("hidden");
+    document.getElementById("btn-toggle-snippets")?.classList.remove("active");
     this.closeComposer();
   }
 

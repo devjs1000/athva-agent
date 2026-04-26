@@ -1,14 +1,15 @@
 use regex::RegexBuilder;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
-use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
+use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
 
 // ── Project management ──
 
@@ -632,7 +633,12 @@ fn git_status(path: String) -> GitStatus {
         if !upstream.is_empty() {
             if let Ok(count) = run_git(
                 &path,
-                &["rev-list", "--left-right", "--count", &format!("HEAD...{}", upstream)],
+                &[
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    &format!("HEAD...{}", upstream),
+                ],
             ) {
                 let parts: Vec<&str> = count.split('\t').collect();
                 if parts.len() == 2 {
@@ -678,7 +684,14 @@ fn git_push(path: String) -> Result<String, String> {
 #[tauri::command]
 fn git_list_branches(path: String) -> Result<Vec<GitBranch>, String> {
     let current = run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
-    let output = run_git(&path, &["branch", "--sort=-committerdate", "--format=%(refname:short)"])?;
+    let output = run_git(
+        &path,
+        &[
+            "branch",
+            "--sort=-committerdate",
+            "--format=%(refname:short)",
+        ],
+    )?;
 
     let branches = output
         .lines()
@@ -703,7 +716,7 @@ fn git_switch_branch(path: String, branch: String) -> Result<String, String> {
 #[derive(Debug, Serialize, Clone)]
 pub struct GitFileChange {
     pub path: String,
-    pub status: String,       // "M", "A", "D", "R", "?", "U"
+    pub status: String, // "M", "A", "D", "R", "?", "U"
     pub staged: bool,
 }
 
@@ -741,7 +754,8 @@ fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
         }
 
         // Staged change: index has a real modification (not untracked, not ignored, not unmerged)
-        if index_status != ' ' && index_status != '?' && index_status != '!' && index_status != 'U' {
+        if index_status != ' ' && index_status != '?' && index_status != '!' && index_status != 'U'
+        {
             files.push(GitFileChange {
                 path: display_path.clone(),
                 status: index_status.to_string(),
@@ -858,6 +872,440 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
     fs::write(&path, settings).map_err(|e| e.to_string())
 }
 
+// ── VS Code marketplace / extension install support ──
+
+#[derive(Debug, Serialize, Clone)]
+pub struct MarketplaceExtension {
+    pub identifier: String,
+    pub publisher: String,
+    pub publisher_display_name: String,
+    pub extension_name: String,
+    pub display_name: String,
+    pub description: String,
+    pub version: String,
+    pub icon_url: String,
+    pub installs: u64,
+    pub average_rating: f64,
+    pub rating_count: u64,
+    pub download_url: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct InstalledExtension {
+    pub identifier: String,
+    pub publisher: String,
+    pub extension_name: String,
+    pub display_name: String,
+    pub description: String,
+    pub version: String,
+    pub install_path: String,
+}
+
+fn extensions_root(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path)
+        .join(".athva")
+        .join("extensions")
+}
+
+fn sanitize_extension_segment(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+            out.push(ch);
+        } else {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+fn marketplace_download_url(publisher: &str, extension_name: &str, version: &str) -> String {
+    format!(
+        "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{extension_name}/{version}/vspackage"
+    )
+}
+
+fn pick_latest_version(extension: &Value) -> Option<&Value> {
+    extension
+        .get("versions")
+        .and_then(Value::as_array)
+        .and_then(|versions| versions.first())
+}
+
+fn pick_extension_file(version: &Value, asset_type: &str) -> Option<String> {
+    version
+        .get("files")
+        .and_then(Value::as_array)
+        .and_then(|files| {
+            files.iter().find_map(|file| {
+                if file.get("assetType").and_then(Value::as_str) == Some(asset_type) {
+                    file.get("source")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                } else {
+                    None
+                }
+            })
+        })
+}
+
+fn parse_marketplace_extension(extension: &Value) -> Option<MarketplaceExtension> {
+    let publisher = extension
+        .get("publisher")
+        .and_then(|value| value.get("publisherName"))
+        .and_then(Value::as_str)?
+        .to_string();
+    let publisher_display_name = extension
+        .get("publisher")
+        .and_then(|value| value.get("displayName"))
+        .and_then(Value::as_str)
+        .unwrap_or(&publisher)
+        .to_string();
+    let extension_name = extension
+        .get("extensionName")
+        .and_then(Value::as_str)?
+        .to_string();
+    let display_name = extension
+        .get("displayName")
+        .and_then(Value::as_str)
+        .unwrap_or(&extension_name)
+        .to_string();
+    let description = extension
+        .get("shortDescription")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let latest = pick_latest_version(extension)?;
+    let version = latest.get("version").and_then(Value::as_str)?.to_string();
+    let icon_url = pick_extension_file(latest, "Microsoft.VisualStudio.Services.Icons.Default")
+        .or_else(|| pick_extension_file(latest, "Microsoft.VisualStudio.Services.Icons.Small"))
+        .unwrap_or_default();
+    let download_url = pick_extension_file(latest, "Microsoft.VisualStudio.Services.VSIXPackage")
+        .unwrap_or_else(|| marketplace_download_url(&publisher, &extension_name, &version));
+
+    let mut installs = 0_u64;
+    let mut average_rating = 0.0_f64;
+    let mut rating_count = 0_u64;
+    if let Some(stats) = extension.get("statistics").and_then(Value::as_array) {
+        for stat in stats {
+            let name = stat
+                .get("statisticName")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let value = stat.get("value").and_then(Value::as_f64).unwrap_or(0.0);
+            match name {
+                "install" => installs = value.max(0.0) as u64,
+                "averagerating" => average_rating = value,
+                "ratingcount" => rating_count = value.max(0.0) as u64,
+                _ => {}
+            }
+        }
+    }
+
+    Some(MarketplaceExtension {
+        identifier: format!("{publisher}.{extension_name}"),
+        publisher,
+        publisher_display_name,
+        extension_name,
+        display_name,
+        description,
+        version,
+        icon_url,
+        installs,
+        average_rating,
+        rating_count,
+        download_url,
+    })
+}
+
+fn read_installed_extension(dir: PathBuf) -> Option<InstalledExtension> {
+    let manifest_path = if dir.join("extension").join("package.json").is_file() {
+        dir.join("extension").join("package.json")
+    } else if dir.join("package.json").is_file() {
+        dir.join("package.json")
+    } else {
+        return None;
+    };
+
+    let raw = fs::read_to_string(&manifest_path).ok()?;
+    let parsed: Value = serde_json::from_str(&raw).ok()?;
+    let publisher = parsed.get("publisher").and_then(Value::as_str)?.to_string();
+    let extension_name = parsed.get("name").and_then(Value::as_str)?.to_string();
+    let display_name = parsed
+        .get("displayName")
+        .and_then(Value::as_str)
+        .unwrap_or(&extension_name)
+        .to_string();
+    let description = parsed
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let version = parsed
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    Some(InstalledExtension {
+        identifier: format!("{publisher}.{extension_name}"),
+        publisher,
+        extension_name,
+        display_name,
+        description,
+        version,
+        install_path: dir.to_string_lossy().to_string(),
+    })
+}
+
+fn remove_existing_extension_versions(
+    root: &PathBuf,
+    identifier_prefix: &str,
+) -> Result<(), String> {
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.starts_with(identifier_prefix) {
+            fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn download_file(url: &str, destination: &PathBuf) -> Result<(), String> {
+    let output = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time",
+            "90",
+            "-o",
+            &destination.to_string_lossy(),
+            url,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to start curl: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "Marketplace download failed.".to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
+fn extract_vsix(vsix_path: &PathBuf, destination: &PathBuf) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+                vsix_path.to_string_lossy().replace('\'', "''"),
+                destination.to_string_lossy().replace('\'', "''")
+            ),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to start PowerShell: {e}"))?;
+
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("unzip")
+        .args([
+            "-oq",
+            &vsix_path.to_string_lossy(),
+            "-d",
+            &destination.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to start unzip: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "VSIX extraction failed.".to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
+#[tauri::command]
+fn search_vscode_extensions(
+    query: String,
+    limit: usize,
+) -> Result<Vec<MarketplaceExtension>, String> {
+    let search_text = query.trim();
+    let page_size = limit.clamp(1, 50);
+    let body = if search_text.is_empty() {
+        serde_json::json!({
+            "filters": [{
+                "pageNumber": 1,
+                "pageSize": page_size,
+                "sortBy": 4,
+                "sortOrder": 0,
+                "criteria": [
+                    { "filterType": 8, "value": "Microsoft.VisualStudio.Code" }
+                ]
+            }],
+            "assetTypes": [
+                "Microsoft.VisualStudio.Services.Icons.Default",
+                "Microsoft.VisualStudio.Services.Icons.Small",
+                "Microsoft.VisualStudio.Services.VSIXPackage"
+            ],
+            "flags": 914
+        })
+    } else {
+        serde_json::json!({
+            "filters": [{
+                "pageNumber": 1,
+                "pageSize": page_size,
+                "sortBy": 0,
+                "sortOrder": 0,
+                "criteria": [
+                    { "filterType": 8, "value": "Microsoft.VisualStudio.Code" },
+                    { "filterType": 10, "value": search_text }
+                ]
+            }],
+            "assetTypes": [
+                "Microsoft.VisualStudio.Services.Icons.Default",
+                "Microsoft.VisualStudio.Services.Icons.Small",
+                "Microsoft.VisualStudio.Services.VSIXPackage"
+            ],
+            "flags": 914
+        })
+    };
+
+    let output = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time",
+            "60",
+            "-X",
+            "POST",
+            "-H",
+            "Accept: application/json;api-version=7.2-preview.1",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "X-Market-Client-Id: athva-agent",
+            "--data",
+            &body.to_string(),
+            "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery?api-version=7.2-preview.1",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to start curl: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Marketplace search failed.".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let response_text = String::from_utf8_lossy(&output.stdout);
+    let parsed: Value = serde_json::from_str(&response_text).map_err(|e| e.to_string())?;
+    let items = parsed
+        .get("results")
+        .and_then(Value::as_array)
+        .and_then(|results| results.first())
+        .and_then(|result| result.get("extensions"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Marketplace response did not include extensions.".to_string())?;
+
+    Ok(items
+        .iter()
+        .filter_map(parse_marketplace_extension)
+        .collect())
+}
+
+#[tauri::command]
+fn list_installed_vscode_extensions(
+    project_path: String,
+) -> Result<Vec<InstalledExtension>, String> {
+    let root = extensions_root(&project_path);
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut installed = Vec::new();
+    for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if let Some(extension) = read_installed_extension(path) {
+            installed.push(extension);
+        }
+    }
+    installed.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+    Ok(installed)
+}
+
+#[tauri::command]
+fn install_vscode_extension(
+    project_path: String,
+    publisher: String,
+    extension_name: String,
+    version: String,
+    download_url: Option<String>,
+) -> Result<InstalledExtension, String> {
+    let root = extensions_root(&project_path);
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+
+    let identifier = format!(
+        "{}.{}",
+        sanitize_extension_segment(&publisher),
+        sanitize_extension_segment(&extension_name)
+    );
+    remove_existing_extension_versions(&root, &format!("{identifier}-"))?;
+
+    let install_dir = root.join(format!(
+        "{}-{}",
+        identifier,
+        sanitize_extension_segment(&version)
+    ));
+    if install_dir.exists() {
+        fs::remove_dir_all(&install_dir).map_err(|e| e.to_string())?;
+    }
+    fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
+
+    let vsix_url = download_url
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| marketplace_download_url(&publisher, &extension_name, &version));
+    let temp_vsix = std::env::temp_dir().join(format!(
+        "athva-{}-{}.vsix",
+        sanitize_extension_segment(&publisher),
+        sanitize_extension_segment(&extension_name)
+    ));
+
+    download_file(&vsix_url, &temp_vsix)?;
+    let extract_result = extract_vsix(&temp_vsix, &install_dir);
+    let _ = fs::remove_file(&temp_vsix);
+    extract_result?;
+
+    read_installed_extension(install_dir).ok_or_else(|| {
+        "Extension was downloaded, but its manifest could not be read after extraction.".to_string()
+    })
+}
+
 // ── Embedded web tab (child webview inside main window) ──
 
 const WEB_TAB_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -958,7 +1406,8 @@ fn open_web_window(
     height: f64,
 ) -> Result<(), String> {
     let parsed = WebviewUrl::External(
-        url.parse().unwrap_or_else(|_| "https://example.com".parse().unwrap()),
+        url.parse()
+            .unwrap_or_else(|_| "https://example.com".parse().unwrap()),
     );
 
     // If already open, just show + reposition it
@@ -1142,18 +1591,20 @@ fn open_web_window(
     // postMessage to its parent frame (chatgpt.com / figma.com).
     // This uses a private WebKit API — the same technique Electron uses.
     #[cfg(target_os = "macos")]
-    child.with_webview(|wv| {
-        use objc2::runtime::AnyObject;
-        use objc2::msg_send;
-        unsafe {
-            let raw: *mut AnyObject = wv.inner() as *mut AnyObject;
-            // Get WKPreferences from the WKWebView's configuration
-            let config: *mut AnyObject = msg_send![raw, configuration];
-            let prefs: *mut AnyObject = msg_send![config, preferences];
-            // _setWebSecurityEnabled:NO — private API, disables cross-origin checks
-            let _: () = msg_send![prefs, _setWebSecurityEnabled: false];
-        }
-    }).ok();
+    child
+        .with_webview(|wv| {
+            use objc2::msg_send;
+            use objc2::runtime::AnyObject;
+            unsafe {
+                let raw: *mut AnyObject = wv.inner() as *mut AnyObject;
+                // Get WKPreferences from the WKWebView's configuration
+                let config: *mut AnyObject = msg_send![raw, configuration];
+                let prefs: *mut AnyObject = msg_send![config, preferences];
+                // _setWebSecurityEnabled:NO — private API, disables cross-origin checks
+                let _: () = msg_send![prefs, _setWebSecurityEnabled: false];
+            }
+        })
+        .ok();
 
     Ok(())
 }
@@ -1295,7 +1746,9 @@ print(ok ? "yes" : "no")
                 child.wait_with_output()
             })
             .ok();
-        output.map_or(false, |o| String::from_utf8_lossy(&o.stdout).trim() == "yes")
+        output.map_or(false, |o| {
+            String::from_utf8_lossy(&o.stdout).trim() == "yes"
+        })
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -1414,39 +1867,41 @@ fn memory_search(
             .prepare("SELECT id, content, embedding, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = 'global' OR (memory_type = 'project' AND project_path = ?1)")
             .map_err(|e| e.to_string())?;
         let proj = project_path.as_deref().unwrap_or("");
-        let rows = stmt.query_map(params![proj], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, i64>(6)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect::<Vec<_>>();
+        let rows = stmt
+            .query_map(params![proj], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
         rows
     } else {
         let mut stmt = conn
             .prepare("SELECT id, content, embedding, memory_type, project_path, tags, created_at FROM memories WHERE memory_type = ?1 AND (?2 IS NULL OR project_path = ?2)")
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![memory_type, project_path], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, i64>(6)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect::<Vec<_>>();
+        let rows = stmt
+            .query_map(params![memory_type, project_path], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
         rows
     };
 
@@ -1587,6 +2042,9 @@ pub fn run() {
             git_diff_file,
             load_settings,
             save_settings,
+            search_vscode_extensions,
+            list_installed_vscode_extensions,
+            install_vscode_extension,
             memory_init,
             memory_add,
             memory_search,

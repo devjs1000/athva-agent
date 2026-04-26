@@ -3,7 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { getProjects, addProject, removeProject } from "./store/projects";
 import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
-import { SettingsUI, loadSettings, saveSettings, type AppSettings } from "./modules/settings";
+import {
+  SettingsUI,
+  loadSettings,
+  saveSettings,
+  type AppSettings,
+  type WorkspaceActionId,
+  type WorkspaceActionPlacement,
+} from "./modules/settings";
 import { showConfirmDialog } from "./modules/dialogs";
 import { Chatbot } from "./modules/chatbot";
 import { AgentMemory } from "./modules/agent-memory";
@@ -17,6 +24,7 @@ import { ScriptRunner } from "./modules/script-runner";
 import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { CodeReviewPanel } from "./modules/code-review-panel";
 import { QualityPanel } from "./modules/quality-panel";
+import { ExtensionsPanel } from "./modules/extensions-panel";
 import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
@@ -37,12 +45,49 @@ let scriptRunner!: ScriptRunner;
 let sourceControl!: SourceControl;
 let codeReviewPanel!: CodeReviewPanel;
 let qualityPanel!: QualityPanel;
+let extensionsPanel!: ExtensionsPanel;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
 let currentProjectPath: string = "";
 let appUnlocked = false;
 let lastSecuritySignature = "";
+let actionMenuEl: HTMLElement | null = null;
+
+const ACTION_PLACEMENT_LABELS: Record<WorkspaceActionPlacement, string> = {
+  "top-left": "Top Left",
+  "top-center": "Top Center",
+  "top-right": "Top Right",
+  "left-sidebar-strip": "Left Sidebar Strip",
+  "right-sidebar-strip": "Right Sidebar Strip",
+  "bottom-left": "Bottom Left",
+  "bottom-center": "Bottom Center",
+  "bottom-right": "Bottom Right",
+};
+
+const ACTION_PLACEMENT_ORDER: WorkspaceActionPlacement[] = [
+  "top-left",
+  "top-center",
+  "top-right",
+  "left-sidebar-strip",
+  "right-sidebar-strip",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+];
+
+const ACTION_ITEM_ORDER: WorkspaceActionId[] = [
+  "settings",
+  "run-script",
+  "format",
+  "ai-review",
+  "quality-panel",
+  "extensions-panel",
+  "snippets",
+  "source-control",
+  "terminal",
+  "chat",
+];
 
 function isEnvFileName(name: string): boolean {
   return /^\.env(\..+)?$/i.test(name.trim());
@@ -329,11 +374,13 @@ async function openProject(path: string) {
   sourceControl.setProject(project.path);
   terminal.setProject(project.path);
   scriptRunner.setProject(project.path);
+  extensionsPanel.setProject(project.path);
   await snippetsPanel.setProjectPath(project.path);
   void codeReviewPanel.refreshIfOpen();
   void qualityPanel.refresh_if_open();
   void chatbot.setProjectPath(project.path);
   await exportsTracker.onProjectOpen(project.path);
+  syncTopBarActionStates();
 }
 
 async function handleOpenFolder() {
@@ -369,6 +416,7 @@ function toggleChat() {
   const panel = $("chat-panel");
   const resizeHandle = $("chat-resize");
   const isVisible = !panel.classList.contains("hidden");
+  const trigger = document.getElementById("btn-toggle-chat");
 
   if (isVisible) {
     panel.classList.add("hidden");
@@ -377,8 +425,127 @@ function toggleChat() {
     panel.classList.remove("hidden");
     resizeHandle.classList.remove("hidden");
   }
+  trigger?.classList.toggle("active", !isVisible);
 
   setTimeout(() => editor.resize(), 0);
+}
+
+function isChatOpen(): boolean {
+  return !$("chat-panel").classList.contains("hidden");
+}
+
+function syncTopBarActionStates() {
+  document.getElementById("btn-toggle-chat")?.classList.toggle("active", isChatOpen());
+  document.getElementById("btn-toggle-terminal")?.classList.toggle("active", terminal?.getIsVisible?.() ?? false);
+  document.getElementById("btn-toggle-scm")?.classList.toggle("active", sourceControl?.isOpen?.() ?? false);
+  document.getElementById("btn-toggle-snippets")?.classList.toggle("active", snippetsPanel?.isVisible?.() ?? false);
+}
+
+function renderWorkspaceActionPlacements() {
+  const placements = appSettings.workspaceActions.placements;
+  ACTION_PLACEMENT_ORDER.forEach((placement) => {
+    const zone = document.getElementById(`workspace-action-zone-${placement}`) as HTMLElement | null;
+    if (!zone) return;
+    const items = ACTION_ITEM_ORDER
+      .map((actionId) => {
+        if (placements[actionId] !== placement) return null;
+        return document.querySelector<HTMLElement>(`.workspace-action-item[data-action-id="${actionId}"]`);
+      })
+      .filter((item): item is HTMLElement => !!item);
+
+    items.forEach((item) => zone.appendChild(item));
+  });
+}
+
+async function persistWorkspaceActionPlacement(actionId: WorkspaceActionId, placement: WorkspaceActionPlacement) {
+  if (appSettings.workspaceActions.placements[actionId] === placement) return;
+  appSettings = {
+    ...appSettings,
+    workspaceActions: {
+      placements: {
+        ...appSettings.workspaceActions.placements,
+        [actionId]: placement,
+      },
+    },
+  };
+  settingsUI.updateSettings(appSettings);
+  renderWorkspaceActionPlacements();
+  await saveSettings(appSettings);
+}
+
+function closeWorkspaceActionMenu() {
+  if (!actionMenuEl) return;
+  actionMenuEl.classList.add("hidden");
+}
+
+function openWorkspaceActionMenu(actionId: WorkspaceActionId, anchorRect: DOMRect) {
+  if (!actionMenuEl) return;
+  const activePlacement = appSettings.workspaceActions.placements[actionId];
+  actionMenuEl.innerHTML = `
+    <div class="workspace-action-menu-title">Move Control</div>
+    ${ACTION_PLACEMENT_ORDER.map(
+      (placement) => `
+        <button
+          class="workspace-action-menu-option${placement === activePlacement ? " active" : ""}"
+          data-action-id="${actionId}"
+          data-placement="${placement}"
+          type="button"
+        >
+          <span>${ACTION_PLACEMENT_LABELS[placement]}</span>
+          <span class="workspace-action-check">${placement === activePlacement ? "✓" : ""}</span>
+        </button>
+      `
+    ).join("")}
+  `;
+  const top = Math.min(window.innerHeight - 16, anchorRect.bottom + 8);
+  const left = Math.min(window.innerWidth - 220, Math.max(8, anchorRect.left));
+  actionMenuEl.style.top = `${top}px`;
+  actionMenuEl.style.left = `${left}px`;
+  actionMenuEl.classList.remove("hidden");
+}
+
+function setupWorkspaceActionCustomization() {
+  actionMenuEl = document.createElement("div");
+  actionMenuEl.id = "workspace-action-menu";
+  actionMenuEl.className = "workspace-action-menu hidden";
+  document.body.appendChild(actionMenuEl);
+
+  document.querySelectorAll<HTMLElement>(".workspace-action-item").forEach((item) => {
+    const actionId = item.dataset.actionId as WorkspaceActionId | undefined;
+    if (!actionId) return;
+    const button = item.querySelector("button");
+    if (button) {
+      const title = button.getAttribute("title") || "";
+      if (!title.includes("Right-click to move")) {
+        button.setAttribute("title", `${title} • Right-click to move`);
+      }
+    }
+    item.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openWorkspaceActionMenu(actionId, item.getBoundingClientRect());
+    });
+  });
+
+  document.addEventListener("click", async (event) => {
+    const option = (event.target as HTMLElement).closest(".workspace-action-menu-option") as HTMLButtonElement | null;
+    if (!option) {
+      if (!(event.target as HTMLElement).closest(".workspace-action-menu")) {
+        closeWorkspaceActionMenu();
+      }
+      return;
+    }
+    const actionId = option.dataset.actionId as WorkspaceActionId;
+    const placement = option.dataset.placement as WorkspaceActionPlacement;
+    closeWorkspaceActionMenu();
+    await persistWorkspaceActionPlacement(actionId, placement);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeWorkspaceActionMenu();
+  });
+
+  renderWorkspaceActionPlacements();
 }
 
 // ── Sidebar Resize ──
@@ -418,6 +585,7 @@ function onSettingsChange(settings: AppSettings) {
   syncChatAutoApproveToggle();
   refreshSecuritySession(settings);
   applyTheme(settings.appearance);
+  renderWorkspaceActionPlacements();
 }
 
 async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
@@ -469,6 +637,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   snippetsPanel.onInsert((snippet) => editor.insertSnippet(snippet));
   const snippetsCompleter = snippetsPanel.getCompleter();
   editor.addCompletionProvider(snippetsCompleter.languages, snippetsCompleter.provider);
+  setupWorkspaceActionCustomization();
 
   // Init Tailwind completer
   setTailwindEnabled(!!appSettings.editor.tailwindAutocomplete);
@@ -593,6 +762,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     () => editor.resize(),
     () => currentProjectPath
   );
+  extensionsPanel = new ExtensionsPanel(
+    () => editor.resize(),
+    () => currentProjectPath
+  );
 
   // Init quick open
   quickOpen = new QuickOpen((path, name) => {
@@ -626,6 +799,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupResizeHandle("source-control-resize", $("source-control-panel"), "right");
   setupResizeHandle("review-resize", $("review-panel"), "right");
   setupResizeHandle("quality-resize", $("quality-panel"), "right");
+  setupResizeHandle("extensions-resize", $("extensions-panel"), "right");
   setupResizeHandle("chat-resize", $("chat-panel"), "right");
 
   // ── Welcome page buttons ──
@@ -656,9 +830,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   $("btn-run-script").addEventListener("click", () => scriptRunner.open());
   $("btn-format").addEventListener("click", () => editor.formatDocument());
-  $("btn-ai-review").addEventListener("click", () => void codeReviewPanel.open());
-  $("btn-quality-panel").addEventListener("click", () => void qualityPanel.open());
-  $("btn-toggle-terminal").addEventListener("click", () => terminal.toggle());
+  $("btn-ai-review").addEventListener("click", () => {
+    if (codeReviewPanel.isOpen()) codeReviewPanel.close();
+    else codeReviewPanel.open();
+  });
+  $("btn-quality-panel").addEventListener("click", () => {
+    if (qualityPanel.isOpen()) qualityPanel.close();
+    else void qualityPanel.open();
+  });
+  $("btn-extensions-panel").addEventListener("click", () => {
+    if (extensionsPanel.isOpen()) extensionsPanel.close();
+    else void extensionsPanel.open();
+  });
+  $("btn-toggle-terminal").addEventListener("click", () => {
+    terminal.toggle();
+    syncTopBarActionStates();
+  });
   function setActiveTab(tab: "explorer" | "search") {
     $("sidebar-tab-explorer").classList.toggle("active", tab === "explorer");
     $("sidebar-tab-search").classList.toggle("active", tab === "search");
@@ -687,12 +874,21 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   $("btn-toggle-snippets").addEventListener("click", () => {
     snippetsPanel.toggle();
-    $("btn-toggle-snippets").classList.toggle("active", snippetsPanel.isVisible());
     $("snippets-resize").classList.toggle("hidden", !snippetsPanel.isVisible());
+    syncTopBarActionStates();
   });
-  $("btn-toggle-scm").addEventListener("click", () => sourceControl.toggle());
-  $("btn-toggle-chat").addEventListener("click", toggleChat);
-  $("btn-close-chat").addEventListener("click", toggleChat);
+  $("btn-toggle-scm").addEventListener("click", () => {
+    sourceControl.toggle();
+    syncTopBarActionStates();
+  });
+  $("btn-toggle-chat").addEventListener("click", () => {
+    toggleChat();
+    syncTopBarActionStates();
+  });
+  $("btn-close-chat").addEventListener("click", () => {
+    toggleChat();
+    syncTopBarActionStates();
+  });
   $("btn-edit-context").addEventListener("click", () => chatbot.openContextEditor());
 
   // ── Settings buttons ──
@@ -845,6 +1041,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // ── Token usage status bar ──
   updateStatusBar();
+  syncTopBarActionStates();
 
   // ── Render welcome ──
   await renderRecentProjects();
