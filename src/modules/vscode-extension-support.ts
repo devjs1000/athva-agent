@@ -182,8 +182,8 @@ async function loadColorThemes(
       monacoTheme: {
         base: isLightTheme(theme.uiTheme || parsed.type || "") ? "vs" : "vs-dark",
         inherit: true,
-        rules: buildMonacoRules(parsed.tokenColors),
-        colors: normalizeThemeColors(parsed.colors || {}),
+        rules: buildMonacoRules(parsed.tokenColors, parsed.semanticTokenColors),
+        colors: normalizeMonacoThemeColors(parsed.colors || {}, theme.uiTheme || parsed.type || ""),
       },
     });
   }
@@ -332,44 +332,162 @@ function deriveWorkbenchColors(colors: Record<string, string>, uiTheme: string):
   };
 }
 
-function normalizeThemeColors(input: Record<string, unknown>): Record<string, string> {
+function normalizeMonacoThemeColors(input: Record<string, unknown>, uiTheme: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(input)) {
-    if (typeof value === "string" && value.trim()) {
-      result[key] = value;
+    const normalized = normalizeHexColor(value);
+    if (normalized) {
+      result[key] = normalized;
     }
+  }
+  if (!result["editor.foreground"]) {
+    result["editor.foreground"] = isLightTheme(uiTheme) ? "#1f1f1f" : "#d4d4d4";
+  }
+  if (!result["editor.background"]) {
+    result["editor.background"] = isLightTheme(uiTheme) ? "#ffffff" : "#1e1e1e";
   }
   return result;
 }
 
-function buildMonacoRules(tokenColors: unknown): Array<{ token: string; foreground?: string; background?: string; fontStyle?: string }> {
-  if (!Array.isArray(tokenColors)) return [];
+function buildMonacoRules(
+  tokenColors: unknown,
+  semanticTokenColors?: unknown
+): Array<{ token: string; foreground?: string; background?: string; fontStyle?: string }> {
   const rules: Array<{ token: string; foreground?: string; background?: string; fontStyle?: string }> = [];
+  const seen = new Set<string>();
 
-  for (const item of tokenColors) {
-    const scopes = Array.isArray((item as any)?.scope)
-      ? (item as any).scope
-      : typeof (item as any)?.scope === "string"
-        ? String((item as any).scope).split(",")
-        : [];
-    const settings = (item as any)?.settings ?? {};
-    const foreground = normalizeHexColor(settings.foreground);
-    const background = normalizeHexColor(settings.background);
-    const fontStyle = typeof settings.fontStyle === "string" ? settings.fontStyle : undefined;
+  const pushRule = (token: string, foreground?: string, background?: string, fontStyle?: string) => {
+    if (!token) return;
+    const key = `${token}|${foreground || ""}|${background || ""}|${fontStyle || ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rules.push({ token, foreground: foreground || undefined, background: background || undefined, fontStyle });
+  };
 
-    for (const rawScope of scopes) {
-      const scope = String(rawScope || "").trim();
-      if (!scope) continue;
-      rules.push({
-        token: scope,
-        foreground: foreground || undefined,
-        background: background || undefined,
-        fontStyle,
-      });
+  if (Array.isArray(tokenColors)) {
+    for (const item of tokenColors) {
+      const scopes = Array.isArray((item as any)?.scope)
+        ? (item as any).scope
+        : typeof (item as any)?.scope === "string"
+          ? String((item as any).scope).split(",")
+          : [];
+      const settings = (item as any)?.settings ?? {};
+      const foreground = normalizeMonacoRuleColor(settings.foreground);
+      const background = normalizeMonacoRuleColor(settings.background);
+      const fontStyle = normalizeThemeFontStyle(settings);
+
+      for (const rawScope of scopes) {
+        const scope = String(rawScope || "").trim();
+        if (!scope) continue;
+        pushRule(scope, foreground, background, fontStyle);
+        for (const token of mapScopeToMonacoTokens(scope)) {
+          pushRule(token, foreground, background, fontStyle);
+        }
+      }
+    }
+  }
+
+  if (semanticTokenColors && typeof semanticTokenColors === "object") {
+    for (const [selector, rawValue] of Object.entries(semanticTokenColors as Record<string, unknown>)) {
+      const settings = normalizeSemanticSettings(rawValue);
+      if (!settings) continue;
+      for (const token of mapSemanticSelectorToMonacoTokens(selector)) {
+        pushRule(token, settings.foreground, settings.background, settings.fontStyle);
+      }
     }
   }
 
   return rules;
+}
+
+function mapScopeToMonacoTokens(scope: string): string[] {
+  const normalized = scope.toLowerCase();
+  const tokens = new Set<string>();
+
+  if (normalized.includes("comment")) tokens.add("comment");
+  if (normalized.includes("string.regexp")) tokens.add("regexp");
+  if (normalized.includes("string")) tokens.add("string");
+  if (normalized.includes("keyword") || normalized.includes("storage")) tokens.add("keyword");
+  if (normalized.includes("number") || normalized.includes("constant.numeric")) tokens.add("number");
+  if (normalized.includes("constant.language")) tokens.add("keyword");
+  if (normalized.includes("constant")) tokens.add("constant");
+  if (normalized.includes("entity.name.function") || normalized.includes("support.function") || normalized.includes("meta.function-call")) {
+    tokens.add("function");
+  }
+  if (normalized.includes("entity.name.type") || normalized.includes("support.type") || normalized.includes("storage.type.class")) {
+    tokens.add("type");
+    tokens.add("type.identifier");
+  }
+  if (normalized.includes("entity.name.class")) tokens.add("type.identifier");
+  if (normalized.includes("entity.name.tag")) tokens.add("tag");
+  if (normalized.includes("entity.other.attribute-name")) tokens.add("attribute.name");
+  if (normalized.includes("variable.parameter")) tokens.add("variable.parameter");
+  if (normalized.includes("variable.language")) tokens.add("keyword");
+  if (normalized.includes("variable")) tokens.add("variable");
+  if (normalized.includes("support.variable.property") || normalized.includes("meta.property")) tokens.add("attribute.name");
+  if (normalized.includes("property")) tokens.add("attribute.name");
+  if (normalized.includes("punctuation.definition.tag")) tokens.add("delimiter.html");
+  if (normalized.includes("punctuation")) tokens.add("delimiter");
+  if (normalized.includes("invalid")) tokens.add("invalid");
+  if (normalized.includes("namespace")) tokens.add("namespace");
+  if (normalized.includes("operator")) tokens.add("operator");
+
+  return Array.from(tokens);
+}
+
+function mapSemanticSelectorToMonacoTokens(selector: string): string[] {
+  const normalized = selector.toLowerCase();
+  const tokens = new Set<string>();
+
+  if (normalized.includes("function")) tokens.add("function");
+  if (normalized.includes("method")) tokens.add("function");
+  if (normalized.includes("variable")) tokens.add("variable");
+  if (normalized.includes("parameter")) tokens.add("variable.parameter");
+  if (normalized.includes("property")) tokens.add("attribute.name");
+  if (normalized.includes("type")) {
+    tokens.add("type");
+    tokens.add("type.identifier");
+  }
+  if (normalized.includes("class")) tokens.add("type.identifier");
+  if (normalized.includes("interface")) {
+    tokens.add("type");
+    tokens.add("type.identifier");
+  }
+  if (normalized.includes("enum")) tokens.add("type.identifier");
+  if (normalized.includes("namespace")) tokens.add("namespace");
+  if (normalized.includes("keyword")) tokens.add("keyword");
+  if (normalized.includes("string")) tokens.add("string");
+  if (normalized.includes("number")) tokens.add("number");
+  if (normalized.includes("comment")) tokens.add("comment");
+
+  return Array.from(tokens);
+}
+
+function normalizeSemanticSettings(
+  rawValue: unknown
+): { foreground?: string; background?: string; fontStyle?: string } | null {
+  if (typeof rawValue === "string") {
+    const foreground = normalizeMonacoRuleColor(rawValue);
+    return foreground ? { foreground } : null;
+  }
+  if (!rawValue || typeof rawValue !== "object") return null;
+  const value = rawValue as Record<string, unknown>;
+  return {
+    foreground: normalizeMonacoRuleColor(value.foreground) || undefined,
+    background: normalizeMonacoRuleColor(value.background) || undefined,
+    fontStyle: normalizeThemeFontStyle(value) || undefined,
+  };
+}
+
+function normalizeThemeFontStyle(value: Record<string, unknown>): string | undefined {
+  if (typeof value.fontStyle === "string" && value.fontStyle.trim()) {
+    return value.fontStyle;
+  }
+  const styles: string[] = [];
+  if (value.italic === true) styles.push("italic");
+  if (value.bold === true) styles.push("bold");
+  if (value.underline === true) styles.push("underline");
+  return styles.length ? styles.join(" ") : undefined;
 }
 
 async function resolveThemeIconMap(
@@ -469,7 +587,22 @@ function normalizeHexColor(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
   if (!trimmed.startsWith("#")) return "";
-  return trimmed;
+  const hex = trimmed.slice(1);
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    return `#${hex.split("").map((char) => `${char}${char}`).join("")}`;
+  }
+  if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+    return `#${hex.split("").map((char) => `${char}${char}`).join("")}`;
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(hex) || /^[0-9a-fA-F]{8}$/.test(hex)) {
+    return `#${hex}`;
+  }
+  return "";
+}
+
+function normalizeMonacoRuleColor(value: unknown): string {
+  const normalized = normalizeHexColor(value);
+  return normalized ? normalized.slice(1) : "";
 }
 
 function isLightTheme(uiTheme: string): boolean {

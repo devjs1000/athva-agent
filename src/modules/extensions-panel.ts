@@ -378,6 +378,7 @@ export class ExtensionsPanel {
     }
 
     this.installedEl.innerHTML = this.installed.map((item) => this.renderListCard({
+      kind: "installed",
       identifier: item.identifier,
       displayName: item.display_name,
       version: item.version,
@@ -400,6 +401,7 @@ export class ExtensionsPanel {
       return;
     }
     this.recommendedEl.innerHTML = this.recommended.map((item) => this.renderListCard({
+      kind: "marketplace",
       identifier: item.identifier,
       displayName: item.display_name,
       version: item.version,
@@ -423,6 +425,7 @@ export class ExtensionsPanel {
       return;
     }
     this.resultsEl.innerHTML = this.results.map((item) => this.renderListCard({
+      kind: "marketplace",
       identifier: item.identifier,
       displayName: item.display_name,
       version: item.version,
@@ -435,6 +438,7 @@ export class ExtensionsPanel {
   }
 
   private renderListCard(input: {
+    kind: "installed" | "marketplace";
     identifier: string;
     displayName: string;
     version: string;
@@ -444,8 +448,9 @@ export class ExtensionsPanel {
     selected: boolean;
     action: "select-installed" | "select-marketplace";
   }): string {
+    const expanded = this.selectedDetail?.identifier === input.identifier && this.selectedDetail.kind === input.kind;
     return `
-      <article class="extensions-list-card${input.selected ? " selected" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}">
+      <article class="extensions-list-card${input.selected ? " selected" : ""}${expanded ? " expanded" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}">
         <div class="extensions-result-head">
           ${input.iconUrl ? `<img class="extensions-icon" src="${escapeAttribute(input.iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-icon extensions-icon-placeholder"></div>`}
           <div class="extensions-result-copy">
@@ -457,21 +462,21 @@ export class ExtensionsPanel {
           </div>
         </div>
         <p class="extensions-copy">${escapeHtml(input.description || "No description provided.")}</p>
+        ${expanded ? this.renderExpandedCardDetail(input.identifier, input.kind, input.iconUrl) : ""}
       </article>
     `;
   }
 
   private renderDetail() {
-    const detail = this.resolveSelectedDetail();
-    if (!detail) {
-      this.detailEl.innerHTML = `
-        <div class="extensions-detail-empty">
-          <div class="extensions-empty-title">Select an extension</div>
-          <div class="extensions-empty-copy">Open an extension to inspect details, install it, or uninstall it.</div>
-        </div>
-      `;
-      return;
-    }
+    this.detailEl.classList.add("hidden");
+    this.detailEl.innerHTML = "";
+  }
+
+  private renderExpandedCardDetail(identifier: string, kind: "installed" | "marketplace", iconUrl: string): string {
+    const detail = kind === "installed"
+      ? this.findInstalled(identifier) ?? this.findMarketplace(identifier) ?? null
+      : this.findMarketplace(identifier) ?? this.findInstalled(identifier) ?? null;
+    if (!detail) return "";
 
     const marketplaceDetail = isMarketplaceExtension(detail) ? detail : null;
     const installed = this.isInstalled(detail.identifier);
@@ -487,22 +492,11 @@ export class ExtensionsPanel {
           <span>Installed globally in Athva</span>
           <span>${escapeHtml(detail.publisher)}</span>
         </div>`;
-    const supportSummary = support
-      ? `
-        <div class="extensions-detail-support">
-          ${support.supportedFeatures.length ? `<div class="extensions-detail-note">Athva support: ${escapeHtml(support.supportedFeatures.join(", "))}</div>` : ""}
-          ${support.fileIconThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-file-icon-theme" data-theme-id="${escapeAttribute(theme.id)}">Set File Icons: ${escapeHtml(theme.label)}</button>`).join("")}
-          ${support.colorThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-color-theme" data-theme-id="${escapeAttribute(theme.id)}">Set Theme: ${escapeHtml(theme.label)}</button>`).join("")}
-          ${support.snippetCount ? `<div class="extensions-detail-note">${support.snippetCount} snippet${support.snippetCount === 1 ? "" : "s"} are active in Athva.</div>` : ""}
-          ${support.unsupportedFeatures.length ? `<div class="extensions-detail-note">Not supported here: ${escapeHtml(support.unsupportedFeatures.join(", "))}</div>` : ""}
-        </div>
-      `
-      : "";
 
-    this.detailEl.innerHTML = `
-      <div class="extensions-detail-card">
+    return `
+      <div class="extensions-inline-detail">
         <div class="extensions-detail-head">
-          ${marketplaceDetail?.icon_url ? `<img class="extensions-detail-icon" src="${escapeAttribute(marketplaceDetail.icon_url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-detail-icon extensions-icon-placeholder"></div>`}
+          ${iconUrl ? `<img class="extensions-detail-icon" src="${escapeAttribute(iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-detail-icon extensions-icon-placeholder"></div>`}
           <div class="extensions-detail-copy">
             <div class="extensions-result-title-row">
               <strong>${escapeHtml(detail.display_name)}</strong>
@@ -512,7 +506,6 @@ export class ExtensionsPanel {
             ${stats}
           </div>
         </div>
-        <p class="extensions-copy">${escapeHtml(detail.description || "No description provided.")}</p>
         <div class="extensions-detail-actions">
           ${installed
             ? `<button class="extensions-secondary-btn" data-extension-action="uninstall" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Uninstall</button>`
@@ -522,24 +515,17 @@ export class ExtensionsPanel {
           }
         </div>
         <div class="extensions-detail-note">Opening this extension launches the marketplace page in the editor area.</div>
-        ${supportSummary}
+        ${support?.supportedFeatures.length ? `<div class="extensions-detail-note">Athva support: ${escapeHtml(support.supportedFeatures.join(", "))}</div>` : ""}
+        ${support?.fileIconThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-file-icon-theme" data-theme-id="${escapeAttribute(theme.id)}">Set File Icons: ${escapeHtml(theme.label)}</button>`).join("") ?? ""}
+        ${support?.colorThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-color-theme" data-theme-id="${escapeAttribute(theme.id)}">Set Theme: ${escapeHtml(theme.label)}</button>`).join("") ?? ""}
+        ${support?.snippetCount ? `<div class="extensions-detail-note">${support.snippetCount} snippet${support.snippetCount === 1 ? "" : "s"} are active in Athva.</div>` : ""}
+        ${support?.unsupportedFeatures.length ? `<div class="extensions-detail-note">Not supported here: ${escapeHtml(support.unsupportedFeatures.join(", "))}</div>` : ""}
         ${installedInfo
           ? `<div class="extensions-detail-note">Installed version: ${escapeHtml(installedInfo.version)}</div>`
           : `<div class="extensions-detail-note">Not installed in Athva yet.</div>`
         }
       </div>
     `;
-  }
-
-  private resolveSelectedDetail():
-    | InstalledExtension
-    | MarketplaceExtension
-    | null {
-    if (!this.selectedDetail) return null;
-    if (this.selectedDetail.kind === "installed") {
-      return this.findInstalled(this.selectedDetail.identifier) ?? this.findMarketplace(this.selectedDetail.identifier) ?? null;
-    }
-    return this.findMarketplace(this.selectedDetail.identifier) ?? this.findInstalled(this.selectedDetail.identifier) ?? null;
   }
 
   private selectInstalled(identifier: string) {

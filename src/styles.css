@@ -7114,15 +7114,17 @@ thead .md-td {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(240px, 0.95fr);
-  gap: 14px;
+  display: block;
   padding: 14px;
 }
 
 .extensions-browser,
 .extensions-detail {
   min-height: 0;
+}
+
+.extensions-detail.hidden {
+  display: none;
 }
 
 .extensions-section {
@@ -7183,6 +7185,10 @@ thead .md-td {
   box-shadow:
     0 10px 30px rgba(0, 0, 0, 0.18),
     inset 0 0 0 1px rgba(0, 120, 212, 0.24);
+}
+
+.extensions-list-card.expanded {
+  padding-bottom: 16px;
 }
 
 .extensions-installed-main,
@@ -7335,6 +7341,12 @@ thead .md-td {
   flex-direction: column;
   gap: 10px;
   margin-top: 14px;
+}
+
+.extensions-inline-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .quality-insights-list,
