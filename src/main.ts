@@ -33,7 +33,8 @@ import { ExportsTracker } from "./modules/exports-tracker";
 import { applyTheme, registerMonacoThemeDefiner, registerMonacoThemeSetter, registerRuntimeThemes, registerTerminalThemeSetter } from "./modules/theme-engine";
 import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./modules/file-icons";
 import { setExtensionSnippets } from "./modules/snippet-store";
-import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type InstalledExtensionRecord } from "./modules/vscode-extension-support";
+import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
+import { CommandPalette } from "./modules/command-palette";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -49,6 +50,7 @@ let sourceControl!: SourceControl;
 let codeReviewPanel!: CodeReviewPanel;
 let qualityPanel!: QualityPanel;
 let extensionsPanel!: ExtensionsPanel;
+let commandPalette!: CommandPalette;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
@@ -610,6 +612,8 @@ async function reloadInstalledExtensionSupport() {
   registerRuntimeThemes(resolved.runtimeThemes);
   registerRuntimeFileIconThemes(resolved.runtimeFileIconThemes);
   setExtensionSnippets(resolved.snippets);
+  commandPalette?.setExtensionCommands(resolved.allCommands);
+  renderExtensionViewContainerRail(resolved.allViewContainers);
 
   let shouldSaveSettings = false;
   if (appSettings.appearance.theme.startsWith("ext-theme-") && !resolved.runtimeThemes.some((theme) => theme.id === appSettings.appearance.theme)) {
@@ -652,6 +656,7 @@ function getExtensionSupport(identifier: string): ExtensionSupportSnapshot | nul
 function getExtensionSettingsState(identifier: string) {
   const support = extensionSupportByIdentifier.get(identifier);
   if (!support) return null;
+  if (!support.colorThemes.length && !support.fileIconThemes.length) return null;
   return {
     identifier,
     displayName: support.displayName,
@@ -725,6 +730,28 @@ async function applyExtensionFileIconTheme(themeId: string) {
     await fileExplorer.loadRoot(currentProjectPath);
   }
   await saveSettings(appSettings);
+}
+
+function renderExtensionViewContainerRail(viewContainers: ExtensionViewContainer[]) {
+  const rail = document.getElementById("workspace-action-zone-left-sidebar-strip");
+  if (!rail) return;
+  rail.querySelectorAll(".ext-view-container-btn").forEach((el) => el.remove());
+
+  for (const vc of viewContainers) {
+    const btn = document.createElement("button");
+    btn.className = "btn-icon ext-view-container-btn";
+    btn.title = vc.title;
+    btn.dataset.vcId = vc.id;
+    if (vc.iconSvg) {
+      btn.innerHTML = vc.iconSvg;
+    } else {
+      btn.textContent = vc.title.slice(0, 2).toUpperCase();
+    }
+    btn.addEventListener("click", () => {
+      commandPalette?.openFilteredToContainer(vc.id, vc.title);
+    });
+    rail.appendChild(btn);
+  }
 }
 
 function openExtensionMarketplacePage(identifier: string, displayName: string) {
@@ -926,6 +953,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   );
 
+  // Init command palette
+  commandPalette = new CommandPalette((command) => {
+    console.log("[CommandPalette] execute:", command);
+  });
+
   await reloadInstalledExtensionSupport();
 
   // Init quick open
@@ -1075,8 +1107,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    // Ctrl/Cmd + Shift + P → Command Palette
+    if (isMod && e.shiftKey && e.key === "P") {
+      e.preventDefault();
+      if (isWorkspace) commandPalette?.open();
+      return;
+    }
+
     // Ctrl/Cmd + P → Quick Open
-    if (isMod && e.key === "p") {
+    if (isMod && e.key === "p" && !e.shiftKey) {
       e.preventDefault();
       if (isWorkspace && currentProjectPath) {
         quickOpen.open();

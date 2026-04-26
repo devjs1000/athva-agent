@@ -24,6 +24,32 @@ export interface ExtensionIconThemeChoice {
   label: string;
 }
 
+export interface ExtensionCommand {
+  command: string;
+  title: string;
+  category?: string;
+  iconCodicon?: string;
+}
+
+export interface ExtensionViewContainer {
+  id: string;
+  title: string;
+  icon?: string;
+  iconSvg?: string;
+}
+
+export interface ExtensionView {
+  id: string;
+  name: string;
+  containerId: string;
+}
+
+export interface ExtensionLanguage {
+  id: string;
+  aliases: string[];
+  extensions: string[];
+}
+
 export interface ExtensionSupportSnapshot {
   identifier: string;
   displayName: string;
@@ -35,6 +61,10 @@ export interface ExtensionSupportSnapshot {
   snippetCount: number;
   supportedFeatures: string[];
   unsupportedFeatures: string[];
+  commands: ExtensionCommand[];
+  viewContainers: ExtensionViewContainer[];
+  views: ExtensionView[];
+  languages: ExtensionLanguage[];
 }
 
 export interface ResolvedExtensionsSupport {
@@ -42,6 +72,9 @@ export interface ResolvedExtensionsSupport {
   runtimeThemes: RuntimeThemeDefinition[];
   runtimeFileIconThemes: RuntimeFileIconTheme[];
   snippets: SnippetEntry[];
+  allCommands: ExtensionCommand[];
+  allViewContainers: ExtensionViewContainer[];
+  allViews: ExtensionView[];
 }
 
 interface ManifestThemeContribution {
@@ -83,6 +116,9 @@ export async function loadInstalledExtensionSupport(
   const runtimeThemes: RuntimeThemeDefinition[] = [];
   const runtimeFileIconThemes: RuntimeFileIconTheme[] = [];
   const snippets: SnippetEntry[] = [];
+  const allCommands: ExtensionCommand[] = [];
+  const allViewContainers: ExtensionViewContainer[] = [];
+  const allViews: ExtensionView[] = [];
 
   for (const extension of installed) {
     const manifest = await readExtensionManifest(extension.install_path);
@@ -98,6 +134,10 @@ export async function loadInstalledExtensionSupport(
         snippetCount: 0,
         supportedFeatures: [],
         unsupportedFeatures: ["Manifest unreadable"],
+        commands: [],
+        viewContainers: [],
+        views: [],
+        languages: [],
       });
       continue;
     }
@@ -108,10 +148,17 @@ export async function loadInstalledExtensionSupport(
     const colorThemes = await loadColorThemes(extension.identifier, extension.display_name, extension.install_path, manifest);
     const iconThemes = await loadIconThemes(extension.identifier, extension.display_name, extension.install_path, manifest);
     const extensionSnippets = await loadSnippets(extension.identifier, extension.install_path, manifest);
+    const commands = parseCommands(manifest);
+    const viewContainers = await parseViewContainers(extension.install_path, manifest);
+    const views = parseViews(manifest);
+    const languages = parseLanguages(manifest);
 
     runtimeThemes.push(...colorThemes);
     runtimeFileIconThemes.push(...iconThemes);
     snippets.push(...extensionSnippets);
+    allCommands.push(...commands);
+    allViewContainers.push(...viewContainers);
+    allViews.push(...views);
 
     const supportedFeatures: string[] = [];
     const unsupportedFeatures = collectUnsupportedFeatures(manifest);
@@ -119,6 +166,9 @@ export async function loadInstalledExtensionSupport(
     if (colorThemes.length) supportedFeatures.push(`${colorThemes.length} color theme${colorThemes.length === 1 ? "" : "s"}`);
     if (iconThemes.length) supportedFeatures.push(`${iconThemes.length} file icon theme${iconThemes.length === 1 ? "" : "s"}`);
     if (extensionSnippets.length) supportedFeatures.push(`${extensionSnippets.length} snippet${extensionSnippets.length === 1 ? "" : "s"}`);
+    if (commands.length) supportedFeatures.push(`${commands.length} command${commands.length === 1 ? "" : "s"}`);
+    if (viewContainers.length) supportedFeatures.push(`${viewContainers.length} activity bar panel${viewContainers.length === 1 ? "" : "s"}`);
+    if (languages.length) supportedFeatures.push(`${languages.length} language${languages.length === 1 ? "" : "s"} (metadata)`);
 
     supportByIdentifier.set(extension.identifier, {
       identifier: extension.identifier,
@@ -131,10 +181,14 @@ export async function loadInstalledExtensionSupport(
       snippetCount: extensionSnippets.length,
       supportedFeatures,
       unsupportedFeatures,
+      commands,
+      viewContainers,
+      views,
+      languages,
     });
   }
 
-  return { supportByIdentifier, runtimeThemes, runtimeFileIconThemes, snippets };
+  return { supportByIdentifier, runtimeThemes, runtimeFileIconThemes, snippets, allCommands, allViewContainers, allViews };
 }
 
 async function readExtensionManifest(installPath: string): Promise<any | null> {
@@ -279,24 +333,96 @@ async function loadSnippets(
   return snippets;
 }
 
+function parseCommands(manifest: any): ExtensionCommand[] {
+  const raw = manifest?.contributes?.commands;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.command === "string" && item.command)
+    .map((item: any) => ({
+      command: String(item.command),
+      title: String(item.title || item.command),
+      category: item.category ? String(item.category) : undefined,
+      iconCodicon: typeof item.icon === "string" && item.icon.startsWith("$(") ? item.icon : undefined,
+    }));
+}
+
+async function parseViewContainers(installPath: string, manifest: any): Promise<ExtensionViewContainer[]> {
+  const contributes = manifest?.contributes ?? {};
+  const activitybar = Array.isArray(contributes.viewsContainers?.activitybar)
+    ? contributes.viewsContainers.activitybar
+    : [];
+
+  const result: ExtensionViewContainer[] = [];
+  for (const item of activitybar) {
+    if (!item || typeof item.id !== "string") continue;
+    let iconSvg: string | undefined;
+    if (typeof item.icon === "string" && item.icon.trim()) {
+      const iconPath = resolveContributionPath(installPath, item.icon);
+      if (iconPath.toLowerCase().endsWith(".svg")) {
+        iconSvg = (await readTextFileSafe(iconPath)) || undefined;
+      }
+    }
+    result.push({
+      id: String(item.id),
+      title: String(item.title || item.id),
+      icon: typeof item.icon === "string" ? item.icon : undefined,
+      iconSvg: iconSvg || undefined,
+    });
+  }
+  return result;
+}
+
+function parseViews(manifest: any): ExtensionView[] {
+  const viewsMap = manifest?.contributes?.views;
+  if (!viewsMap || typeof viewsMap !== "object") return [];
+  const result: ExtensionView[] = [];
+  for (const [containerId, viewList] of Object.entries(viewsMap)) {
+    if (!Array.isArray(viewList)) continue;
+    for (const item of viewList as any[]) {
+      if (!item || typeof item.id !== "string") continue;
+      result.push({
+        id: String(item.id),
+        name: String(item.name || item.id),
+        containerId,
+      });
+    }
+  }
+  return result;
+}
+
+function parseLanguages(manifest: any): ExtensionLanguage[] {
+  const raw = manifest?.contributes?.languages;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item: any) => item && typeof item.id === "string" && item.id)
+    .map((item: any) => ({
+      id: String(item.id),
+      aliases: Array.isArray(item.aliases) ? item.aliases.map(String) : [],
+      extensions: Array.isArray(item.extensions) ? item.extensions.map(String) : [],
+    }));
+}
+
 function collectUnsupportedFeatures(manifest: any): string[] {
   const unsupported = new Set<string>();
   const contributes = manifest?.contributes ?? {};
 
-  if (manifest?.main || manifest?.browser || Array.isArray(manifest?.activationEvents)) {
-    unsupported.add("Executable extension code");
+  if (manifest?.main || manifest?.browser) {
+    unsupported.add("Executable extension runtime");
   }
-  if (Array.isArray(contributes.languages) || Array.isArray(contributes.grammars)) {
-    unsupported.add("New language grammars and syntax engines");
+  if (Array.isArray(contributes.grammars) && contributes.grammars.length) {
+    unsupported.add("TextMate grammar tokenization");
   }
   if (Array.isArray(contributes.debuggers) || Array.isArray(contributes.taskDefinitions)) {
     unsupported.add("Debugger and task integrations");
   }
-  if (Array.isArray(contributes.views) || Array.isArray(contributes.viewsContainers)) {
-    unsupported.add("Custom VS Code views");
-  }
   if (Array.isArray(contributes.configurationDefaults) || Array.isArray(contributes.configuration)) {
-    unsupported.add("VS Code configuration APIs");
+    unsupported.add("VS Code settings/configuration APIs");
+  }
+  if (Array.isArray(contributes.notebooks)) {
+    unsupported.add("Notebook document model (Jupyter-style)");
+  }
+  if (Array.isArray(contributes.notebookRenderer)) {
+    unsupported.add("Notebook output renderers");
   }
 
   return Array.from(unsupported);
