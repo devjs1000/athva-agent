@@ -614,6 +614,12 @@ async function reloadInstalledExtensionSupport() {
   setExtensionSnippets(resolved.snippets);
   commandPalette?.setExtensionCommands(resolved.allCommands);
   renderExtensionViewContainerRail(resolved.allViewContainers);
+  editor.registerExtensionLanguages(
+    resolved.allLanguages.map((lang) => ({
+      extensions: lang.extensions,
+      monacoLanguageId: lang.id,
+    }))
+  );
 
   let shouldSaveSettings = false;
   if (appSettings.appearance.theme.startsWith("ext-theme-") && !resolved.runtimeThemes.some((theme) => theme.id === appSettings.appearance.theme)) {
@@ -792,7 +798,15 @@ function openExtensionViewPanel(vc: ExtensionViewContainer) {
   const snapshot = extensionSupportByIdentifier.get(vc.extensionIdentifier);
   const views = snapshot?.views.filter((v) => v.containerId === vc.id) ?? [];
 
-  bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, snapshot?.hasRuntime ?? false, snapshot?.displayName ?? vc.extensionIdentifier);
+  bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, snapshot?.hasRuntime ?? false, snapshot?.displayName ?? vc.extensionIdentifier, vc.extensionIdentifier);
+  bodyEl.querySelectorAll("[data-ext-marketplace]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      const id = (el as HTMLElement).dataset.extMarketplace ?? "";
+      const name = (el as HTMLElement).dataset.extName ?? id;
+      openExtensionMarketplacePage(id, name);
+    });
+  });
 
   panel.classList.remove("hidden");
   resizeEl?.classList.remove("hidden");
@@ -803,29 +817,43 @@ function renderExtensionViewPanelBody(
   _vc: ExtensionViewContainer,
   views: Array<{ id: string; name: string }>,
   hasRuntime: boolean,
-  extensionDisplayName: string
+  extensionDisplayName: string,
+  extensionIdentifier: string,
 ): string {
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   if (!views.length) {
-    return `<div class="extensions-empty-state"><div class="extensions-empty-title">No views declared</div></div>`;
+    return `<div class="ext-view-empty">
+      <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor" opacity="0.3"><path d="M1.5 1h13l.5.5v13l-.5.5h-13l-.5-.5v-13l.5-.5zM2 2v12h12V2H2z"/></svg>
+      <div>No views declared in this extension</div>
+    </div>`;
   }
 
-  return views.map((view) => `
+  const viewSections = views.map((view) => `
     <div class="ext-view-section">
-      <div class="ext-view-section-header">${escape(view.name.toUpperCase())}</div>
-      ${hasRuntime
-        ? `<div class="ext-view-runtime-notice">
-            <div class="ext-view-runtime-icon">⚡</div>
-            <div class="ext-view-runtime-copy">
-              <strong>${escape(extensionDisplayName)}</strong> needs to run its extension code to populate this view.
-              Athva does not yet execute VS Code extension runtimes — this panel shows the declared structure only.
-            </div>
-          </div>`
-        : `<div class="extensions-detail-note">View ID: ${escape(view.id)}</div>`
-      }
+      <div class="ext-view-section-header">
+        <svg class="ext-view-chevron" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+        ${escape(view.name.toUpperCase())}
+      </div>
+      <div class="ext-view-content">
+        ${hasRuntime
+          ? `<div class="ext-view-runtime-state">
+              <div class="ext-view-runtime-icon-row">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="ext-view-runtime-svg"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zM7 11.5v-1h2v1H7zm0-2v-5h2v5H7z"/></svg>
+                <span>Runtime required</span>
+              </div>
+              <p class="ext-view-runtime-desc">
+                <strong>${escape(extensionDisplayName)}</strong> populates this view by running Node.js extension code in VS Code's extension host process. Athva does not yet run extension scripts.
+              </p>
+              <a class="ext-view-marketplace-link" href="#" data-ext-marketplace="${escape(extensionIdentifier)}" data-ext-name="${escape(extensionDisplayName)}">View on Marketplace ↗</a>
+            </div>`
+          : `<div class="ext-view-passive-note">This view has no runtime dependencies.</div>`
+        }
+      </div>
     </div>
   `).join("");
+
+  return viewSections;
 }
 
 function openExtensionMarketplacePage(identifier: string, displayName: string) {

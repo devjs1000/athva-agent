@@ -8299,3 +8299,114 @@ thead .md-td {
   min-width: 18px;
   text-align: center;
 }
+
+/* ── Error Lens inline diagnostics ── */
+.error-lens-error-line   { background: rgba(255, 60, 60, 0.06) !important; }
+.error-lens-warning-line { background: rgba(255, 185, 50, 0.06) !important; }
+.error-lens-info-line    { background: rgba(80, 160, 255, 0.06) !important; }
+.error-lens-hint-line    { background: rgba(100, 200, 100, 0.06) !important; }
+
+.error-lens-message {
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.75;
+  margin-left: 8px;
+  pointer-events: none;
+}
+.error-lens-error-message   { color: #f97583; }
+.error-lens-warning-message { color: #e3b341; }
+.error-lens-info-message    { color: #79c0ff; }
+.error-lens-hint-message    { color: #7ee787; }
+
+/* ── Extension view panel — improved sidebar UI ── */
+#ext-view-panel-body {
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ext-view-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 16px;
+  color: var(--color-text-muted, #666);
+  font-size: 12px;
+  text-align: center;
+}
+
+.ext-view-section {
+  border-bottom: 1px solid var(--color-border, #2a2a2a);
+}
+
+.ext-view-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #999);
+  cursor: pointer;
+  user-select: none;
+  background: var(--color-surface, #1e1e1e);
+}
+.ext-view-section-header:hover {
+  background: var(--color-surface-raised, #252526);
+}
+.ext-view-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.ext-view-content {
+  padding: 10px 12px 14px;
+}
+
+.ext-view-runtime-state {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ext-view-runtime-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted, #999);
+}
+.ext-view-runtime-svg {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.ext-view-runtime-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-muted, #888);
+  margin: 0;
+}
+.ext-view-runtime-desc strong {
+  color: var(--color-text, #ccc);
+  font-weight: 600;
+}
+
+.ext-view-marketplace-link {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--color-accent, #0078d4);
+  text-decoration: none;
+  cursor: pointer;
+}
+.ext-view-marketplace-link:hover {
+  text-decoration: underline;
+}
+
+.ext-view-passive-note {
+  font-size: 12px;
+  color: var(--color-text-muted, #888);
+}

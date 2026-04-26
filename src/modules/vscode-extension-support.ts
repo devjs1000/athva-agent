@@ -78,6 +78,7 @@ export interface ResolvedExtensionsSupport {
   allCommands: ExtensionCommand[];
   allViewContainers: ExtensionViewContainer[];
   allViews: ExtensionView[];
+  allLanguages: ExtensionLanguage[];
 }
 
 interface ManifestThemeContribution {
@@ -122,6 +123,7 @@ export async function loadInstalledExtensionSupport(
   const allCommands: ExtensionCommand[] = [];
   const allViewContainers: ExtensionViewContainer[] = [];
   const allViews: ExtensionView[] = [];
+  const allLanguages: ExtensionLanguage[] = [];
 
   for (const extension of installed) {
     const manifest = await readExtensionManifest(extension.install_path);
@@ -163,6 +165,7 @@ export async function loadInstalledExtensionSupport(
     allCommands.push(...commands);
     allViewContainers.push(...viewContainers);
     allViews.push(...views);
+    allLanguages.push(...languages);
 
     const supportedFeatures: string[] = [];
     const unsupportedFeatures = collectUnsupportedFeatures(manifest);
@@ -193,7 +196,7 @@ export async function loadInstalledExtensionSupport(
     });
   }
 
-  return { supportByIdentifier, runtimeThemes, runtimeFileIconThemes, snippets, allCommands, allViewContainers, allViews };
+  return { supportByIdentifier, runtimeThemes, runtimeFileIconThemes, snippets, allCommands, allViewContainers, allViews, allLanguages };
 }
 
 async function readExtensionManifest(installPath: string): Promise<any | null> {

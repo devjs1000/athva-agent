@@ -9,6 +9,7 @@ import { TodoPanel } from "./todo-panel";
 import { DocumentEditor } from "./doc-editor";
 import { renderCSVPreview, renderFlowPreview, renderTextPreview, renderXlsxPreview } from "./preview-renderers";
 import { ColorHighlighter } from "./color-highlighter";
+import { ErrorLens } from "./error-lens";
 import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
@@ -99,14 +100,32 @@ const EXT_LANGUAGE_MAP: Record<string, string> = {
   ts: "typescript",
   tsx: "typescript",
   json: "json",
+  jsonc: "json",
   html: "html",
   htm: "html",
   css: "css",
   scss: "scss",
   less: "less",
   md: "markdown",
+  mdx: "markdown",
   py: "python",
   rs: "rust",
+  go: "go",
+  java: "java",
+  kt: "kotlin",
+  kts: "kotlin",
+  rb: "ruby",
+  php: "php",
+  cs: "csharp",
+  cpp: "cpp",
+  cc: "cpp",
+  cxx: "cpp",
+  c: "c",
+  h: "cpp",
+  swift: "swift",
+  sql: "sql",
+  graphql: "graphql",
+  gql: "graphql",
   yml: "yaml",
   yaml: "yaml",
   sh: "shell",
@@ -115,6 +134,15 @@ const EXT_LANGUAGE_MAP: Record<string, string> = {
   toml: "ini",
   svg: "xml",
   xml: "xml",
+  proto: "protobuf",
+  dockerfile: "dockerfile",
+  tf: "hcl",
+  hcl: "hcl",
+  lua: "lua",
+  r: "r",
+  dart: "dart",
+  ex: "elixir",
+  exs: "elixir",
 };
 
 const EMMET_EXTS = new Set(["html", "htm", "jsx", "tsx"]);
@@ -388,6 +416,9 @@ export class Editor {
     // Inline color swatches + picker
     this.colorHighlighter = new ColorHighlighter(this.monacoEditor);
 
+    // Inline error/warning diagnostics — instance self-manages via Monaco's event bus
+    new ErrorLens(this.monacoEditor);
+
     // Auto-save on change (debounced)
     this.monacoEditor.onDidChangeModelContent(() => {
       const tab = this.tabs.find((t) => t.path === this.activeTab);
@@ -539,6 +570,18 @@ export class Editor {
     const langs = ["typescript", "javascript", "html", "css", "python", "rust", "json"];
     for (const lang of langs) {
       monaco.languages.registerHoverProvider(lang, hoverProvider);
+    }
+  }
+
+  /** Register additional file-extension → Monaco language mappings from installed extensions. */
+  registerExtensionLanguages(entries: Array<{ extensions: string[]; monacoLanguageId: string }>) {
+    for (const entry of entries) {
+      for (const rawExt of entry.extensions) {
+        const ext = rawExt.replace(/^\./, "").toLowerCase();
+        if (!ext || EXT_LANGUAGE_MAP[ext]) continue;
+        const known = monaco.languages.getLanguages().some((l) => l.id === entry.monacoLanguageId);
+        if (known) EXT_LANGUAGE_MAP[ext] = entry.monacoLanguageId;
+      }
     }
   }
 
