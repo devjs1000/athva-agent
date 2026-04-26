@@ -109,12 +109,15 @@ const FILE_ICON_MAP: Record<string, FileIcon> = {
   toml:  { svg: fileIcon("#424b56", "#78909c", "TM") },
   xml:   { svg: fileIcon("#424b56", "#ff9800", "XM") },
   csv:   { svg: fileIcon("#424b56", "#66bb6a", "CSV") },
+  xlsx:  { svg: fileIcon("#424b56", "#2e7d32", "XLS") },
+  xls:   { svg: fileIcon("#424b56", "#2e7d32", "XLS") },
   env:   { svg: fileIcon("#424b56", "#fdd835", "ENV") },
 
   // Markdown / Text
   md:    { svg: langIcon("#42a5f5", "M") },
   mdx:   { svg: langIcon("#42a5f5", "MX") },
   txt:   { svg: fileIcon("#424b56", "#bdbdbd", "TXT") },
+  flow:  { svg: fileIcon("#424b56", "#42a5f5", "FLW") },
   log:   { svg: fileIcon("#424b56", "#78909c", "LOG") },
 
   // Rust
