@@ -26,6 +26,12 @@ interface InstalledExtension {
 }
 
 type StatusKind = "idle" | "loading" | "success" | "warning" | "error";
+type ExtensionsTab = "installed" | "recommended" | "search";
+
+interface ExtensionDetailState {
+  kind: "installed" | "marketplace";
+  identifier: string;
+}
 
 export class ExtensionsPanel {
   private panelEl: HTMLElement;
@@ -37,13 +43,21 @@ export class ExtensionsPanel {
   private closeBtn: HTMLButtonElement;
   private statusEl: HTMLElement;
   private installedEl: HTMLElement;
+  private recommendedEl: HTMLElement;
   private resultsEl: HTMLElement;
+  private detailEl: HTMLElement;
   private subtitleEl: HTMLElement;
+  private listTitleEl: HTMLElement;
+  private listSubtitleEl: HTMLElement;
+  private tabButtons: Record<ExtensionsTab, HTMLButtonElement>;
   private onResize: () => void;
   private getProjectPath: () => string;
   private installed: InstalledExtension[] = [];
+  private recommended: MarketplaceExtension[] = [];
   private results: MarketplaceExtension[] = [];
   private activeQuery = "";
+  private activeTab: ExtensionsTab = "installed";
+  private selectedDetail: ExtensionDetailState | null = null;
   private isBusy = false;
 
   constructor(onResize: () => void, getProjectPath: () => string) {
@@ -58,8 +72,17 @@ export class ExtensionsPanel {
     this.closeBtn = document.getElementById("btn-close-extensions") as HTMLButtonElement;
     this.statusEl = document.getElementById("extensions-status")!;
     this.installedEl = document.getElementById("extensions-installed-list")!;
+    this.recommendedEl = document.getElementById("extensions-recommended-list")!;
     this.resultsEl = document.getElementById("extensions-results-list")!;
+    this.detailEl = document.getElementById("extensions-detail")!;
     this.subtitleEl = document.getElementById("extensions-subtitle")!;
+    this.listTitleEl = document.getElementById("extensions-list-title")!;
+    this.listSubtitleEl = document.getElementById("extensions-list-subtitle")!;
+    this.tabButtons = {
+      installed: document.getElementById("extensions-tab-installed") as HTMLButtonElement,
+      recommended: document.getElementById("extensions-tab-recommended") as HTMLButtonElement,
+      search: document.getElementById("extensions-tab-search") as HTMLButtonElement,
+    };
 
     this.searchBtn.addEventListener("click", () => void this.runSearch());
     this.refreshBtn.addEventListener("click", () => void this.refresh());
@@ -69,6 +92,15 @@ export class ExtensionsPanel {
         event.preventDefault();
         void this.runSearch();
       }
+    });
+    this.searchInput.addEventListener("input", () => {
+      if (!this.searchInput.value.trim() && this.activeTab === "search") {
+        this.setActiveTab("recommended");
+      }
+    });
+
+    (Object.keys(this.tabButtons) as ExtensionsTab[]).forEach((tab) => {
+      this.tabButtons[tab].addEventListener("click", () => this.setActiveTab(tab));
     });
 
     this.panelEl.addEventListener("click", (event) => {
@@ -80,15 +112,24 @@ export class ExtensionsPanel {
       } else if (action === "install") {
         const identifier = target.dataset.identifier;
         if (identifier) void this.install(identifier);
-      } else if (action === "reveal") {
-        const path = target.dataset.path;
-        if (path) void invoke("reveal_in_explorer", { path }).catch(() => {});
+      } else if (action === "uninstall") {
+        const identifier = target.dataset.identifier;
+        if (identifier) void this.uninstall(identifier);
+      } else if (action === "select-installed") {
+        const identifier = target.dataset.identifier;
+        if (identifier) this.selectInstalled(identifier);
+      } else if (action === "select-marketplace") {
+        const identifier = target.dataset.identifier;
+        if (identifier) this.selectMarketplace(identifier);
       }
     });
 
-    this.renderStatus("idle", "Ready", "Search the Visual Studio Marketplace or load popular extensions.");
+    this.renderStatus("idle", "Ready", "Search the Visual Studio Marketplace or review installed extensions.");
+    this.setActiveTab("installed");
     this.renderInstalled();
+    this.renderRecommended();
     this.renderResults();
+    this.renderDetail();
   }
 
   setProject(_path: string) {
@@ -113,8 +154,11 @@ export class ExtensionsPanel {
     this.activeQuery = "";
     this.searchInput.value = "";
     this.results = [];
+    this.selectedDetail = null;
+    this.setActiveTab("installed");
     this.renderResults();
-    this.renderStatus("idle", "Ready", "Search the Visual Studio Marketplace or load popular extensions.");
+    this.renderDetail();
+    this.renderStatus("idle", "Ready", "Search the Visual Studio Marketplace or review installed extensions.");
     setTimeout(() => this.onResize(), 0);
   }
 
@@ -126,33 +170,38 @@ export class ExtensionsPanel {
     const projectPath = this.getProjectPath();
     if (!projectPath) {
       this.installed = [];
+      this.recommended = [];
       this.results = [];
-      this.renderStatus("warning", "No project", "Open a project before installing extensions.");
-      this.renderInstalled();
-      this.renderResults();
+      this.selectedDetail = null;
+      this.renderStatus("warning", "No project", "Open a project before browsing extensions.");
+      this.renderAllLists();
+      this.renderDetail();
       return;
     }
 
-    this.subtitleEl.textContent = "Browse VSIX packages and install them into .athva/extensions";
+    this.subtitleEl.textContent = "Browse VSIX packages and install them globally for Athva";
     this.setBusy(true);
     try {
-      this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", {
-        projectPath,
-      });
-      this.renderInstalled();
-      await this.runSearch(this.activeQuery, false);
-      if (!this.results.length) {
-        this.renderStatus("success", "Installed list updated", `${this.installed.length} extensions available in this project.`);
+      this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      this.recommended = await invoke<MarketplaceExtension[]>("search_vscode_extensions", { query: "", limit: 18 });
+      if (this.activeQuery.trim()) {
+        this.results = await invoke<MarketplaceExtension[]>("search_vscode_extensions", { query: this.activeQuery, limit: 18 });
+      } else {
+        this.results = [];
       }
+      this.renderAllLists();
+      this.renderDetail();
+      this.renderStatus("success", "Extensions ready", `${this.installed.length} installed, ${this.recommended.length} recommended.`);
     } catch (error) {
       this.renderStatus("error", "Load failed", this.errorMessage(error));
     } finally {
       this.setBusy(false);
-      this.renderResults();
+      this.renderAllLists();
+      this.renderDetail();
     }
   }
 
-  private async runSearch(query = this.searchInput.value.trim(), manageBusy = true) {
+  private async runSearch(query = this.searchInput.value.trim()) {
     const projectPath = this.getProjectPath();
     if (!projectPath) {
       this.renderStatus("warning", "No project", "Open a project before searching the marketplace.");
@@ -160,39 +209,44 @@ export class ExtensionsPanel {
     }
 
     this.activeQuery = query.trim();
-    if (manageBusy) this.setBusy(true);
-    this.renderStatus(
-      "loading",
-      this.activeQuery ? "Searching marketplace" : "Loading popular extensions",
-      this.activeQuery
-        ? `Looking up "${this.activeQuery}" in the Visual Studio Marketplace.`
-        : "Fetching popular Visual Studio Code extensions."
-    );
+    if (!this.activeQuery) {
+      this.results = [];
+      this.setActiveTab("recommended");
+      this.renderResults();
+      this.renderStatus("success", "Recommended extensions", "Showing recommended marketplace extensions.");
+      return;
+    }
+
+    this.setBusy(true);
+    this.setActiveTab("search");
+    this.renderStatus("loading", "Searching marketplace", `Looking up "${this.activeQuery}" in the Visual Studio Marketplace.`);
 
     try {
       this.results = await invoke<MarketplaceExtension[]>("search_vscode_extensions", {
         query: this.activeQuery,
         limit: 18,
       });
+      if (!this.selectedDetail || this.selectedDetail.kind !== "marketplace") {
+        this.selectedDetail = this.results[0] ? { kind: "marketplace", identifier: this.results[0].identifier } : null;
+      }
       this.renderResults();
-      this.renderStatus(
-        "success",
-        this.activeQuery ? "Marketplace results" : "Popular extensions",
-        `${this.results.length} extensions ready to install.`
-      );
+      this.renderDetail();
+      this.renderStatus("success", "Marketplace results", `${this.results.length} extensions matched your search.`);
     } catch (error) {
       this.results = [];
       this.renderResults();
+      this.renderDetail();
       this.renderStatus("error", "Search failed", this.errorMessage(error));
     } finally {
-      if (manageBusy) this.setBusy(false);
+      this.setBusy(false);
       this.renderResults();
+      this.renderDetail();
     }
   }
 
   private async install(identifier: string) {
     const projectPath = this.getProjectPath();
-    const extension = this.results.find((item) => item.identifier === identifier);
+    const extension = this.findMarketplace(identifier);
     if (!projectPath || !extension) return;
 
     this.setBusy(true);
@@ -205,21 +259,42 @@ export class ExtensionsPanel {
         version: extension.version,
         downloadUrl: extension.download_url,
       });
-      this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", {
-        projectPath,
-      });
-      this.renderInstalled();
-      this.renderResults();
-      this.renderStatus(
-        "success",
-        "Installed",
-        `${extension.display_name} ${extension.version} is available under .athva/extensions.`
-      );
+      this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      this.selectedDetail = { kind: "marketplace", identifier };
+      this.renderAllLists();
+      this.renderDetail();
+      this.renderStatus("success", "Installed", `${extension.display_name} ${extension.version} is installed globally for Athva.`);
     } catch (error) {
       this.renderStatus("error", "Install failed", this.errorMessage(error));
     } finally {
       this.setBusy(false);
-      this.renderResults();
+      this.renderAllLists();
+      this.renderDetail();
+    }
+  }
+
+  private async uninstall(identifier: string) {
+    const projectPath = this.getProjectPath();
+    if (!projectPath) return;
+
+    this.setBusy(true);
+    this.renderStatus("loading", "Uninstalling extension", `Removing ${identifier} from Athva.`);
+    try {
+      await invoke("uninstall_vscode_extension", { identifier });
+      this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      if (this.selectedDetail?.identifier === identifier) {
+        const fallbackMarketplace = this.findMarketplace(identifier);
+        this.selectedDetail = fallbackMarketplace ? { kind: "marketplace", identifier } : null;
+      }
+      this.renderAllLists();
+      this.renderDetail();
+      this.renderStatus("success", "Uninstalled", `${identifier} was removed from Athva.`);
+    } catch (error) {
+      this.renderStatus("error", "Uninstall failed", this.errorMessage(error));
+    } finally {
+      this.setBusy(false);
+      this.renderAllLists();
+      this.renderDetail();
     }
   }
 
@@ -228,7 +303,48 @@ export class ExtensionsPanel {
     this.searchInput.disabled = isBusy;
     this.searchBtn.disabled = isBusy;
     this.refreshBtn.disabled = isBusy;
+    Object.values(this.tabButtons).forEach((button) => {
+      button.disabled = isBusy;
+    });
     this.panelEl.classList.toggle("extensions-panel-loading", isBusy);
+  }
+
+  private setActiveTab(tab: ExtensionsTab) {
+    this.activeTab = tab;
+    (Object.keys(this.tabButtons) as ExtensionsTab[]).forEach((key) => {
+      this.tabButtons[key].classList.toggle("active", key === tab);
+    });
+    this.installedEl.classList.toggle("hidden", tab !== "installed");
+    this.recommendedEl.classList.toggle("hidden", tab !== "recommended");
+    this.resultsEl.classList.toggle("hidden", tab !== "search");
+
+    if (tab === "installed") {
+      this.listTitleEl.textContent = "Installed in Athva";
+      this.listSubtitleEl.textContent = "global app store";
+      if (!this.selectedDetail && this.installed[0]) {
+        this.selectedDetail = { kind: "installed", identifier: this.installed[0].identifier };
+      }
+    } else if (tab === "recommended") {
+      this.listTitleEl.textContent = "Recommended";
+      this.listSubtitleEl.textContent = "popular marketplace picks";
+      if (!this.selectedDetail && this.recommended[0]) {
+        this.selectedDetail = { kind: "marketplace", identifier: this.recommended[0].identifier };
+      }
+    } else {
+      this.listTitleEl.textContent = this.activeQuery ? `Search: ${this.activeQuery}` : "Search";
+      this.listSubtitleEl.textContent = "Visual Studio Marketplace";
+      if (!this.selectedDetail && this.results[0]) {
+        this.selectedDetail = { kind: "marketplace", identifier: this.results[0].identifier };
+      }
+    }
+
+    this.renderDetail();
+  }
+
+  private renderAllLists() {
+    this.renderInstalled();
+    this.renderRecommended();
+    this.renderResults();
   }
 
   private renderInstalled() {
@@ -236,90 +352,185 @@ export class ExtensionsPanel {
       this.installedEl.innerHTML = `
         <div class="extensions-empty-state">
           <div class="extensions-empty-title">No installed extensions</div>
-          <div class="extensions-empty-copy">Installed VSIX packages for this project will appear here.</div>
+          <div class="extensions-empty-copy">Installed VSIX packages for Athva will appear here.</div>
         </div>
       `;
       return;
     }
 
-    this.installedEl.innerHTML = this.installed
-      .map(
-        (item) => `
-          <article class="extensions-installed-card">
-            <div class="extensions-installed-main">
-              <div class="extensions-installed-title-row">
-                <strong>${escapeHtml(item.display_name)}</strong>
-                <span class="extensions-pill">v${escapeHtml(item.version)}</span>
-              </div>
-              <div class="extensions-meta">${escapeHtml(item.identifier)}</div>
-              <p class="extensions-copy">${escapeHtml(item.description || "No description provided.")}</p>
-            </div>
-            <button
-              class="extensions-secondary-btn"
-              data-extension-action="reveal"
-              data-path="${escapeHtml(item.install_path)}"
-            >
-              Open Folder
-            </button>
-          </article>
-        `
-      )
-      .join("");
+    this.installedEl.innerHTML = this.installed.map((item) => this.renderListCard({
+      identifier: item.identifier,
+      displayName: item.display_name,
+      version: item.version,
+      description: item.description,
+      subtitle: item.identifier,
+      iconUrl: "",
+      selected: this.selectedDetail?.identifier === item.identifier && this.selectedDetail.kind === "installed",
+      action: "select-installed",
+    })).join("");
+  }
+
+  private renderRecommended() {
+    if (!this.recommended.length) {
+      this.recommendedEl.innerHTML = `
+        <div class="extensions-empty-state">
+          <div class="extensions-empty-title">No recommendations</div>
+          <div class="extensions-empty-copy">Refresh to load recommended marketplace extensions.</div>
+        </div>
+      `;
+      return;
+    }
+    this.recommendedEl.innerHTML = this.recommended.map((item) => this.renderListCard({
+      identifier: item.identifier,
+      displayName: item.display_name,
+      version: item.version,
+      description: item.description,
+      subtitle: `${item.identifier} · ${formatInstalls(item.installs)} installs`,
+      iconUrl: item.icon_url,
+      selected: this.selectedDetail?.identifier === item.identifier && this.selectedDetail.kind === "marketplace",
+      action: "select-marketplace",
+    })).join("");
   }
 
   private renderResults() {
     if (!this.results.length) {
       this.resultsEl.innerHTML = `
         <div class="extensions-empty-state">
-          <div class="extensions-empty-title">No marketplace results</div>
-          <div class="extensions-empty-copy">Try another search term or load popular extensions.</div>
-          <button class="extensions-run-btn" data-extension-action="search">Load Popular Extensions</button>
+          <div class="extensions-empty-title">No search results</div>
+          <div class="extensions-empty-copy">Search for an extension name, or return to Recommended.</div>
+          <button class="extensions-run-btn" data-extension-action="search">Load Recommended</button>
+        </div>
+      `;
+      return;
+    }
+    this.resultsEl.innerHTML = this.results.map((item) => this.renderListCard({
+      identifier: item.identifier,
+      displayName: item.display_name,
+      version: item.version,
+      description: item.description,
+      subtitle: `${item.identifier} · ${formatRating(item.average_rating, item.rating_count)}`,
+      iconUrl: item.icon_url,
+      selected: this.selectedDetail?.identifier === item.identifier && this.selectedDetail.kind === "marketplace",
+      action: "select-marketplace",
+    })).join("");
+  }
+
+  private renderListCard(input: {
+    identifier: string;
+    displayName: string;
+    version: string;
+    description: string;
+    subtitle: string;
+    iconUrl: string;
+    selected: boolean;
+    action: "select-installed" | "select-marketplace";
+  }): string {
+    return `
+      <article class="extensions-list-card${input.selected ? " selected" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}">
+        <div class="extensions-result-head">
+          ${input.iconUrl ? `<img class="extensions-icon" src="${escapeAttribute(input.iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-icon extensions-icon-placeholder"></div>`}
+          <div class="extensions-result-copy">
+            <div class="extensions-result-title-row">
+              <strong>${escapeHtml(input.displayName)}</strong>
+              <span class="extensions-pill">${escapeHtml(input.version)}</span>
+            </div>
+            <div class="extensions-meta">${escapeHtml(input.subtitle)}</div>
+          </div>
+        </div>
+        <p class="extensions-copy">${escapeHtml(input.description || "No description provided.")}</p>
+      </article>
+    `;
+  }
+
+  private renderDetail() {
+    const detail = this.resolveSelectedDetail();
+    if (!detail) {
+      this.detailEl.innerHTML = `
+        <div class="extensions-detail-empty">
+          <div class="extensions-empty-title">Select an extension</div>
+          <div class="extensions-empty-copy">Open an extension to inspect details, install it, or uninstall it.</div>
         </div>
       `;
       return;
     }
 
-    const installed = new Set(this.installed.map((item) => item.identifier));
-    this.resultsEl.innerHTML = this.results
-      .map((item) => {
-        const isInstalled = installed.has(item.identifier);
-        return `
-          <article class="extensions-result-card">
-            <div class="extensions-result-head">
-              <img
-                class="extensions-icon"
-                src="${escapeAttribute(item.icon_url)}"
-                alt=""
-                loading="lazy"
-                onerror="this.style.visibility='hidden'"
-              />
-              <div class="extensions-result-copy">
-                <div class="extensions-result-title-row">
-                  <strong>${escapeHtml(item.display_name)}</strong>
-                  <span class="extensions-pill">${escapeHtml(item.version)}</span>
-                </div>
-                <div class="extensions-meta">${escapeHtml(item.identifier)} · ${escapeHtml(item.publisher_display_name)}</div>
-              </div>
+    const marketplaceDetail = isMarketplaceExtension(detail) ? detail : null;
+    const installed = this.isInstalled(detail.identifier);
+    const installedInfo = this.findInstalled(detail.identifier);
+    const stats = marketplaceDetail
+      ? `<div class="extensions-detail-stats">
+          <span>${formatInstalls(marketplaceDetail.installs)} installs</span>
+          <span>${formatRating(marketplaceDetail.average_rating, marketplaceDetail.rating_count)}</span>
+          <span>${escapeHtml(marketplaceDetail.publisher_display_name)}</span>
+        </div>`
+      : `<div class="extensions-detail-stats">
+          <span>Installed globally in Athva</span>
+          <span>${escapeHtml(detail.publisher)}</span>
+        </div>`;
+
+    this.detailEl.innerHTML = `
+      <div class="extensions-detail-card">
+        <div class="extensions-detail-head">
+          ${marketplaceDetail?.icon_url ? `<img class="extensions-detail-icon" src="${escapeAttribute(marketplaceDetail.icon_url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-detail-icon extensions-icon-placeholder"></div>`}
+          <div class="extensions-detail-copy">
+            <div class="extensions-result-title-row">
+              <strong>${escapeHtml(detail.display_name)}</strong>
+              <span class="extensions-pill">${escapeHtml(detail.version)}</span>
             </div>
-            <p class="extensions-copy">${escapeHtml(item.description || "No description provided.")}</p>
-            <div class="extensions-result-footer">
-              <div class="extensions-stats">
-                <span>${formatInstalls(item.installs)} installs</span>
-                <span>${formatRating(item.average_rating, item.rating_count)}</span>
-              </div>
-              <button
-                class="${isInstalled ? "extensions-secondary-btn" : "extensions-install-btn"}"
-                data-extension-action="install"
-                data-identifier="${escapeHtml(item.identifier)}"
-                ${this.isBusy ? "disabled" : ""}
-              >
-                ${isInstalled ? "Reinstall" : "Install"}
-              </button>
-            </div>
-          </article>
-        `;
-      })
-      .join("");
+            <div class="extensions-meta">${escapeHtml(detail.identifier)}</div>
+            ${stats}
+          </div>
+        </div>
+        <p class="extensions-copy">${escapeHtml(detail.description || "No description provided.")}</p>
+        <div class="extensions-detail-actions">
+          ${installed
+            ? `<button class="extensions-secondary-btn" data-extension-action="uninstall" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Uninstall</button>`
+            : marketplaceDetail
+              ? `<button class="extensions-install-btn" data-extension-action="install" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Install</button>`
+              : ""
+          }
+        </div>
+        ${installedInfo
+          ? `<div class="extensions-detail-note">Installed version: ${escapeHtml(installedInfo.version)}</div>`
+          : `<div class="extensions-detail-note">Not installed in Athva yet.</div>`
+        }
+      </div>
+    `;
+  }
+
+  private resolveSelectedDetail():
+    | InstalledExtension
+    | MarketplaceExtension
+    | null {
+    if (!this.selectedDetail) return null;
+    if (this.selectedDetail.kind === "installed") {
+      return this.findInstalled(this.selectedDetail.identifier) ?? this.findMarketplace(this.selectedDetail.identifier) ?? null;
+    }
+    return this.findMarketplace(this.selectedDetail.identifier) ?? this.findInstalled(this.selectedDetail.identifier) ?? null;
+  }
+
+  private selectInstalled(identifier: string) {
+    this.selectedDetail = { kind: "installed", identifier };
+    this.renderAllLists();
+    this.renderDetail();
+  }
+
+  private selectMarketplace(identifier: string) {
+    this.selectedDetail = { kind: "marketplace", identifier };
+    this.renderAllLists();
+    this.renderDetail();
+  }
+
+  private findMarketplace(identifier: string): MarketplaceExtension | undefined {
+    return [...this.results, ...this.recommended].find((item) => item.identifier === identifier);
+  }
+
+  private findInstalled(identifier: string): InstalledExtension | undefined {
+    return this.installed.find((item) => item.identifier === identifier);
+  }
+
+  private isInstalled(identifier: string): boolean {
+    return this.installed.some((item) => item.identifier === identifier);
   }
 
   private renderStatus(kind: StatusKind, title: string, text: string) {
@@ -338,6 +549,12 @@ export class ExtensionsPanel {
     if (error instanceof Error) return error.message;
     return "Unknown error.";
   }
+}
+
+function isMarketplaceExtension(
+  extension: InstalledExtension | MarketplaceExtension
+): extension is MarketplaceExtension {
+  return "installs" in extension;
 }
 
 function escapeHtml(value: string): string {

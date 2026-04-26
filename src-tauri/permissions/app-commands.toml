@@ -47,6 +47,7 @@ commands.allow = [
   "search_vscode_extensions",
   "list_installed_vscode_extensions",
   "install_vscode_extension",
+  "uninstall_vscode_extension",
   "memory_init",
   "memory_add",
   "memory_search",

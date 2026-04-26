@@ -901,10 +901,14 @@ pub struct InstalledExtension {
     pub install_path: String,
 }
 
-fn extensions_root(project_path: &str) -> PathBuf {
-    PathBuf::from(project_path)
-        .join(".athva")
-        .join("extensions")
+fn extensions_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let root = data_dir.join("extensions");
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    Ok(root)
 }
 
 fn sanitize_extension_segment(value: &str) -> String {
@@ -1081,6 +1085,29 @@ fn remove_existing_extension_versions(
     Ok(())
 }
 
+fn remove_extension_by_identifier(root: &PathBuf, identifier: &str) -> Result<bool, String> {
+    if !root.exists() {
+        return Ok(false);
+    }
+    let mut removed = false;
+    let prefix = format!("{}-", sanitize_extension_segment(identifier));
+    for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.starts_with(&prefix) {
+            fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+            removed = true;
+        }
+    }
+    Ok(removed)
+}
+
 fn download_file(url: &str, destination: &PathBuf) -> Result<(), String> {
     let output = Command::new("curl")
         .args([
@@ -1237,9 +1264,11 @@ fn search_vscode_extensions(
 
 #[tauri::command]
 fn list_installed_vscode_extensions(
+    app: tauri::AppHandle,
     project_path: String,
 ) -> Result<Vec<InstalledExtension>, String> {
-    let root = extensions_root(&project_path);
+    let _ = project_path;
+    let root = extensions_root(&app)?;
     if !root.exists() {
         return Ok(Vec::new());
     }
@@ -1261,14 +1290,15 @@ fn list_installed_vscode_extensions(
 
 #[tauri::command]
 fn install_vscode_extension(
+    app: tauri::AppHandle,
     project_path: String,
     publisher: String,
     extension_name: String,
     version: String,
     download_url: Option<String>,
 ) -> Result<InstalledExtension, String> {
-    let root = extensions_root(&project_path);
-    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let _ = project_path;
+    let root = extensions_root(&app)?;
 
     let identifier = format!(
         "{}.{}",
@@ -1304,6 +1334,20 @@ fn install_vscode_extension(
     read_installed_extension(install_dir).ok_or_else(|| {
         "Extension was downloaded, but its manifest could not be read after extraction.".to_string()
     })
+}
+
+#[tauri::command]
+fn uninstall_vscode_extension(
+    app: tauri::AppHandle,
+    identifier: String,
+) -> Result<(), String> {
+    let root = extensions_root(&app)?;
+    let removed = remove_extension_by_identifier(&root, &identifier)?;
+    if removed {
+        Ok(())
+    } else {
+        Err(format!("Extension not found: {identifier}"))
+    }
 }
 
 // ── Embedded web tab (child webview inside main window) ──
@@ -2045,6 +2089,7 @@ pub fn run() {
             search_vscode_extensions,
             list_installed_vscode_extensions,
             install_vscode_extension,
+            uninstall_vscode_extension,
             memory_init,
             memory_add,
             memory_search,

@@ -612,6 +612,11 @@
             </div>
 
             <div class="extensions-toolbar">
+              <div class="extensions-tabs" role="tablist" aria-label="Extensions views">
+                <button id="extensions-tab-installed" class="extensions-tab active" type="button" data-extensions-tab="installed">Installed</button>
+                <button id="extensions-tab-recommended" class="extensions-tab" type="button" data-extensions-tab="recommended">Recommended</button>
+                <button id="extensions-tab-search" class="extensions-tab" type="button" data-extensions-tab="search">Search</button>
+              </div>
               <input
                 id="extensions-search-input"
                 class="extensions-search-input"
@@ -626,21 +631,23 @@
             <div id="extensions-status" class="extensions-status extensions-status-idle"></div>
 
             <div class="extensions-body">
-              <section class="extensions-section">
-                <div class="extensions-section-header">
-                  <h3>Installed in this project</h3>
-                  <span>.athva/extensions</span>
+              <div class="extensions-browser">
+                <section class="extensions-section">
+                  <div class="extensions-section-header">
+                    <h3 id="extensions-list-title">Installed in Athva</h3>
+                    <span id="extensions-list-subtitle">global app store</span>
+                  </div>
+                  <div id="extensions-installed-list" class="extensions-list hidden"></div>
+                  <div id="extensions-recommended-list" class="extensions-list hidden"></div>
+                  <div id="extensions-results-list" class="extensions-list hidden"></div>
+                </section>
+              </div>
+              <aside id="extensions-detail" class="extensions-detail">
+                <div class="extensions-detail-empty">
+                  <div class="extensions-empty-title">Select an extension</div>
+                  <div class="extensions-empty-copy">Open an extension to inspect details, install it, or uninstall it.</div>
                 </div>
-                <div id="extensions-installed-list" class="extensions-list"></div>
-              </section>
-
-              <section class="extensions-section">
-                <div class="extensions-section-header">
-                  <h3>Marketplace results</h3>
-                  <span>Visual Studio Marketplace</span>
-                </div>
-                <div id="extensions-results-list" class="extensions-list"></div>
-              </section>
+              </aside>
             </div>
           </div>
 
