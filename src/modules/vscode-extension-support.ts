@@ -68,6 +68,7 @@ export interface ExtensionSupportSnapshot {
   views: ExtensionView[];
   languages: ExtensionLanguage[];
   hasRuntime: boolean;
+  runtimeMain?: string;
 }
 
 export interface ResolvedExtensionsSupport {
@@ -144,6 +145,7 @@ export async function loadInstalledExtensionSupport(
         views: [],
         languages: [],
         hasRuntime: false,
+        runtimeMain: undefined,
       });
       continue;
     }
@@ -193,6 +195,7 @@ export async function loadInstalledExtensionSupport(
       views,
       languages,
       hasRuntime: !!(manifest?.main || manifest?.browser),
+      runtimeMain: manifest?.main || manifest?.browser || undefined,
     });
   }
 

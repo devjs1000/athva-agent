@@ -150,6 +150,8 @@ export class ExtensionsPanel {
     this.renderDetail();
   }
 
+  getInstalled(): InstalledExtension[] { return this.installed; }
+
   setProject(_path: string) {
     if (!this.panelEl.classList.contains("hidden")) {
       void this.refresh();

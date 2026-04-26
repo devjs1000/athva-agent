@@ -1,0 +1,243 @@
+import { Command, Child } from "@tauri-apps/plugin-shell";
+import { resolveResource } from "@tauri-apps/api/path";
+
+export interface TreeNode {
+  id: string;
+  label: string;
+  description?: string;
+  tooltip?: string;
+  iconId?: string;
+  resourceUri?: string;
+  collapsibleState: 0 | 1 | 2; // None | Collapsed | Expanded
+  contextValue?: string;
+  command?: { command: string; title: string };
+}
+
+export type RuntimeStatus = "stopped" | "starting" | "active" | "error";
+
+export interface ExtensionRuntimeOptions {
+  extensionId: string;
+  installPath: string;
+  mainPath: string;
+  workspaceFolders: string[];
+  configuration?: Record<string, unknown>;
+  onStatus?: (status: RuntimeStatus, message?: string) => void;
+  onViewRegistered?: (viewId: string, viewType: "tree" | "webview") => void;
+  onTreeChanged?: (viewId: string) => void;
+  onNotification?: (level: "info" | "warning" | "error", message: string) => void;
+}
+
+let _hostScript: string | null = null;
+async function getHostScript(): Promise<string> {
+  if (_hostScript) return _hostScript;
+  _hostScript = await resolveResource("extension-host/host.cjs");
+  return _hostScript;
+}
+
+export class ExtensionRuntime {
+  private process: Child | null = null;
+  private status: RuntimeStatus = "stopped";
+  private opts: ExtensionRuntimeOptions;
+  private msgBuffer = "";
+  private pendingChildren = new Map<string, (nodes: TreeNode[]) => void>();
+  private registeredViews = new Set<string>();
+  private webviewViews = new Set<string>();
+
+  constructor(opts: ExtensionRuntimeOptions) {
+    this.opts = opts;
+  }
+
+  getStatus(): RuntimeStatus { return this.status; }
+  getRegisteredViews(): string[] { return [...this.registeredViews]; }
+  isWebviewView(viewId: string): boolean { return this.webviewViews.has(viewId); }
+
+  async start(): Promise<void> {
+    if (this.process) await this.stop();
+    this.setStatus("starting");
+
+    try {
+      const hostScript = await getHostScript();
+      const cmd = Command.create("node", [
+        hostScript,
+        this.opts.mainPath,
+        this.opts.extensionId,
+        this.opts.installPath,
+      ]);
+
+      cmd.stdout.on("data", (line: string) => this.handleOutput(line));
+      cmd.stderr.on("data", (line: string) => {
+        if (line.trim()) console.warn(`[ExtHost:${this.opts.extensionId}] stderr:`, line.trim());
+      });
+      cmd.on("close", (data) => {
+        this.process = null;
+        if (this.status !== "stopped") {
+          this.setStatus("error", `Process exited with code ${data?.code ?? data}`);
+        }
+      });
+      cmd.on("error", (err) => {
+        this.process = null;
+        this.setStatus("error", String(err));
+      });
+
+      this.process = await cmd.spawn();
+
+      // Send initial workspace context
+      this.send({
+        type: "setWorkspace",
+        folders: this.opts.workspaceFolders,
+        configuration: this.opts.configuration ?? {},
+      });
+    } catch (e) {
+      this.setStatus("error", String(e));
+      throw e;
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.setStatus("stopped");
+    if (this.process) {
+      try { await this.process.kill(); } catch {}
+      this.process = null;
+    }
+    this.registeredViews.clear();
+    this.webviewViews.clear();
+    this.pendingChildren.clear();
+  }
+
+  async getChildren(viewId: string, elementId?: string): Promise<TreeNode[]> {
+    if (!this.process || this.status !== "active") return [];
+    return new Promise((resolve) => {
+      const key = `${viewId}:${elementId ?? "root"}`;
+      const timer = setTimeout(() => {
+        this.pendingChildren.delete(key);
+        resolve([]);
+      }, 5000);
+      this.pendingChildren.set(key, (nodes) => {
+        clearTimeout(timer);
+        resolve(nodes);
+      });
+      this.send({ type: "getChildren", viewId, elementId: elementId ?? null });
+    });
+  }
+
+  async executeCommand(command: string, ...args: unknown[]): Promise<unknown> {
+    if (!this.process) return undefined;
+    const id = Math.random().toString(36).slice(2);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(undefined), 3000);
+      const key = `cmd:${id}`;
+      this.pendingChildren.set(key, (result: any) => {
+        clearTimeout(timer);
+        resolve(result);
+      });
+      this.send({ type: "executeCommand", id, command, args });
+    });
+  }
+
+  updateWorkspace(folders: string[], configuration?: Record<string, unknown>) {
+    this.opts.workspaceFolders = folders;
+    if (configuration) this.opts.configuration = configuration;
+    if (this.process) {
+      this.send({ type: "setWorkspace", folders, configuration: configuration ?? this.opts.configuration ?? {} });
+    }
+  }
+
+  private send(msg: unknown) {
+    if (!this.process) return;
+    void this.process.write(JSON.stringify(msg) + "\n");
+  }
+
+  private handleOutput(chunk: string) {
+    this.msgBuffer += chunk;
+    const lines = this.msgBuffer.split("\n");
+    this.msgBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        this.handleMessage(JSON.parse(trimmed));
+      } catch {}
+    }
+  }
+
+  private handleMessage(msg: Record<string, unknown>) {
+    switch (msg.type) {
+      case "activated":
+        this.setStatus("active");
+        break;
+
+      case "error":
+        console.error(`[ExtHost:${this.opts.extensionId}]`, msg.message);
+        if (this.status !== "active") this.setStatus("error", String(msg.message));
+        break;
+
+      case "viewRegistered": {
+        const vid = String(msg.viewId);
+        const vtype = String(msg.viewType ?? "tree") as "tree" | "webview";
+        this.registeredViews.add(vid);
+        if (vtype === "webview") this.webviewViews.add(vid);
+        this.opts.onViewRegistered?.(vid, vtype);
+        break;
+      }
+
+      case "treeChanged":
+        this.opts.onTreeChanged?.(String(msg.viewId));
+        break;
+
+      case "children": {
+        const key = `${msg.viewId}:${msg.elementId ?? "root"}`;
+        const resolve = this.pendingChildren.get(key);
+        if (resolve) {
+          this.pendingChildren.delete(key);
+          resolve((msg.items ?? []) as TreeNode[]);
+        }
+        break;
+      }
+
+      case "commandResult": {
+        const key = `cmd:${msg.id}`;
+        const resolve = this.pendingChildren.get(key);
+        if (resolve) {
+          this.pendingChildren.delete(key);
+          (resolve as any)(msg.result);
+        }
+        break;
+      }
+
+      case "notification":
+        this.opts.onNotification?.(
+          (msg.level as "info" | "warning" | "error") ?? "info",
+          String(msg.message)
+        );
+        break;
+
+      case "openExternal":
+        // Let main handle this
+        break;
+    }
+  }
+
+  private setStatus(status: RuntimeStatus, message?: string) {
+    this.status = status;
+    this.opts.onStatus?.(status, message);
+  }
+}
+
+// Registry: one runtime per extension identifier
+const runtimeRegistry = new Map<string, ExtensionRuntime>();
+
+export function getOrCreateRuntime(opts: ExtensionRuntimeOptions): ExtensionRuntime {
+  if (runtimeRegistry.has(opts.extensionId)) return runtimeRegistry.get(opts.extensionId)!;
+  const rt = new ExtensionRuntime(opts);
+  runtimeRegistry.set(opts.extensionId, rt);
+  return rt;
+}
+
+export function getRuntime(extensionId: string): ExtensionRuntime | undefined {
+  return runtimeRegistry.get(extensionId);
+}
+
+export async function stopAllRuntimes() {
+  for (const rt of runtimeRegistry.values()) await rt.stop();
+  runtimeRegistry.clear();
+}

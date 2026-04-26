@@ -8410,3 +8410,95 @@ thead .md-td {
   font-size: 12px;
   color: var(--color-text-muted, #888);
 }
+
+/* ── Extension live tree view ── */
+.ext-tree-content {
+  padding: 4px 0;
+}
+.ext-tree-empty {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--color-text-muted, #666);
+  font-style: italic;
+}
+.ext-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text, #ccc);
+  white-space: nowrap;
+  overflow: hidden;
+  border-radius: 3px;
+  margin: 0 4px;
+  user-select: none;
+}
+.ext-tree-node:hover {
+  background: var(--color-surface-raised, #2a2a2a);
+}
+.ext-tree-node.loading {
+  opacity: 0.5;
+}
+.ext-tree-chevron {
+  flex-shrink: 0;
+  transition: transform 0.12s;
+  opacity: 0.6;
+}
+.ext-tree-chevron.expanded {
+  transform: rotate(90deg);
+}
+.ext-view-section-header .ext-tree-chevron.expanded {
+  transform: rotate(90deg);
+}
+.ext-tree-chevron-spacer {
+  display: inline-block;
+  width: 8px;
+  flex-shrink: 0;
+}
+.ext-tree-icon-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+.ext-tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ext-tree-description {
+  color: var(--color-text-muted, #777);
+  font-size: 12px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.ext-tree-children {
+  border-left: 1px solid var(--color-border, #333);
+  margin-left: 16px;
+}
+
+/* ── Extension view loading spinner ── */
+.ext-view-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px;
+  font-size: 12px;
+  color: var(--color-text-muted, #888);
+}
+.ext-view-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-border, #444);
+  border-top-color: var(--color-accent, #0078d4);
+  border-radius: 50%;
+  animation: ext-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes ext-spin {
+  to { transform: rotate(360deg); }
+}

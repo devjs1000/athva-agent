@@ -35,6 +35,7 @@ import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./
 import { setExtensionSnippets } from "./modules/snippet-store";
 import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
+import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modules/extension-runtime";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -59,6 +60,7 @@ let appUnlocked = false;
 let lastSecuritySignature = "";
 let actionMenuEl: HTMLElement | null = null;
 let extensionSupportByIdentifier = new Map<string, ExtensionSupportSnapshot>();
+let installedExtensionRecords: InstalledExtensionRecord[] = [];
 
 const ACTION_PLACEMENT_LABELS: Record<WorkspaceActionPlacement, string> = {
   "top-left": "Top Left",
@@ -607,6 +609,7 @@ function onSettingsChange(settings: AppSettings) {
 
 async function reloadInstalledExtensionSupport() {
   const installed = await invoke<InstalledExtensionRecord[]>("list_installed_vscode_extensions", { projectPath: currentProjectPath || "" }).catch(() => []);
+  installedExtensionRecords = installed;
   const resolved = await loadInstalledExtensionSupport(installed);
   extensionSupportByIdentifier = resolved.supportByIdentifier;
   registerRuntimeThemes(resolved.runtimeThemes);
@@ -795,22 +798,222 @@ function openExtensionViewPanel(vc: ExtensionViewContainer) {
 
   if (titleEl) titleEl.textContent = vc.title.toUpperCase();
 
-  const snapshot = extensionSupportByIdentifier.get(vc.extensionIdentifier);
-  const views = snapshot?.views.filter((v) => v.containerId === vc.id) ?? [];
-
-  bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, snapshot?.hasRuntime ?? false, snapshot?.displayName ?? vc.extensionIdentifier, vc.extensionIdentifier);
-  bodyEl.querySelectorAll("[data-ext-marketplace]").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.preventDefault();
-      const id = (el as HTMLElement).dataset.extMarketplace ?? "";
-      const name = (el as HTMLElement).dataset.extName ?? id;
-      openExtensionMarketplacePage(id, name);
-    });
-  });
-
   panel.classList.remove("hidden");
   resizeEl?.classList.remove("hidden");
   editor.resize();
+
+  void loadExtensionViewPanel(vc, bodyEl);
+}
+
+async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLElement) {
+  const snapshot = extensionSupportByIdentifier.get(vc.extensionIdentifier);
+  const views = snapshot?.views.filter((v) => v.containerId === vc.id) ?? [];
+
+  if (!snapshot?.hasRuntime) {
+    bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, false, snapshot?.displayName ?? vc.extensionIdentifier, vc.extensionIdentifier);
+    return;
+  }
+
+  // Show loading state while runtime starts
+  bodyEl.innerHTML = renderExtViewLoading(vc.title);
+
+  const installed = snapshot ? findInstalledRecord(vc.extensionIdentifier) : null;
+  if (!installed) {
+    bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, true, snapshot?.displayName ?? vc.extensionIdentifier, vc.extensionIdentifier);
+    return;
+  }
+
+  const runtime = getOrCreateRuntime({
+    extensionId: vc.extensionIdentifier,
+    installPath: installed.install_path,
+    mainPath: resolveExtMainPath(installed.install_path, snapshot),
+    workspaceFolders: currentProjectPath ? [currentProjectPath] : [],
+    configuration: {},
+    onStatus: (status, msg) => {
+      if (activeVcId !== vc.id) return;
+      const el = document.getElementById("ext-view-panel-body");
+      if (!el) return;
+      if (status === "error") {
+        el.innerHTML = renderExtViewError(snapshot.displayName, msg ?? "Unknown error");
+      }
+    },
+    onViewRegistered: (viewId, viewType) => {
+      if (activeVcId !== vc.id) return;
+      if (viewType === "webview") {
+        bodyEl.innerHTML = renderWebviewPlaceholder(snapshot.displayName, vc.extensionIdentifier);
+        return;
+      }
+      void renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
+    },
+    onTreeChanged: (viewId) => {
+      if (activeVcId !== vc.id) return;
+      void renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
+    },
+    onNotification: (level, message) => showToast(message, level === "error" ? 5000 : 3000),
+  });
+
+  if (runtime.getStatus() === "stopped" || runtime.getStatus() === "error") {
+    try {
+      await runtime.start();
+    } catch {
+      bodyEl.innerHTML = renderExtViewError(snapshot.displayName, "Failed to start extension host. Is Node.js installed?");
+      return;
+    }
+  } else if (runtime.getStatus() === "active") {
+    for (const viewId of runtime.getRegisteredViews()) {
+      if (!views.some((v) => v.id === viewId)) continue;
+      if (runtime.isWebviewView(viewId)) {
+        bodyEl.innerHTML = renderWebviewPlaceholder(snapshot.displayName, vc.extensionIdentifier);
+      } else {
+        await renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
+      }
+    }
+  }
+}
+
+function findInstalledRecord(identifier: string) {
+  return installedExtensionRecords.find((e) => e.identifier === identifier) ?? null;
+}
+
+function resolveExtMainPath(installPath: string, snapshot: { runtimeMain?: string }): string {
+  const main = snapshot.runtimeMain ?? "./dist/extension";
+  const normalized = main.replace(/\\/g, "/").replace(/^\.\//, "");
+  const withJs = normalized.endsWith(".js") ? normalized : normalized + ".js";
+  // VSIX layout: installPath/extension/<main> OR installPath/<main>
+  const candidates = [
+    `${installPath}/extension/${withJs}`,
+    `${installPath}/${withJs}`,
+  ];
+  return candidates[0];
+}
+
+async function renderLiveTree(
+  viewId: string,
+  bodyEl: HTMLElement,
+  runtime: ExtensionRuntime,
+  snapshot: { displayName: string; views: Array<{ id: string; name: string }> },
+  _vc: ExtensionViewContainer,
+) {
+  const view = snapshot.views.find((v) => v.id === viewId);
+  if (!view) return;
+
+  const nodes = await runtime.getChildren(viewId);
+  const existing = bodyEl.querySelector(`[data-view-id="${viewId}"]`);
+  const html = renderTreeSection(view.name, viewId, nodes, runtime);
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    bodyEl.innerHTML = html;
+  }
+
+  // Wire expand clicks
+  bodyEl.querySelectorAll<HTMLElement>(".ext-tree-node[data-collapsible='1']").forEach((el) => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const nodeId = el.dataset.nodeId!;
+      const childrenEl = el.querySelector(".ext-tree-children") as HTMLElement | null;
+      if (childrenEl) {
+        childrenEl.classList.toggle("hidden");
+        el.querySelector(".ext-tree-chevron")?.classList.toggle("expanded");
+        return;
+      }
+      el.classList.add("loading");
+      const children = await runtime.getChildren(viewId, nodeId);
+      el.classList.remove("loading");
+      if (children.length) {
+        const childrenDiv = document.createElement("div");
+        childrenDiv.className = "ext-tree-children";
+        childrenDiv.innerHTML = children.map((n) => renderTreeNode(n, 1)).join("");
+        el.appendChild(childrenDiv);
+        wireTreeExpand(childrenDiv, viewId, runtime);
+      }
+    });
+  });
+}
+
+function wireTreeExpand(container: HTMLElement, viewId: string, runtime: ExtensionRuntime) {
+  container.querySelectorAll<HTMLElement>(".ext-tree-node[data-collapsible='1']").forEach((el) => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const nodeId = el.dataset.nodeId!;
+      const childrenEl = el.querySelector(".ext-tree-children") as HTMLElement | null;
+      if (childrenEl) {
+        childrenEl.classList.toggle("hidden");
+        el.querySelector(".ext-tree-chevron")?.classList.toggle("expanded");
+        return;
+      }
+      el.classList.add("loading");
+      const children = await runtime.getChildren(viewId, nodeId);
+      el.classList.remove("loading");
+      if (children.length) {
+        const div = document.createElement("div");
+        div.className = "ext-tree-children";
+        div.innerHTML = children.map((n) => renderTreeNode(n, 1)).join("");
+        el.appendChild(div);
+        wireTreeExpand(div, viewId, runtime);
+      }
+    });
+  });
+}
+
+function renderTreeSection(name: string, viewId: string, nodes: TreeNode[], _runtime: ExtensionRuntime): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const content = nodes.length
+    ? nodes.map((n) => renderTreeNode(n, 0)).join("")
+    : `<div class="ext-tree-empty">No items</div>`;
+  return `<div class="ext-view-section" data-view-id="${esc(viewId)}">
+    <div class="ext-view-section-header">
+      <svg class="ext-view-chevron expanded" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+      ${esc(name.toUpperCase())}
+    </div>
+    <div class="ext-tree-content">${content}</div>
+  </div>`;
+}
+
+function renderTreeNode(node: TreeNode, depth: number): string {
+  const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const indent = depth * 12;
+  const isCollapsible = node.collapsibleState === 1 || node.collapsibleState === 2;
+  const icon = node.iconId
+    ? `<span class="ext-tree-codicon codicon-${esc(node.iconId)}"></span>`
+    : `<span class="ext-tree-icon-dot"></span>`;
+  return `<div class="ext-tree-node" data-node-id="${esc(node.id)}" data-collapsible="${isCollapsible ? 1 : 0}" style="padding-left:${indent + 8}px" title="${esc(node.tooltip ?? "")}">
+    ${isCollapsible ? `<svg class="ext-tree-chevron" width="8" height="8" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>` : `<span class="ext-tree-chevron-spacer"></span>`}
+    ${icon}
+    <span class="ext-tree-label">${esc(node.label)}</span>
+    ${node.description ? `<span class="ext-tree-description">${esc(node.description)}</span>` : ""}
+  </div>`;
+}
+
+function renderWebviewPlaceholder(displayName: string, identifier: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<div class="ext-view-runtime-state" style="padding:12px">
+    <div class="ext-view-runtime-icon-row">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11z"/></svg>
+      <span>${esc(displayName)}</span>
+    </div>
+    <p class="ext-view-runtime-desc">This extension uses a webview UI that cannot be embedded in Athva's sidebar.</p>
+    <a class="ext-view-marketplace-link" href="#" data-ext-marketplace="${esc(identifier)}" data-ext-name="${esc(displayName)}">Open on Marketplace ↗</a>
+  </div>`;
+}
+
+function renderExtViewLoading(title: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<div class="ext-view-loading">
+    <div class="ext-view-loading-spinner"></div>
+    <span>Starting ${esc(title)}…</span>
+  </div>`;
+}
+
+function renderExtViewError(name: string, message: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<div class="ext-view-runtime-state" style="padding:12px">
+    <div class="ext-view-runtime-icon-row">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="ext-view-runtime-svg"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zM7 11.5v-1h2v1H7zm0-2v-5h2v5H7z"/></svg>
+      <span>Error starting ${esc(name)}</span>
+    </div>
+    <p class="ext-view-runtime-desc">${esc(message)}</p>
+  </div>`;
 }
 
 function renderExtensionViewPanelBody(
