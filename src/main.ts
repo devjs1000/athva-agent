@@ -649,6 +649,55 @@ function getExtensionSupport(identifier: string): ExtensionSupportSnapshot | nul
   return extensionSupportByIdentifier.get(identifier) ?? null;
 }
 
+function getExtensionSettingsState(identifier: string) {
+  const support = extensionSupportByIdentifier.get(identifier);
+  if (!support) return null;
+  return {
+    identifier,
+    displayName: support.displayName,
+    colorThemes: support.colorThemes,
+    fileIconThemes: support.fileIconThemes,
+    currentColorTheme: support.colorThemes.some((theme) => theme.id === appSettings.appearance.theme) ? appSettings.appearance.theme : "",
+    currentFileIconTheme: support.fileIconThemes.some((theme) => theme.id === appSettings.appearance.fileIconTheme) ? appSettings.appearance.fileIconTheme : "",
+    snippetCount: support.snippetCount,
+  };
+}
+
+async function saveExtensionSettingsState(
+  _identifier: string,
+  state: { colorTheme?: string; fileIconTheme?: string }
+) {
+  let changed = false;
+  if (typeof state.colorTheme === "string" && state.colorTheme !== appSettings.appearance.theme) {
+    appSettings = {
+      ...appSettings,
+      appearance: {
+        ...appSettings.appearance,
+        theme: state.colorTheme || "dark",
+      },
+    };
+    changed = true;
+  }
+  if (typeof state.fileIconTheme === "string" && state.fileIconTheme !== appSettings.appearance.fileIconTheme) {
+    appSettings = {
+      ...appSettings,
+      appearance: {
+        ...appSettings.appearance,
+        fileIconTheme: state.fileIconTheme || "",
+      },
+    };
+    changed = true;
+  }
+  if (!changed) return;
+  settingsUI.updateSettings(appSettings);
+  setActiveRuntimeFileIconTheme(appSettings.appearance.fileIconTheme || "");
+  applyTheme(appSettings.appearance);
+  if (currentProjectPath) {
+    await fileExplorer.loadRoot(currentProjectPath);
+  }
+  await saveSettings(appSettings);
+}
+
 async function applyExtensionColorTheme(themeId: string) {
   appSettings = {
     ...appSettings,
@@ -863,6 +912,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     {
       openInEditor: openExtensionMarketplacePage,
       getSupport: getExtensionSupport,
+      getSettingsState: getExtensionSettingsState,
+      saveSettingsState: saveExtensionSettingsState,
       afterInstallChange: async () => {
         await reloadInstalledExtensionSupport();
       },

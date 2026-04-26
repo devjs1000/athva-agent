@@ -40,6 +40,23 @@ interface ExtensionsPanelOptions {
   afterInstallChange?: () => Promise<void> | void;
   applyColorTheme?: (themeId: string) => Promise<void> | void;
   applyFileIconTheme?: (themeId: string) => Promise<void> | void;
+  getSettingsState?: (identifier: string) => ExtensionSettingsState | null;
+  saveSettingsState?: (identifier: string, state: ExtensionSettingsDraft) => Promise<void> | void;
+}
+
+interface ExtensionSettingsState {
+  identifier: string;
+  displayName: string;
+  colorThemes: Array<{ id: string; label: string }>;
+  fileIconThemes: Array<{ id: string; label: string }>;
+  currentColorTheme: string;
+  currentFileIconTheme: string;
+  snippetCount: number;
+}
+
+interface ExtensionSettingsDraft {
+  colorTheme?: string;
+  fileIconTheme?: string;
 }
 
 export class ExtensionsPanel {
@@ -59,6 +76,13 @@ export class ExtensionsPanel {
   private listTitleEl: HTMLElement;
   private listSubtitleEl: HTMLElement;
   private tabButtons: Record<ExtensionsTab, HTMLButtonElement>;
+  private settingsDialogEl: HTMLElement;
+  private settingsBodyEl: HTMLElement;
+  private settingsTitleEl: HTMLElement;
+  private settingsTabGuiEl: HTMLButtonElement;
+  private settingsTabJsonEl: HTMLButtonElement;
+  private settingsSaveEl: HTMLButtonElement;
+  private settingsCancelEl: HTMLButtonElement;
   private onResize: () => void;
   private getProjectPath: () => string;
   private options: ExtensionsPanelOptions;
@@ -68,6 +92,8 @@ export class ExtensionsPanel {
   private activeQuery = "";
   private activeTab: ExtensionsTab = "installed";
   private selectedDetail: ExtensionDetailState | null = null;
+  private settingsMode: "gui" | "json" = "gui";
+  private settingsTarget: string | null = null;
   private isBusy = false;
 
   constructor(onResize: () => void, getProjectPath: () => string, options: ExtensionsPanelOptions = {}) {
@@ -89,6 +115,13 @@ export class ExtensionsPanel {
     this.subtitleEl = document.getElementById("extensions-subtitle")!;
     this.listTitleEl = document.getElementById("extensions-list-title")!;
     this.listSubtitleEl = document.getElementById("extensions-list-subtitle")!;
+    this.settingsDialogEl = this.ensureSettingsDialog();
+    this.settingsBodyEl = this.settingsDialogEl.querySelector("[data-extension-settings-body]") as HTMLElement;
+    this.settingsTitleEl = this.settingsDialogEl.querySelector("[data-extension-settings-title]") as HTMLElement;
+    this.settingsTabGuiEl = this.settingsDialogEl.querySelector("[data-extension-settings-tab='gui']") as HTMLButtonElement;
+    this.settingsTabJsonEl = this.settingsDialogEl.querySelector("[data-extension-settings-tab='json']") as HTMLButtonElement;
+    this.settingsSaveEl = this.settingsDialogEl.querySelector("[data-extension-settings-save]") as HTMLButtonElement;
+    this.settingsCancelEl = this.settingsDialogEl.querySelector("[data-extension-settings-cancel]") as HTMLButtonElement;
     this.tabButtons = {
       installed: document.getElementById("extensions-tab-installed") as HTMLButtonElement,
       recommended: document.getElementById("extensions-tab-recommended") as HTMLButtonElement,
@@ -112,6 +145,13 @@ export class ExtensionsPanel {
 
     (Object.keys(this.tabButtons) as ExtensionsTab[]).forEach((tab) => {
       this.tabButtons[tab].addEventListener("click", () => this.setActiveTab(tab));
+    });
+    this.settingsTabGuiEl.addEventListener("click", () => this.setSettingsMode("gui"));
+    this.settingsTabJsonEl.addEventListener("click", () => this.setSettingsMode("json"));
+    this.settingsCancelEl.addEventListener("click", () => this.closeSettingsDialog());
+    this.settingsSaveEl.addEventListener("click", () => void this.saveSettingsDialog());
+    this.settingsDialogEl.addEventListener("click", (event) => {
+      if (event.target === this.settingsDialogEl) this.closeSettingsDialog();
     });
 
     this.panelEl.addEventListener("click", (event) => {
@@ -138,6 +178,9 @@ export class ExtensionsPanel {
       } else if (action === "apply-file-icon-theme") {
         const themeId = target.dataset.themeId;
         if (themeId) void this.options.applyFileIconTheme?.(themeId);
+      } else if (action === "open-settings") {
+        const identifier = target.dataset.identifier;
+        if (identifier) this.openSettingsDialog(identifier);
       }
     });
 
@@ -462,7 +505,7 @@ export class ExtensionsPanel {
           </div>
         </div>
         <p class="extensions-copy">${escapeHtml(input.description || "No description provided.")}</p>
-        ${expanded ? this.renderExpandedCardDetail(input.identifier, input.kind, input.iconUrl) : ""}
+        ${expanded ? this.renderExpandedCardDetail(input.identifier, input.kind) : ""}
       </article>
     `;
   }
@@ -472,7 +515,7 @@ export class ExtensionsPanel {
     this.detailEl.innerHTML = "";
   }
 
-  private renderExpandedCardDetail(identifier: string, kind: "installed" | "marketplace", iconUrl: string): string {
+  private renderExpandedCardDetail(identifier: string, kind: "installed" | "marketplace"): string {
     const detail = kind === "installed"
       ? this.findInstalled(identifier) ?? this.findMarketplace(identifier) ?? null
       : this.findMarketplace(identifier) ?? this.findInstalled(identifier) ?? null;
@@ -495,17 +538,7 @@ export class ExtensionsPanel {
 
     return `
       <div class="extensions-inline-detail">
-        <div class="extensions-detail-head">
-          ${iconUrl ? `<img class="extensions-detail-icon" src="${escapeAttribute(iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-detail-icon extensions-icon-placeholder"></div>`}
-          <div class="extensions-detail-copy">
-            <div class="extensions-result-title-row">
-              <strong>${escapeHtml(detail.display_name)}</strong>
-              <span class="extensions-pill">${escapeHtml(detail.version)}</span>
-            </div>
-            <div class="extensions-meta">${escapeHtml(detail.identifier)}</div>
-            ${stats}
-          </div>
-        </div>
+        ${stats}
         <div class="extensions-detail-actions">
           ${installed
             ? `<button class="extensions-secondary-btn" data-extension-action="uninstall" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Uninstall</button>`
@@ -513,6 +546,7 @@ export class ExtensionsPanel {
               ? `<button class="extensions-install-btn" data-extension-action="install" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Install</button>`
               : ""
           }
+          <button class="extensions-secondary-btn" data-extension-action="open-settings" data-identifier="${escapeHtml(detail.identifier)}">Settings</button>
         </div>
         <div class="extensions-detail-note">Opening this extension launches the marketplace page in the editor area.</div>
         ${support?.supportedFeatures.length ? `<div class="extensions-detail-note">Athva support: ${escapeHtml(support.supportedFeatures.join(", "))}</div>` : ""}
@@ -526,6 +560,129 @@ export class ExtensionsPanel {
         }
       </div>
     `;
+  }
+
+  private ensureSettingsDialog(): HTMLElement {
+    const existing = document.getElementById("extensions-settings-dialog");
+    if (existing) return existing;
+    const overlay = document.createElement("div");
+    overlay.id = "extensions-settings-dialog";
+    overlay.className = "dialog-overlay hidden";
+    overlay.innerHTML = `
+      <div class="dialog extensions-settings-dialog-card">
+        <div class="extensions-settings-head">
+          <div>
+            <h2 data-extension-settings-title>Extension Settings</h2>
+            <p class="extensions-settings-copy">Configure the extension features Athva currently supports.</p>
+          </div>
+        </div>
+        <div class="extensions-settings-tabs">
+          <button class="extensions-settings-tab active" data-extension-settings-tab="gui">GUI</button>
+          <button class="extensions-settings-tab" data-extension-settings-tab="json">JSON</button>
+        </div>
+        <div class="extensions-settings-body" data-extension-settings-body></div>
+        <div class="dialog-actions">
+          <button class="btn-secondary" data-extension-settings-cancel>Cancel</button>
+          <button class="btn-primary" data-extension-settings-save>Save</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  private openSettingsDialog(identifier: string) {
+    const state = this.options.getSettingsState?.(identifier) ?? null;
+    if (!state) return;
+    this.settingsTarget = identifier;
+    this.settingsTitleEl.textContent = `${state.displayName} Settings`;
+    this.settingsDialogEl.classList.remove("hidden");
+    this.setSettingsMode("gui");
+  }
+
+  private closeSettingsDialog() {
+    this.settingsDialogEl.classList.add("hidden");
+    this.settingsTarget = null;
+  }
+
+  private setSettingsMode(mode: "gui" | "json") {
+    this.settingsMode = mode;
+    this.settingsTabGuiEl.classList.toggle("active", mode === "gui");
+    this.settingsTabJsonEl.classList.toggle("active", mode === "json");
+    this.renderSettingsDialog();
+  }
+
+  private renderSettingsDialog() {
+    if (!this.settingsTarget) return;
+    const state = this.options.getSettingsState?.(this.settingsTarget) ?? null;
+    if (!state) {
+      this.settingsBodyEl.innerHTML = `<div class="extensions-empty-copy">No configurable settings are available for this extension.</div>`;
+      return;
+    }
+
+    if (this.settingsMode === "json") {
+      const payload = {
+        identifier: state.identifier,
+        colorTheme: state.currentColorTheme || "",
+        fileIconTheme: state.currentFileIconTheme || "",
+        snippetCount: state.snippetCount,
+      };
+      this.settingsBodyEl.innerHTML = `
+        <textarea class="extensions-settings-json" data-extension-settings-json spellcheck="false">${escapeHtml(JSON.stringify(payload, null, 2))}</textarea>
+      `;
+      return;
+    }
+
+    this.settingsBodyEl.innerHTML = `
+      <div class="extensions-settings-form">
+        <label class="extensions-settings-label">
+          <span>Color Theme</span>
+          <select class="extensions-settings-select" data-extension-settings-color>
+            <option value="">No extension theme selected</option>
+            ${state.colorThemes.map((theme) => `<option value="${escapeAttribute(theme.id)}" ${theme.id === state.currentColorTheme ? "selected" : ""}>${escapeHtml(theme.label)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="extensions-settings-label">
+          <span>File Icon Theme</span>
+          <select class="extensions-settings-select" data-extension-settings-icons>
+            <option value="">No extension icon theme selected</option>
+            ${state.fileIconThemes.map((theme) => `<option value="${escapeAttribute(theme.id)}" ${theme.id === state.currentFileIconTheme ? "selected" : ""}>${escapeHtml(theme.label)}</option>`).join("")}
+          </select>
+        </label>
+        <div class="extensions-detail-note">Available snippets from this extension: ${state.snippetCount}</div>
+      </div>
+    `;
+  }
+
+  private async saveSettingsDialog() {
+    if (!this.settingsTarget) return;
+    let draft: ExtensionSettingsDraft = {};
+
+    if (this.settingsMode === "json") {
+      const textarea = this.settingsBodyEl.querySelector("[data-extension-settings-json]") as HTMLTextAreaElement | null;
+      if (!textarea) return;
+      try {
+        const parsed = JSON.parse(textarea.value);
+        draft = {
+          colorTheme: typeof parsed.colorTheme === "string" ? parsed.colorTheme : "",
+          fileIconTheme: typeof parsed.fileIconTheme === "string" ? parsed.fileIconTheme : "",
+        };
+      } catch {
+        this.renderStatus("error", "Invalid JSON", "Extension settings JSON could not be parsed.");
+        return;
+      }
+    } else {
+      const colorSelect = this.settingsBodyEl.querySelector("[data-extension-settings-color]") as HTMLSelectElement | null;
+      const iconSelect = this.settingsBodyEl.querySelector("[data-extension-settings-icons]") as HTMLSelectElement | null;
+      draft = {
+        colorTheme: colorSelect?.value || "",
+        fileIconTheme: iconSelect?.value || "",
+      };
+    }
+
+    await this.options.saveSettingsState?.(this.settingsTarget, draft);
+    this.closeSettingsDialog();
+    this.renderStatus("success", "Settings updated", "Extension settings were applied.");
   }
 
   private selectInstalled(identifier: string) {
