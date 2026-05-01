@@ -1,3 +1,9 @@
+/**
+ * @deprecated This module implemented the 7-phase workflow state machine agent.
+ * It has been replaced by the native tool-use agent loop in chatbot.ts.
+ * This file is retained for reference and can be deleted once the rewrite is confirmed stable.
+ */
+
 export type WorkflowPhase =
   | "discovery"
   | "context_validation"
