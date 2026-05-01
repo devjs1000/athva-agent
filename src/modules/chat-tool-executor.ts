@@ -474,8 +474,11 @@ export async function executeTool(tc: ToolCall, ctx: ToolExecContext): Promise<s
 
     case "batch_read": {
       if (!access.fileRead) throw new Error("File read permission denied");
-      const paths = String(tc.args.paths || "").split("\n").map((p: string) => p.trim()).filter(Boolean);
-      if (paths.length === 0) throw new Error("No file paths provided");
+      const rawPaths = tc.args.paths as unknown;
+      if (!Array.isArray(rawPaths) || rawPaths.length === 0) {
+        throw new Error("batch_read: paths must be a non-empty array of file paths");
+      }
+      const paths = (rawPaths as unknown[]).map(String);
       if (paths.length > 8) throw new Error("Max 8 files per batch_read (context limit)");
 
       const results: string[] = [];
