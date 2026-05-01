@@ -814,11 +814,17 @@ export class Chatbot {
       .join("\n");
 
     const prompt =
-      `Create a rolling compact summary in under 180 words.\n` +
-      `Keep only: current user goal, files changed, decisions made, unresolved blockers, next step.\n` +
-      `Do not include raw file contents, long command output, or repeated history.\n\n` +
+      `You are summarizing an AI coding session for context continuation. The summary will replace older messages.\n\n` +
+      `Write a concise summary (max ${MAX_COMPACTED_SUMMARY_CHARS} characters) covering:\n` +
+      `1. The user's current goal or task\n` +
+      `2. Which files were read (list paths)\n` +
+      `3. Which files were modified or created (list paths and what changed)\n` +
+      `4. Results of any commands run (key outputs only)\n` +
+      `5. What has been completed so far\n` +
+      `6. What remains to be done\n\n` +
+      `Do not include greeting text. Write in third-person past tense. Be specific about file paths and concrete outcomes.\n\n` +
       `${this.session.compactedSummary ? `Previous summary:\n${capText(this.session.compactedSummary, 900, "…")}\n\n` : ""}` +
-      `Recent conversation to merge:\n${historyText}`;
+      `Recent conversation to summarize:\n${historyText}`;
 
     const summary = await callAIOnce(settings, prompt);
     if (!summary) return;
