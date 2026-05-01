@@ -3,12 +3,31 @@
 
 import type { AISettings } from "./settings";
 import { addTokens, updateStatusBar } from "./token-usage";
+import type { NativeToolDef } from "../config";
 
 export interface StreamContext {
   abortController: AbortController | null;
   agentAborted: boolean;
   scrollToBottom: () => void;
   setLinkedText: (el: HTMLElement, text: string) => void;
+}
+
+// ── Native tool-use types ──
+
+export type AgentContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+
+export interface AgentMessage {
+  role: "user" | "assistant";
+  content: AgentContentBlock[] | string;
+}
+
+export interface AgentTurnResult {
+  text: string;
+  toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }>;
+  stopReason: string;
 }
 
 interface CallAIOnceOptions {
@@ -117,6 +136,40 @@ async function fetchWithRetries(
   throw new Error(`${provider} request failed after ${maxAttempts} attempts.`);
 }
 
+async function readSSEStreamRaw(
+  res: Response,
+  ctx: StreamContext,
+  onEvent: (json: Record<string, unknown>) => void,
+): Promise<void> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      if (ctx.agentAborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") return;
+        try {
+          const json = JSON.parse(data);
+          onEvent(json);
+        } catch {
+          // skip malformed chunks
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function streamAI(
   settings: AISettings,
   messages: { role: string; content: string }[],
@@ -142,6 +195,288 @@ export async function streamAI(
   addTokens(inputChars, result.length);
   updateStatusBar();
   return result;
+}
+
+export async function streamAgentTurn(
+  settings: AISettings,
+  messages: AgentMessage[],
+  tools: NativeToolDef[],
+  el: HTMLElement,
+  ctx: StreamContext,
+): Promise<AgentTurnResult> {
+  const inputChars = messages.reduce((sum, m) => {
+    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+    return sum + content.length;
+  }, 0);
+
+  let result: AgentTurnResult;
+
+  switch (settings.provider) {
+    case "anthropic":
+      result = await streamAnthropicAgent(settings, messages, tools, el, ctx);
+      break;
+    case "openai":
+      result = await streamOpenAIAgent(settings, messages, tools, el, ctx);
+      break;
+    case "google":
+    case "mimo":
+    case "mistral":
+      result = await streamFallbackAgent(settings, messages, el, ctx);
+      break;
+    default:
+      throw new Error(`Unknown provider: ${settings.provider}`);
+  }
+
+  addTokens(inputChars, result.text.length);
+  updateStatusBar();
+  return result;
+}
+
+async function streamAnthropicAgent(
+  settings: AISettings,
+  messages: AgentMessage[],
+  tools: NativeToolDef[],
+  el: HTMLElement,
+  ctx: StreamContext,
+): Promise<AgentTurnResult> {
+  const { toAnthropicTools } = await import("../config");
+  const model = settings.model || "claude-sonnet-4-20250514";
+
+  // Separate system messages and merge consecutive same-role turns
+  let systemPrompt = "";
+  const anthropicMessages: { role: string; content: unknown }[] = [];
+
+  for (const m of messages) {
+    if (typeof m.content === "string" && (m.role as string) === "system") {
+      systemPrompt = m.content;
+      continue;
+    }
+    const last = anthropicMessages[anthropicMessages.length - 1];
+    if (last && last.role === m.role && typeof last.content === "string" && typeof m.content === "string") {
+      last.content = last.content + "\n" + m.content;
+    } else {
+      anthropicMessages.push({ role: m.role, content: m.content });
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: 8096,
+    messages: anthropicMessages,
+    tools: toAnthropicTools(tools),
+    stream: true,
+  };
+  if (systemPrompt) body.system = systemPrompt;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": settings.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify(body),
+    signal: ctx.abortController?.signal,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic API error ${res.status}: ${err}`);
+  }
+
+  let textAccumulator = "";
+  let stopReason = "end_turn";
+  const toolCallAccumulators = new Map<number, { id: string; name: string; inputJson: string }>();
+
+  await readSSEStreamRaw(res, ctx, (json) => {
+    const type = json.type as string;
+
+    if (type === "content_block_start") {
+      const block = json.content_block as Record<string, unknown>;
+      const index = json.index as number;
+      if ((block.type as string) === "tool_use") {
+        toolCallAccumulators.set(index, {
+          id: block.id as string,
+          name: block.name as string,
+          inputJson: "",
+        });
+      }
+    } else if (type === "content_block_delta") {
+      const delta = json.delta as Record<string, unknown>;
+      const index = json.index as number;
+      if (delta.type === "text_delta") {
+        const chunk = (delta.text as string) || "";
+        textAccumulator += chunk;
+        ctx.setLinkedText(el, textAccumulator);
+        ctx.scrollToBottom();
+      } else if (delta.type === "input_json_delta") {
+        const acc = toolCallAccumulators.get(index);
+        if (acc) acc.inputJson += (delta.partial_json as string) || "";
+      }
+    } else if (type === "message_delta") {
+      const delta = json.delta as Record<string, unknown>;
+      stopReason = (delta.stop_reason as string) || stopReason;
+    }
+  });
+
+  const toolCalls: AgentTurnResult["toolCalls"] = [];
+  for (const [, acc] of toolCallAccumulators) {
+    try {
+      const args = acc.inputJson ? JSON.parse(acc.inputJson) : {};
+      toolCalls.push({ id: acc.id, name: acc.name, args });
+    } catch {
+      toolCalls.push({ id: acc.id, name: acc.name, args: {} });
+    }
+  }
+
+  return { text: textAccumulator, toolCalls, stopReason };
+}
+
+async function streamOpenAIAgent(
+  settings: AISettings,
+  messages: AgentMessage[],
+  tools: NativeToolDef[],
+  el: HTMLElement,
+  ctx: StreamContext,
+): Promise<AgentTurnResult> {
+  const { toOpenAITools } = await import("../config");
+  const model = settings.model || "gpt-4o";
+
+  const openaiMessages: Record<string, unknown>[] = [];
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      openaiMessages.push({ role: m.role, content: m.content });
+    } else {
+      for (const block of m.content as AgentContentBlock[]) {
+        if (block.type === "text") {
+          openaiMessages.push({ role: m.role, content: block.text });
+        } else if (block.type === "tool_use") {
+          openaiMessages.push({
+            role: "assistant",
+            content: null,
+            tool_calls: [{
+              id: block.id,
+              type: "function",
+              function: { name: block.name, arguments: JSON.stringify(block.input) },
+            }],
+          });
+        } else if (block.type === "tool_result") {
+          openaiMessages.push({
+            role: "tool",
+            tool_call_id: block.tool_use_id,
+            content: block.content,
+          });
+        }
+      }
+    }
+  }
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${settings.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: openaiMessages,
+      tools: toOpenAITools(tools),
+      tool_choice: "auto",
+      stream: true,
+    }),
+    signal: ctx.abortController?.signal,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI API error ${res.status}: ${err}`);
+  }
+
+  let textAccumulator = "";
+  let stopReason = "stop";
+  const toolCallAccumulators = new Map<number, { id: string; name: string; argsJson: string }>();
+
+  await readSSEStreamRaw(res, ctx, (json) => {
+    const choice = (json.choices as Record<string, unknown>[])?.[0];
+    if (!choice) return;
+    const delta = choice.delta as Record<string, unknown>;
+    if (!delta) return;
+
+    if (typeof delta.content === "string") {
+      textAccumulator += delta.content;
+      ctx.setLinkedText(el, textAccumulator);
+      ctx.scrollToBottom();
+    }
+
+    const toolCallDeltas = delta.tool_calls as Record<string, unknown>[] | undefined;
+    if (toolCallDeltas) {
+      for (const tc of toolCallDeltas) {
+        const index = tc.index as number;
+        if (!toolCallAccumulators.has(index)) {
+          toolCallAccumulators.set(index, { id: (tc.id as string) || "", name: "", argsJson: "" });
+        }
+        const acc = toolCallAccumulators.get(index)!;
+        const fn = tc.function as Record<string, unknown> | undefined;
+        if (fn?.name) acc.name = fn.name as string;
+        if (fn?.arguments) acc.argsJson += fn.arguments as string;
+        if (tc.id && !acc.id) acc.id = tc.id as string;
+      }
+    }
+
+    const finishReason = choice.finish_reason as string;
+    if (finishReason) stopReason = finishReason;
+  });
+
+  const toolCalls: AgentTurnResult["toolCalls"] = [];
+  for (const [, acc] of toolCallAccumulators) {
+    try {
+      const args = acc.argsJson ? JSON.parse(acc.argsJson) : {};
+      toolCalls.push({ id: acc.id, name: acc.name, args });
+    } catch {
+      toolCalls.push({ id: acc.id, name: acc.name, args: {} });
+    }
+  }
+
+  return { text: textAccumulator, toolCalls, stopReason };
+}
+
+async function streamFallbackAgent(
+  settings: AISettings,
+  messages: AgentMessage[],
+  el: HTMLElement,
+  ctx: StreamContext,
+): Promise<AgentTurnResult> {
+  const { parseToolCalls } = await import("./chat-tool-parser");
+
+  const flatMessages: { role: string; content: string }[] = [];
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      flatMessages.push({ role: m.role, content: m.content });
+    } else {
+      const textParts: string[] = [];
+      for (const block of m.content as AgentContentBlock[]) {
+        if (block.type === "text") textParts.push(block.text);
+        else if (block.type === "tool_use") {
+          textParts.push("```tool\n" + JSON.stringify({ tool: block.name, args: block.input }) + "\n```");
+        } else if (block.type === "tool_result") {
+          textParts.push(`[tool_result:${block.tool_use_id}] ${block.content}`);
+        }
+      }
+      flatMessages.push({ role: m.role, content: textParts.join("\n") });
+    }
+  }
+
+  const fullText = await streamAI(settings, flatMessages, el, ctx);
+  const { text, toolCalls: parsed } = parseToolCalls(fullText);
+
+  const toolCalls = parsed.map((tc) => ({
+    id: tc.id,
+    name: tc.name,
+    args: tc.args as Record<string, unknown>,
+  }));
+
+  return { text, toolCalls, stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn" };
 }
 
 // ── OpenAI streaming ──
