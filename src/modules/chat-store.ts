@@ -1,7 +1,5 @@
 // IndexedDB persistence for chat sessions
 
-import type { WorkflowStateEnvelope } from "./chat-workflow";
-
 export type ChatMode = "chat" | "agent" | "workflow";
 
 export interface ToolCall {
@@ -16,6 +14,8 @@ export interface ChatMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   toolCalls?: ToolCall[];
+  toolCallId?: string;   // Links a "tool" role message back to the ToolCall that produced it
+  toolName?: string;     // Name of the tool for result attribution
 }
 
 export interface ChatSession {
@@ -27,7 +27,6 @@ export interface ChatSession {
   updatedAt: number;
   compactedSummary?: string;
   projectPath?: string;
-  workflowState?: WorkflowStateEnvelope;
 }
 
 const DB_NAME = "athva_chat";
@@ -56,6 +55,8 @@ export async function getAllSessions(): Promise<ChatSession[]> {
     const req = store.getAll();
     req.onsuccess = () => {
       const sessions = req.result as ChatSession[];
+      // Strip legacy workflow state — breaking change, old sessions lose workflow data
+      sessions.forEach((s: any) => { delete s.workflowState; });
       sessions.sort((a, b) => b.updatedAt - a.updatedAt);
       resolve(sessions);
     };
