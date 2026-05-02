@@ -6,34 +6,90 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Athva</title>
     <link rel="icon" href="/src/assets/logo.png" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <script type="module" src="/src/main.ts" defer></script>
+    <script type="module" src="/src/welcome-anim.ts" defer></script>
   </head>
 
   <body>
     <div id="app">
       <!-- ========== Welcome Page ========== -->
       <div id="welcome-page" class="page">
+        <!-- Animated background particles -->
+        <canvas id="welcome-particles" class="welcome-particles"></canvas>
+        <!-- 3D floating orbs -->
+        <div class="welcome-orb welcome-orb-1"></div>
+        <div class="welcome-orb welcome-orb-2"></div>
+        <div class="welcome-orb welcome-orb-3"></div>
+
         <div class="welcome-container">
+          <!-- LEFT PANEL -->
           <div class="welcome-left">
-            <div class="brand">
-              <img src="/src/assets/logo.png" alt="Athva" class="brand-logo" />
-              <h1 class="brand-name">Athva</h1>
+            <!-- Brand -->
+            <div class="brand" id="brand-block">
+              <div class="brand-icon-wrap">
+                <img src="/src/assets/logo.png" alt="Athva" class="brand-logo" />
+              </div>
+              <div class="brand-text">
+                <h1 class="brand-name">Athva</h1>
+                <p class="brand-tagline">Your AI-powered development environment.</p>
+              </div>
               <span class="brand-version">v0.1.0</span>
             </div>
-            <div class="start-section">
-              <h2 class="section-title">Start</h2>
-              <button id="btn-open-folder" class="action-btn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 2A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 14.5 4H8.21l-1.6-1.6A1.5 1.5 0 0 0 5.55 2H1.5z"/></svg>
-                Open Folder...
+
+            <!-- Start Actions -->
+            <div class="start-section" id="start-section">
+              <h2 class="section-title">START</h2>
+              <button id="btn-open-folder" class="action-btn action-btn-primary">
+                <span class="action-btn-icon">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 2A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5V5.5A1.5 1.5 0 0 0 14.5 4H8.21l-1.6-1.6A1.5 1.5 0 0 0 5.55 2H1.5z"/></svg>
+                </span>
+                <span class="action-btn-label">Open Folder...</span>
+                <span class="action-btn-kbd">⌘O</span>
               </button>
               <button id="btn-create-project" class="action-btn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
-                Create New Project...
+                <span class="action-btn-icon">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
+                </span>
+                <span class="action-btn-label">Create New Project...</span>
+                <span class="action-btn-kbd">⌘N</span>
+              </button>
+              <button id="btn-clone-repo" class="action-btn">
+                <span class="action-btn-icon">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm0 2.122a2.25 2.25 0 1 0-1.5 0v.878A2.25 2.25 0 0 0 5.75 8.5h1.5v2.128a2.251 2.251 0 1 0 1.5 0V8.5h1.5a2.25 2.25 0 0 0 2.25-2.25v-.878a2.25 2.25 0 1 0-1.5 0v.878a.75.75 0 0 1-.75.75h-4.5A.75.75 0 0 1 5 6.25v-.878zm3.75 7.378a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm3-8.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z"/></svg>
+                </span>
+                <span class="action-btn-label">Clone Repository...</span>
+                <span class="action-btn-kbd">⌘⌥G</span>
+              </button>
+            </div>
+
+            <!-- Quick Access -->
+            <div class="quick-access-section" id="quick-access-section">
+              <h2 class="section-title">QUICK ACCESS</h2>
+              <button class="quick-link" id="btn-command-palette-welcome">
+                <span class="quick-link-label">Command Palette</span>
+                <span class="action-btn-kbd">⌘K</span>
+              </button>
+              <button class="quick-link" id="btn-search-files-welcome">
+                <span class="quick-link-label">Search in Files</span>
+                <span class="action-btn-kbd">⌘⇧F</span>
+              </button>
+              <button class="quick-link" id="btn-toggle-terminal-welcome">
+                <span class="quick-link-label">Toggle Terminal</span>
+                <span class="action-btn-kbd">⌘`</span>
               </button>
             </div>
           </div>
-          <div class="welcome-right">
-            <h2 class="section-title">Recent</h2>
+
+          <!-- RIGHT PANEL: Recent Projects -->
+          <div class="welcome-right" id="welcome-right-block">
+            <div class="recent-header">
+              <h2 class="section-title">RECENT PROJECTS</h2>
+              <div class="recent-filter-wrap">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" class="recent-filter-icon"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.656a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/></svg>
+                <input id="recent-filter-input" class="recent-filter" type="text" placeholder="Filter..." autocomplete="off" spellcheck="false" />
+              </div>
+            </div>
             <div id="recent-projects" class="recent-list">
               <p class="empty-state">No recent projects</p>
             </div>

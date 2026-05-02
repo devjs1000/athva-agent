@@ -321,10 +321,48 @@ function showPage(name: "welcome" | "workspace" | "settings") {
 }
 
 // ── Welcome Page ──
+const starredProjects = new Set<string>(
+  JSON.parse(localStorage.getItem("athva-starred") ?? "[]") as string[]
+);
+
+function saveStar() {
+  localStorage.setItem("athva-starred", JSON.stringify([...starredProjects]));
+}
+
+function detectBadge(name: string, path: string): { cls: string; label: string } {
+  const lower = (name + path).toLowerCase();
+  if (lower.includes("react")) return { cls: "badge-react", label: "REACT" };
+  if (lower.includes(".ts") || lower.includes("typescript") || lower.includes("-ts")) return { cls: "badge-ts", label: "TS" };
+  if (lower.includes("python") || lower.includes(".py")) return { cls: "badge-py", label: "PY" };
+  if (lower.includes("rust") || lower.includes(".rs")) return { cls: "badge-rs", label: "RS" };
+  if (lower.includes("golang") || lower.includes("-go")) return { cls: "badge-go", label: "GO" };
+  if (lower.includes(".js") || lower.includes("javascript") || lower.includes("express") || lower.includes("node")) return { cls: "badge-js", label: "JS" };
+  return { cls: "badge-dir", label: "DIR" };
+}
+
+function relativeTime(ts: number): string {
+  const diff = Date.now() - ts * 1000;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return `${Math.floor(days / 7)}w ago`;
+}
+
 async function renderRecentProjects() {
   const listEl = $("recent-projects");
   const store = await getProjects();
-  const projects = store.projects;
+
+  // Starred first, then by last_opened descending
+  const projects = [...store.projects].sort((a, b) => {
+    const as = starredProjects.has(a.path) ? 1 : 0;
+    const bs = starredProjects.has(b.path) ? 1 : 0;
+    if (as !== bs) return bs - as;
+    return b.last_opened - a.last_opened;
+  });
 
   if (projects.length === 0) {
     listEl.innerHTML = `<p class="empty-state">No recent projects</p>`;
@@ -332,25 +370,50 @@ async function renderRecentProjects() {
   }
 
   listEl.innerHTML = projects
-    .map(
-      (p) => `
-    <div class="recent-item" data-path="${escapeHtml(p.path)}">
-      <div class="recent-item-info">
-        <span class="recent-item-name">${escapeHtml(p.name)}</span>
-        <span class="recent-item-path">${escapeHtml(p.path)}</span>
-      </div>
-      <button class="recent-item-remove" data-remove="${escapeHtml(p.path)}" title="Remove from recent">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
-      </button>
-    </div>
-  `
-    )
+    .map((p) => {
+      const badge = detectBadge(p.name, p.path);
+      const isStarred = starredProjects.has(p.path);
+      const time = relativeTime(p.last_opened);
+      return `
+        <div class="recent-item" data-path="${escapeHtml(p.path)}">
+          <span class="recent-item-badge ${badge.cls}">${badge.label}</span>
+          <div class="recent-item-info">
+            <span class="recent-item-name">${escapeHtml(p.name)}</span>
+            <span class="recent-item-path">${escapeHtml(p.path)}</span>
+          </div>
+          <div class="recent-item-right">
+            <span class="recent-item-time">${time}</span>
+            <button class="recent-item-star${isStarred ? " starred" : ""}" data-star="${escapeHtml(p.path)}" title="Star project" aria-label="Star project">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>
+            </button>
+            <button class="recent-item-remove" data-remove="${escapeHtml(p.path)}" title="Remove from recent" aria-label="Remove from recent">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+            </button>
+          </div>
+        </div>
+      `;
+    })
     .join("");
 
   listEl.querySelectorAll(".recent-item").forEach((el) => {
     el.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest(".recent-item-remove")) return;
+      const t = e.target as HTMLElement;
+      if (t.closest(".recent-item-remove") || t.closest(".recent-item-star")) return;
       openProject((el as HTMLElement).dataset.path!);
+    });
+  });
+
+  listEl.querySelectorAll(".recent-item-star").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const path = (btn as HTMLElement).dataset.star!;
+      if (starredProjects.has(path)) {
+        starredProjects.delete(path);
+      } else {
+        starredProjects.add(path);
+      }
+      saveStar();
+      renderRecentProjects();
     });
   });
 
@@ -1320,6 +1383,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Welcome page buttons ──
   $("btn-open-folder").addEventListener("click", handleOpenFolder);
   $("btn-create-project").addEventListener("click", showCreateDialog);
+  $("btn-clone-repo").addEventListener("click", handleOpenFolder); // reuse folder picker for now
+  $("btn-command-palette-welcome").addEventListener("click", () => ($("command-palette-overlay") as HTMLElement).classList.remove("hidden"));
+  $("btn-search-files-welcome").addEventListener("click", () => {
+    showPage("workspace");
+    setTimeout(() => ($("sidebar-tab-search") as HTMLElement)?.click(), 100);
+  });
+  $("btn-toggle-terminal-welcome").addEventListener("click", () => {
+    showPage("workspace");
+    setTimeout(() => ($("btn-toggle-terminal") as HTMLElement)?.click(), 100);
+  });
   $("btn-browse-path").addEventListener("click", handleBrowsePath);
   $("btn-cancel-create").addEventListener("click", hideCreateDialog);
   $("btn-confirm-create").addEventListener("click", handleConfirmCreate);
