@@ -575,6 +575,212 @@ body {
   opacity: 0.6;
 }
 
+/* ── Project Switcher (Ctrl+R) ── */
+.project-switcher-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: psFadeIn 0.12s ease;
+}
+
+.project-switcher-overlay.hidden {
+  display: none;
+}
+
+@keyframes psFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.project-switcher {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  background: linear-gradient(160deg, #1c1f26 0%, #16181e 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 60px rgba(0, 120, 212, 0.08);
+  overflow: hidden;
+  animation: psSlideIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes psSlideIn {
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.project-switcher-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.project-switcher-icon {
+  color: #4b5563;
+  flex-shrink: 0;
+}
+
+#project-switcher-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e2e8f0;
+  font-size: 15px;
+  font-family: inherit;
+  caret-color: #3b9eff;
+}
+
+#project-switcher-input::placeholder {
+  color: #3d4452;
+}
+
+.project-switcher-esc {
+  font-size: 10px;
+  font-weight: 600;
+  color: #374151;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 7px;
+  border-radius: 5px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.project-switcher-list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.project-switcher-list::-webkit-scrollbar { width: 4px; }
+.project-switcher-list::-webkit-scrollbar-track { background: transparent; }
+.project-switcher-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+.ps-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.ps-item:hover,
+.ps-item.active {
+  background: rgba(0, 120, 212, 0.1);
+  border-color: rgba(0, 120, 212, 0.2);
+}
+
+.ps-item.active {
+  background: rgba(0, 120, 212, 0.14);
+}
+
+.ps-badge {
+  width: 30px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.ps-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ps-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #d1d9e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ps-name mark {
+  background: transparent;
+  color: #60a5fa;
+  font-weight: 700;
+}
+
+.ps-path {
+  font-size: 11px;
+  color: #4b5563;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.ps-time {
+  font-size: 11px;
+  color: #374151;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ps-star {
+  width: 14px;
+  height: 14px;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+.ps-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: #374151;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.project-switcher-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  color: #374151;
+}
+
+.project-switcher-footer kbd {
+  display: inline-block;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: inherit;
+  color: #6b7280;
+  margin-right: 3px;
+}
+
 /* ── Clone Dialog ── */
 .dialog-clone {
   width: 500px;

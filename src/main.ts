@@ -36,6 +36,7 @@ import { setExtensionSnippets } from "./modules/snippet-store";
 import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
 import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modules/extension-runtime";
+import { ProjectSwitcher } from "./modules/project-switcher";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -52,6 +53,7 @@ let codeReviewPanel!: CodeReviewPanel;
 let qualityPanel!: QualityPanel;
 let extensionsPanel!: ExtensionsPanel;
 let commandPalette!: CommandPalette;
+let projectSwitcher!: ProjectSwitcher;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
@@ -1477,6 +1479,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   quickOpen = new QuickOpen((path, name) => {
     void openFileWithGuards(path, name);
   });
+
+  projectSwitcher = new ProjectSwitcher((path) => {
+    void openProject(path);
+  });
   editor.setOnCreateEditorTab(() => {
     if (!currentProjectPath) return;
     quickOpen.open();
@@ -1640,6 +1646,24 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", (e) => {
     const isMod = e.metaKey || e.ctrlKey;
     const isWorkspace = !$("workspace-page").classList.contains("hidden");
+
+    // Ctrl/Cmd + R → Project Switcher
+    if (isMod && e.key === "r" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      if (projectSwitcher.isOpen()) {
+        projectSwitcher.close();
+      } else {
+        void projectSwitcher.open();
+      }
+      return;
+    }
+
+    // Escape → close project switcher
+    if (e.key === "Escape" && projectSwitcher?.isOpen()) {
+      e.preventDefault();
+      projectSwitcher.close();
+      return;
+    }
 
     // Ctrl/Cmd + Shift + F → Global Search
     if (isMod && e.shiftKey && e.key === "F") {
