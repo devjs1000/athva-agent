@@ -575,6 +575,211 @@ body {
   opacity: 0.6;
 }
 
+/* ── Clone Dialog ── */
+.dialog-clone {
+  width: 500px;
+  gap: 0;
+  padding: 0;
+  background: linear-gradient(160deg, #1e2128 0%, #181a1f 100%);
+  border: 1px solid rgba(255,255,255,0.09);
+  box-shadow:
+    0 24px 64px rgba(0,0,0,0.7),
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 0 80px rgba(0,120,212,0.06);
+  overflow: hidden;
+}
+
+.clone-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, rgba(0,120,212,0.07) 0%, transparent 100%);
+}
+
+.clone-dialog-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(0,120,212,0.25) 0%, rgba(0,80,160,0.15) 100%);
+  border: 1px solid rgba(0,120,212,0.35);
+  box-shadow: 0 0 20px rgba(0,120,212,0.18), inset 0 1px 0 rgba(255,255,255,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7ec8ff;
+  flex-shrink: 0;
+}
+
+.clone-dialog-header h2 {
+  font-size: 15px !important;
+  font-weight: 600;
+  color: #e8ecf0 !important;
+  letter-spacing: -0.2px;
+  margin: 0;
+}
+
+.clone-dialog-subtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* Clone form body */
+#clone-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 24px 28px 28px;
+}
+
+#clone-form .dialog-field {
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+#clone-form .dialog-field:last-of-type {
+  margin-bottom: 24px;
+}
+
+#clone-form .dialog-field label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #6b7280;
+}
+
+/* Clone inputs — high contrast */
+#clone-url-input,
+#clone-dest-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 9px;
+  color: #e2e8f0;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+  caret-color: #3b9eff;
+}
+
+#clone-url-input::placeholder,
+#clone-dest-input::placeholder {
+  color: #4b5563;
+}
+
+#clone-url-input:focus,
+#clone-dest-input:focus {
+  background: rgba(0,120,212,0.08);
+  border-color: rgba(0,120,212,0.55);
+  box-shadow: 0 0 0 3px rgba(0,120,212,0.14);
+  color: #f1f5f9;
+}
+
+/* Destination row: override path-input-row for clone */
+#clone-form .path-input-row {
+  gap: 10px;
+}
+
+#clone-form .path-input-row input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: #e2e8f0;
+  padding: 10px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+#clone-form .path-input-row input::placeholder {
+  color: #4b5563;
+}
+
+#clone-form .path-input-row input:focus {
+  background: rgba(0,120,212,0.08);
+  border-color: rgba(0,120,212,0.55);
+  box-shadow: 0 0 0 3px rgba(0,120,212,0.14);
+  color: #f1f5f9;
+}
+
+#clone-form .hint {
+  color: #4b5563;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+#clone-form .dialog-actions {
+  padding-top: 4px;
+  margin-top: 0;
+}
+
+/* Progress section */
+#clone-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 28px 28px;
+}
+
+.clone-progress-bar-wrap {
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.clone-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0078d4, #3b9eff);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  animation: cloneProgressPulse 1.8s ease-in-out infinite;
+}
+
+.clone-progress-bar.done {
+  animation: none;
+  background: #22c55e;
+  width: 100% !important;
+}
+
+.clone-progress-bar.error {
+  animation: none;
+  background: var(--danger);
+}
+
+@keyframes cloneProgressPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+.clone-output {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #a0aab4;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.clone-output::-webkit-scrollbar { width: 4px; }
+.clone-output::-webkit-scrollbar-track { background: transparent; }
+.clone-output::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+.clone-output .line-ok   { color: #86efac; }
+.clone-output .line-err  { color: #fca5a5; }
+.clone-output .line-info { color: #93c5fd; }
+
 /* ── Dialog ── */
 .dialog-overlay {
   position: fixed;

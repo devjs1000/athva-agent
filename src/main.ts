@@ -482,6 +482,144 @@ async function handleConfirmCreate() {
   await openProject(path);
 }
 
+// ── Clone Repository ──
+let cloneProcess: import("@tauri-apps/plugin-shell").Child | null = null;
+let clonedProjectPath: string | null = null;
+
+function showCloneDialog() {
+  ($("clone-url-input") as HTMLInputElement).value = "";
+  ($("clone-dest-input") as HTMLInputElement).value = "";
+  $("clone-form").classList.remove("hidden");
+  $("clone-progress").classList.add("hidden");
+  $("btn-confirm-clone").removeAttribute("disabled");
+  $("clone-dialog").classList.remove("hidden");
+  setTimeout(() => ($("clone-url-input") as HTMLInputElement).focus(), 50);
+}
+
+function hideCloneDialog() {
+  $("clone-dialog").classList.add("hidden");
+  cloneProcess = null;
+  clonedProjectPath = null;
+}
+
+async function handleBrowseCloneDest() {
+  const selected = await open({ directory: true, multiple: false, title: "Select Clone Destination" });
+  if (selected) ($("clone-dest-input") as HTMLInputElement).value = selected as string;
+}
+
+function appendCloneOutput(text: string) {
+  const out = $("clone-output") as HTMLPreElement;
+  const trimmed = text.trimEnd();
+  if (!trimmed) return;
+
+  const line = document.createElement("span");
+  if (/error:|fatal:|could not/i.test(trimmed)) {
+    line.className = "line-err";
+  } else if (/cloning into|receiving|resolving|compressing|counting/i.test(trimmed)) {
+    line.className = "line-info";
+  } else if (/done\.|finished|complete/i.test(trimmed)) {
+    line.className = "line-ok";
+  }
+  line.textContent = trimmed + "\n";
+  out.appendChild(line);
+  out.scrollTop = out.scrollHeight;
+}
+
+async function handleConfirmClone() {
+  const url = ($("clone-url-input") as HTMLInputElement).value.trim();
+  const dest = ($("clone-dest-input") as HTMLInputElement).value.trim();
+
+  if (!url) {
+    ($("clone-url-input") as HTMLInputElement).focus();
+    return;
+  }
+  if (!dest) {
+    ($("clone-dest-input") as HTMLInputElement).focus();
+    return;
+  }
+
+  // Switch to progress view
+  $("clone-form").classList.add("hidden");
+  $("clone-progress").classList.remove("hidden");
+  $("btn-open-cloned").classList.add("hidden");
+
+  const out = $("clone-output") as HTMLPreElement;
+  out.innerHTML = "";
+  const bar = $("clone-progress-bar");
+  bar.style.width = "15%";
+  bar.className = "clone-progress-bar";
+
+  appendCloneOutput(`Cloning ${url} into ${dest}…`);
+
+  // Derive expected project folder name from URL
+  const repoName = url.replace(/\.git$/, "").split("/").pop() ?? "repo";
+  clonedProjectPath = `${dest}/${repoName}`;
+
+  let fakeProgress = 15;
+  const progressTick = setInterval(() => {
+    if (fakeProgress < 85) {
+      fakeProgress += Math.random() * 6;
+      bar.style.width = `${Math.min(fakeProgress, 85)}%`;
+    }
+  }, 600);
+
+  try {
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const cmd = Command.create("zsh", ["-l", "-c", `git clone --progress "${url}" "${dest}/${repoName}" 2>&1`], {
+      encoding: "utf-8",
+    });
+
+    cmd.stdout.on("data", (data: string) => appendCloneOutput(data));
+    cmd.stderr.on("data", (data: string) => appendCloneOutput(data));
+
+    cmd.on("close", (payload: { code: number | null }) => {
+      clearInterval(progressTick);
+      if (payload.code === 0) {
+        bar.style.width = "100%";
+        bar.classList.add("done");
+        appendCloneOutput("✓ Clone complete.");
+        $("btn-open-cloned").classList.remove("hidden");
+      } else {
+        bar.classList.add("error");
+        appendCloneOutput(`✗ Clone failed (exit ${payload.code}).`);
+        clonedProjectPath = null;
+      }
+      $("btn-cancel-clone-progress").textContent = "Close";
+      cloneProcess = null;
+    });
+
+    cmd.on("error", (err: string) => {
+      clearInterval(progressTick);
+      bar.classList.add("error");
+      appendCloneOutput(`✗ Error: ${err}`);
+      $("btn-cancel-clone-progress").textContent = "Close";
+      cloneProcess = null;
+    });
+
+    cloneProcess = await cmd.spawn();
+  } catch (e) {
+    clearInterval(progressTick);
+    bar.classList.add("error");
+    appendCloneOutput(`✗ Failed to start git: ${e}`);
+    $("btn-cancel-clone-progress").textContent = "Close";
+  }
+}
+
+async function handleCancelCloneProgress() {
+  if (cloneProcess) {
+    await cloneProcess.kill();
+    cloneProcess = null;
+  }
+  hideCloneDialog();
+}
+
+async function handleOpenCloned() {
+  if (!clonedProjectPath) return;
+  const path = clonedProjectPath;
+  hideCloneDialog();
+  await openProject(path);
+}
+
 // ── Chat Panel Toggle ──
 function toggleChat() {
   const panel = $("chat-panel");
@@ -1383,7 +1521,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Welcome page buttons ──
   $("btn-open-folder").addEventListener("click", handleOpenFolder);
   $("btn-create-project").addEventListener("click", showCreateDialog);
-  $("btn-clone-repo").addEventListener("click", handleOpenFolder); // reuse folder picker for now
+  $("btn-clone-repo").addEventListener("click", showCloneDialog);
+  $("btn-browse-clone-dest").addEventListener("click", handleBrowseCloneDest);
+  $("btn-cancel-clone").addEventListener("click", hideCloneDialog);
+  $("btn-confirm-clone").addEventListener("click", handleConfirmClone);
+  $("btn-cancel-clone-progress").addEventListener("click", handleCancelCloneProgress);
+  $("btn-open-cloned").addEventListener("click", handleOpenCloned);
+  $("clone-dialog").addEventListener("click", (e) => {
+    if (e.target === $("clone-dialog") && !cloneProcess) hideCloneDialog();
+  });
+  ($("clone-url-input") as HTMLInputElement).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleConfirmClone();
+    if (e.key === "Escape") hideCloneDialog();
+  });
+  ($("clone-dest-input") as HTMLInputElement).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleConfirmClone();
+    if (e.key === "Escape") hideCloneDialog();
+  });
   $("btn-command-palette-welcome").addEventListener("click", () => ($("command-palette-overlay") as HTMLElement).classList.remove("hidden"));
   $("btn-search-files-welcome").addEventListener("click", () => {
     showPage("workspace");
