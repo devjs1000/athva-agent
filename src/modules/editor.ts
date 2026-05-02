@@ -280,8 +280,8 @@ export class Editor {
       () => this.monacoEditor.trigger("keyboard", "editor.action.triggerSuggest", null)
     );
 
-    // Explicit undo/redo — Tauri's WKWebView on macOS intercepts Cmd+Z at the system level
-    // before Monaco can handle it, so we bind it explicitly inside Monaco's command registry.
+    // Explicit undo/redo/copy/selectAll — Tauri's WKWebView on macOS intercepts these at the
+    // system level before Monaco can handle them, so we bind them explicitly here.
     this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, () => this.undo());
     this.monacoEditor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ,
@@ -2480,6 +2480,29 @@ export class Editor {
 
   hasOpenFile(): boolean {
     return this.tabs.length > 0;
+  }
+
+  hasEditorFocus(): boolean {
+    return this.monacoEditor.hasTextFocus();
+  }
+
+  selectAll() {
+    this.monacoEditor.getAction("editor.action.selectAll")?.run();
+  }
+
+  copySelection() {
+    this.monacoEditor.getAction("editor.action.clipboardCopyAction")?.run();
+  }
+
+  cutSelection() {
+    this.monacoEditor.getAction("editor.action.clipboardCutAction")?.run();
+  }
+
+  pasteFromClipboard() {
+    navigator.clipboard.readText().then((text) => {
+      const sel = this.monacoEditor.getSelection();
+      if (sel) this.monacoEditor.executeEdits("paste", [{ range: sel, text }]);
+    }).catch(() => { });
   }
 
   async formatDocument() {

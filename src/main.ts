@@ -1507,6 +1507,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // ── Clipboard / selection shortcuts for Monaco (Tauri WKWebView bypass) ──
+  // WKWebView on macOS may consume Cmd+A/C/X/V before they reach Monaco's internal
+  // event handling. We intercept them here at the document level and forward to the
+  // editor only when Monaco has text focus.
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (!editor?.hasEditorFocus()) return;
+    if (e.key === "a") { e.preventDefault(); editor.selectAll(); }
+    else if (e.key === "c") { e.preventDefault(); editor.copySelection(); }
+    else if (e.key === "x") { e.preventDefault(); editor.cutSelection(); }
+    else if (e.key === "v") { e.preventDefault(); editor.pasteFromClipboard(); }
+  }, true); // capture phase — runs before Monaco's own listeners
+
   // ── Exports tracker ──
   exportsTracker = new ExportsTracker();
   const etC = exportsTracker.getCompleter();

@@ -8,6 +8,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
+use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
 
@@ -2050,6 +2051,20 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            // Override the default Tauri menu which includes selectAll:/copy:/cut: selectors.
+            // Those native actions fire at the macOS level before JS keydown events, which
+            // prevents Monaco from handling Cmd+A/C/X in the editor. We replace it with a
+            // minimal menu that only has Quit (required on macOS) and no Edit actions.
+            let app_menu = SubmenuBuilder::new(app, "Athva")
+                .about(Some(AboutMetadataBuilder::new().build()))
+                .separator()
+                .quit()
+                .build()?;
+            let menu = MenuBuilder::new(app).item(&app_menu).build()?;
+            app.set_menu(menu)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_startup_open_path,
             read_env_masked,
