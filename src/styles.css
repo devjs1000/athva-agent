@@ -1559,6 +1559,10 @@ body {
   overflow: hidden;
 }
 
+.left-panel-stack {
+  display: contents;
+}
+
 .workspace-action-zone {
   display: flex;
   gap: 2px;

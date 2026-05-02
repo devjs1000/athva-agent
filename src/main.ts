@@ -652,6 +652,24 @@ function syncTopBarActionStates() {
   document.getElementById("btn-toggle-snippets")?.classList.toggle("active", snippetsPanel?.isVisible?.() ?? false);
 }
 
+function applyPanelSidePlacement(panelId: string, resizeId: string | null, actionId: WorkspaceActionId) {
+  const placement = appSettings.workspaceActions.placements[actionId];
+  const isLeft = placement === "left-sidebar-strip";
+  const panelEl = document.getElementById(panelId);
+  const resizeEl = resizeId ? document.getElementById(resizeId) : null;
+  if (!panelEl) return;
+
+  if (isLeft) {
+    const stack = document.getElementById("left-panel-stack")!;
+    stack.appendChild(panelEl);
+    if (resizeEl) stack.appendChild(resizeEl);
+  } else {
+    const workspace = document.getElementById("workspace-main")!;
+    if (resizeEl) workspace.appendChild(resizeEl);
+    workspace.appendChild(panelEl);
+  }
+}
+
 function renderWorkspaceActionPlacements() {
   const placements = appSettings.workspaceActions.placements;
   ACTION_PLACEMENT_ORDER.forEach((placement) => {
@@ -666,6 +684,15 @@ function renderWorkspaceActionPlacements() {
 
     items.forEach((item) => zone.appendChild(item));
   });
+
+  // Reposition panels to match their button's sidebar side
+  applyPanelSidePlacement("snippets-panel", "snippets-resize", "snippets");
+  applyPanelSidePlacement("source-control-panel", "source-control-resize", "source-control");
+  applyPanelSidePlacement("review-panel", "review-resize", "ai-review");
+  applyPanelSidePlacement("quality-panel", "quality-resize", "quality-panel");
+  applyPanelSidePlacement("extensions-panel", "extensions-resize", "extensions-panel");
+  applyPanelSidePlacement("ext-view-panel", "ext-view-panel-resize", "extensions-panel");
+  applyPanelSidePlacement("chat-panel", "chat-resize", "chat");
 }
 
 async function persistWorkspaceActionPlacement(actionId: WorkspaceActionId, placement: WorkspaceActionPlacement) {
@@ -767,14 +794,15 @@ function setupWorkspaceActionCustomization() {
 }
 
 // ── Sidebar Resize ──
-function setupResizeHandle(handleId: string, target: HTMLElement, side: "left" | "right") {
+function setupResizeHandle(handleId: string, target: HTMLElement, side?: "left" | "right") {
   const handle = $(handleId);
   let startX: number;
   let startWidth: number;
 
   const onMouseMove = (e: MouseEvent) => {
+    const resolvedSide = side ?? (handle.closest("#left-panel-stack") !== null ? "left" : "right");
     const dx = e.clientX - startX;
-    const newWidth = side === "left" ? startWidth + dx : startWidth - dx;
+    const newWidth = resolvedSide === "left" ? startWidth + dx : startWidth - dx;
     target.style.width = `${Math.max(160, Math.min(600, newWidth))}px`;
     editor.resize();
   };
@@ -1517,12 +1545,12 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Setup resize handles
   setupResizeHandle("sidebar-resize", $("sidebar"), "left");
-  setupResizeHandle("source-control-resize", $("source-control-panel"), "right");
-  setupResizeHandle("review-resize", $("review-panel"), "right");
-  setupResizeHandle("quality-resize", $("quality-panel"), "right");
-  setupResizeHandle("extensions-resize", $("extensions-panel"), "right");
-  setupResizeHandle("ext-view-panel-resize", $("ext-view-panel"), "right");
-  setupResizeHandle("chat-resize", $("chat-panel"), "right");
+  setupResizeHandle("source-control-resize", $("source-control-panel"));
+  setupResizeHandle("review-resize", $("review-panel"));
+  setupResizeHandle("quality-resize", $("quality-panel"));
+  setupResizeHandle("extensions-resize", $("extensions-panel"));
+  setupResizeHandle("ext-view-panel-resize", $("ext-view-panel"));
+  setupResizeHandle("chat-resize", $("chat-panel"));
 
   // ── Welcome page buttons ──
   $("btn-open-folder").addEventListener("click", handleOpenFolder);

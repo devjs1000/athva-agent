@@ -71,6 +71,9 @@ export class ExtensionsPanel {
   private activeTab: ExtensionsTab = "installed";
   private selectedDetail: ExtensionDetailState | null = null;
   private isBusy = false;
+  private refreshSeq = 0;
+  private lastRefreshAt = 0;
+  private readonly REFRESH_TTL_MS = 30_000;
 
   constructor(onResize: () => void, getProjectPath: () => string, options: ExtensionsPanelOptions = {}) {
     this.onResize = onResize;
@@ -160,25 +163,26 @@ export class ExtensionsPanel {
 
   async open() {
     if (!this.panelEl.classList.contains("hidden")) return;
-    this.panelEl.classList.remove("hidden");
-    this.resizeEl.classList.remove("hidden");
-    this.triggerBtn.classList.add("active");
-    setTimeout(() => this.onResize(), 0);
-    await this.refresh();
-  }
-
-  close() {
-    this.panelEl.classList.add("hidden");
-    this.resizeEl.classList.add("hidden");
-    this.triggerBtn.classList.remove("active");
+    // Reset state lazily on open so close() stays instant
     this.activeQuery = "";
     this.searchInput.value = "";
     this.results = [];
     this.selectedDetail = null;
     this.setActiveTab("installed");
-    this.renderResults();
-    this.renderDetail();
-    this.renderStatus("idle", "Ready", "Search the Visual Studio Marketplace or review installed extensions.");
+    this.panelEl.classList.remove("hidden");
+    this.resizeEl.classList.remove("hidden");
+    this.triggerBtn.classList.add("active");
+    setTimeout(() => this.onResize(), 0);
+    if (Date.now() - this.lastRefreshAt > this.REFRESH_TTL_MS) {
+      await this.refresh();
+    }
+  }
+
+  close() {
+    this.refreshSeq++; // cancel any in-flight refresh
+    this.panelEl.classList.add("hidden");
+    this.resizeEl.classList.add("hidden");
+    this.triggerBtn.classList.remove("active");
     setTimeout(() => this.onResize(), 0);
   }
 
@@ -187,6 +191,7 @@ export class ExtensionsPanel {
   }
 
   async refresh() {
+    const seq = ++this.refreshSeq;
     const projectPath = this.getProjectPath();
     if (!projectPath) {
       this.installed = [];
@@ -202,22 +207,27 @@ export class ExtensionsPanel {
     this.subtitleEl.textContent = "Browse VSIX packages and install them globally for Athva";
     this.setBusy(true);
     try {
-      this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
-      this.recommended = await invoke<MarketplaceExtension[]>("search_vscode_extensions", { query: "", limit: 18 });
-      if (this.activeQuery.trim()) {
-        this.results = await invoke<MarketplaceExtension[]>("search_vscode_extensions", { query: this.activeQuery, limit: 18 });
-      } else {
-        this.results = [];
-      }
+      const fetches: [Promise<InstalledExtension[]>, Promise<MarketplaceExtension[]>, Promise<MarketplaceExtension[]> | null] = [
+        invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath }),
+        invoke<MarketplaceExtension[]>("search_vscode_extensions", { query: "", limit: 18 }),
+        this.activeQuery.trim()
+          ? invoke<MarketplaceExtension[]>("search_vscode_extensions", { query: this.activeQuery, limit: 18 })
+          : null,
+      ];
+      const [installed, recommended, results] = await Promise.all(fetches);
+      if (seq !== this.refreshSeq) return;
+      this.installed = installed;
+      this.recommended = recommended;
+      this.results = results ?? [];
+      this.lastRefreshAt = Date.now();
       this.renderAllLists();
       this.renderDetail();
       this.renderStatus("success", "Extensions ready", `${this.installed.length} installed, ${this.recommended.length} recommended.`);
     } catch (error) {
+      if (seq !== this.refreshSeq) return;
       this.renderStatus("error", "Load failed", this.errorMessage(error));
     } finally {
-      this.setBusy(false);
-      this.renderAllLists();
-      this.renderDetail();
+      if (seq === this.refreshSeq) this.setBusy(false);
     }
   }
 
