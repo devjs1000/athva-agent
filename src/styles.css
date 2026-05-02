@@ -1412,37 +1412,42 @@ body {
 }
 
 .btn-icon {
-  padding: 4px 8px;
+  padding: 5px 7px;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: #6b7280;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
+  justify-content: center;
   transition:
-    background 0.12s,
-    color 0.12s,
-    transform 0.1s;
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.12s ease;
+  position: relative;
 }
 
 .btn-icon:hover {
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+  color: #d1d9e0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
 
 .btn-icon:active {
-  transform: scale(0.93);
+  transform: scale(0.9);
+  background: rgba(255,255,255,0.05);
 }
 
 .btn-icon.active {
-  background: rgba(0, 120, 212, 0.2);
+  background: rgba(0, 120, 212, 0.18);
   color: #7ec8ff;
-  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.3), 0 0 8px rgba(0,120,212,0.12);
 }
 
 .btn-icon-sm {
-  padding: 2px 4px;
+  padding: 3px 5px;
 }
 
 /* ── Workspace Layout ── */
@@ -1455,36 +1460,96 @@ body {
 .workspace-titlebar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 0 12px;
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
   background: var(--top-bar-bg);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.3);
+}
+
+/* workspace entrance animation */
+#workspace-page.page:not(.hidden) .workspace-titlebar {
+  animation: tbSlideDown 0.25s cubic-bezier(0.22,1,0.36,1) both;
+}
+
+@keyframes tbSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
 }
 
 .titlebar-logo {
-  width: 40px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
   filter: invert(1);
+  opacity: 0.85;
+  flex-shrink: 0;
 }
 
 .workspace-title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
-  flex: 1;
+  color: #c5cdd8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.titlebar-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255,255,255,0.1);
+  margin: 0 2px;
+  flex-shrink: 0;
 }
 
 .titlebar-actions {
   display: flex;
   gap: 1px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
-  padding: 2px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 9px;
+  padding: 2px 3px;
   position: relative;
   z-index: 4;
+}
+
+/* Workspace open animation — sidebar and editor */
+#workspace-page.page:not(.hidden) .sidebar {
+  animation: sidebarSlideIn 0.3s cubic-bezier(0.22,1,0.36,1) 0.05s both;
+}
+
+#workspace-page.page:not(.hidden) #editor-top {
+  animation: editorFadeIn 0.35s ease 0.1s both;
+}
+
+@keyframes sidebarSlideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes editorFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #workspace-page.page:not(.hidden) .sidebar,
+  #workspace-page.page:not(.hidden) #editor-top {
+    animation: none;
+  }
 }
 
 .workspace-main {
@@ -1657,18 +1722,23 @@ body {
 }
 
 .sidebar-header {
-  padding: 8px 10px 6px 14px;
+  padding: 7px 8px 7px 12px;
   display: flex;
   align-items: center;
   gap: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255,255,255,0.01);
 }
 
 .sidebar-view-tabs {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   margin-left: auto;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 7px;
+  padding: 2px;
 }
 
 .sidebar-tab-btn {
@@ -1676,27 +1746,27 @@ body {
   align-items: center;
   justify-content: center;
   width: 26px;
-  height: 26px;
+  height: 24px;
   background: transparent;
   border: none;
-  border-radius: 6px;
-  color: var(--text-muted);
+  border-radius: 5px;
+  color: #4b5563;
   cursor: pointer;
   transition:
-    background 0.12s,
-    color 0.12s,
-    transform 0.1s;
+    background 0.14s ease,
+    color 0.14s ease,
+    box-shadow 0.14s ease;
 }
 
 .sidebar-tab-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.07);
+  color: #9ca3af;
 }
 
 .sidebar-tab-btn.active {
-  color: var(--text-primary);
-  background: rgba(0, 120, 212, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.25);
+  color: #7ec8ff;
+  background: rgba(0, 120, 212, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.28);
 }
 
 .sidebar-tab-btn.spinning svg {
@@ -1704,20 +1774,16 @@ body {
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .sidebar-title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: #d8dee9;
+  letter-spacing: 1.4px;
+  color: #6b7280;
 }
 
 .file-tree {
@@ -2929,55 +2995,57 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   background:
-    radial-gradient(
-      ellipse at 50% 40%,
-      rgba(0, 120, 212, 0.06) 0%,
-      transparent 65%
-    ),
-    radial-gradient(
-      ellipse at 80% 80%,
-      rgba(100, 60, 180, 0.04) 0%,
-      transparent 50%
-    );
+    radial-gradient(ellipse at 50% 35%, rgba(0,120,212,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse at 75% 75%, rgba(100,60,200,0.04) 0%, transparent 50%);
 }
 
 .editor-empty-logo {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  color: rgba(255, 255, 255, 0.18);
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(0,120,212,0.12) 0%, rgba(0,60,120,0.06) 100%);
+  border: 1px solid rgba(0,120,212,0.2);
+  color: rgba(0,160,255,0.4);
   margin-bottom: 4px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 30px rgba(0,120,212,0.1), 0 4px 20px rgba(0,0,0,0.3);
+  animation: emptyLogoPulse 3s ease-in-out infinite;
+}
+
+@keyframes emptyLogoPulse {
+  0%, 100% { box-shadow: 0 0 30px rgba(0,120,212,0.1), 0 4px 20px rgba(0,0,0,0.3); }
+  50%       { box-shadow: 0 0 50px rgba(0,120,212,0.18), 0 4px 20px rgba(0,0,0,0.3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-empty-logo { animation: none; }
 }
 
 .editor-empty-title {
   font-size: 15px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.35);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.3);
   margin: 0;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.2px;
 }
 
 .editor-empty-sub {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.14);
   margin: 0 0 8px;
   text-align: center;
-  max-width: 260px;
-  line-height: 1.5;
+  max-width: 240px;
+  line-height: 1.55;
 }
 
 .editor-empty-shortcuts {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   margin-top: 4px;
 }
 
@@ -2985,23 +3053,23 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.22);
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.18);
 }
 
 .editor-empty-shortcut kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 52px;
+  min-width: 50px;
   padding: 2px 7px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-bottom-width: 2px;
   border-radius: 5px;
   font-family: inherit;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.28);
   letter-spacing: 0.02em;
 }
 
@@ -6380,19 +6448,21 @@ thead .md-td {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 24px;
-  min-height: 24px;
-  padding: 0 2px;
-  background: var(--bottom-bar-bg);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 4px;
+  background: #0d0f12;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: #6b7280;
+  font-size: 11.5px;
+  letter-spacing: 0.1px;
 }
 
 .status-bar-left,
 .status-bar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -6410,43 +6480,73 @@ thead .md-td {
   align-items: center;
   gap: 5px;
   padding: 0 8px;
-  height: 24px;
+  height: 26px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
+  color: #6b7280;
+  font-size: 11.5px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.1s;
+  border-radius: 0;
+  transition: background 0.12s, color 0.12s;
   white-space: nowrap;
 }
 
 .status-bar-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+  color: #c5cdd8;
 }
 
 .status-bar-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .status-bar-btn svg {
   flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.status-bar-btn:hover svg {
+  opacity: 1;
+}
+
+/* Git branch pill */
+.git-status {
+  background: rgba(0,120,212,0.12);
+  border-radius: 4px;
+  color: #60a5fa;
+  font-size: 11px;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.git-status:hover {
+  background: rgba(0,120,212,0.2);
+  color: #93c5fd;
 }
 
 .status-bar-text {
   padding: 0 8px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  color: #4b5563;
+}
+
+/* Athva brand pill in status bar */
+.status-bar-text:last-child {
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 0 10px;
 }
 
 .token-usage {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
-  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  color: #4b5563;
+  border-right: 1px solid rgba(255,255,255,0.08);
   padding-right: 10px;
-  margin-right: 2px;
+  margin-right: 4px;
 }
 
 /* Sync spinning animation */
