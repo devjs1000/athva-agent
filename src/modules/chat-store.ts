@@ -27,6 +27,11 @@ export interface ChatSession {
   updatedAt: number;
   compactedSummary?: string;
   projectPath?: string;
+  contextState?: {
+    mode: "auto" | "manual";
+    selectedPaths: string[];
+    workingContext: string;
+  };
 }
 
 const DB_NAME = "athva_chat";
@@ -111,5 +116,10 @@ export function createSession(mode: ChatMode = "chat", projectPath?: string): Ch
     createdAt: Date.now(),
     updatedAt: Date.now(),
     projectPath,
+    contextState: {
+      mode: "auto",
+      selectedPaths: [],
+      workingContext: "",
+    },
   };
 }

@@ -1,8 +1,9 @@
 import { getFileIcon } from "./file-icons";
-import type { ContextWorkspaceModel } from "./context-manager";
+import type { ContextDocument, ContextGraphEdge, ContextWorkspaceModel } from "./context-manager";
 import { ContextManager } from "./context-manager";
 
 type ContextWorkspaceMode = "list" | "graph";
+type GraphFilterKey = "context" | "session" | "task";
 
 function escapeHtml(value: string): string {
   const div = document.createElement("div");
@@ -10,9 +11,36 @@ function escapeHtml(value: string): string {
   return div.innerHTML;
 }
 
+function kindLabel(kind: ContextDocument["kind"]): string {
+  switch (kind) {
+    case "session":
+    case "session-index":
+      return "Session";
+    case "task":
+    case "task-index":
+      return "Task";
+    case "index":
+      return "Index";
+    default:
+      return "Context";
+  }
+}
+
+function graphGroup(kind: ContextDocument["kind"]): GraphFilterKey {
+  if (kind === "task" || kind === "task-index") return "task";
+  if (kind === "session" || kind === "session-index") return "session";
+  return "context";
+}
+
 export class ContextsWorkspace {
   private model: ContextWorkspaceModel | null = null;
   private mode: ContextWorkspaceMode = "list";
+  private zoom = 1;
+  private filters: Record<GraphFilterKey, boolean> = {
+    context: true,
+    session: true,
+    task: true,
+  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -50,7 +78,7 @@ export class ContextsWorkspace {
           <div class="contexts-view-header-copy">
             <div class="contexts-view-kicker">ATHVA CONTEXTS</div>
             <h2 class="contexts-view-title">Contexts</h2>
-            <p class="contexts-view-subtitle">Indexed context files with lightweight history references.</p>
+            <p class="contexts-view-subtitle">Reference-aware context graph with session and task lineage.</p>
           </div>
           <div class="contexts-view-actions">
             <button type="button" class="contexts-mode-btn${this.mode === "list" ? " active" : ""}" data-mode="list">List</button>
@@ -58,9 +86,10 @@ export class ContextsWorkspace {
           </div>
         </div>
         <div class="contexts-view-meta">
-          <span class="contexts-meta-chip">${model.coreEntries.length} core files</span>
-          <span class="contexts-meta-chip">${model.taskEntries.length} task records</span>
-          <span class="contexts-meta-chip">Root: .athva/contexts</span>
+          <span class="contexts-meta-chip">${model.documents.filter((doc) => graphGroup(doc.kind) === "context").length} contexts</span>
+          <span class="contexts-meta-chip">${model.documents.filter((doc) => graphGroup(doc.kind) === "session").length} sessions</span>
+          <span class="contexts-meta-chip">${model.documents.filter((doc) => graphGroup(doc.kind) === "task").length} tasks</span>
+          <span class="contexts-meta-chip">${model.edges.length} links</span>
         </div>
         <div class="contexts-view-body">
           ${this.mode === "list" ? listMarkup : graphMarkup}
@@ -72,91 +101,128 @@ export class ContextsWorkspace {
   }
 
   private renderList(model: ContextWorkspaceModel): string {
-    const rows: string[] = [];
-
-    rows.push(this.listItem("Context Index", model.indexPath, ".athva/contexts/context.md", "Index"));
-    for (const entry of model.coreEntries) {
-      rows.push(this.listItem(entry.name, this.contextManager.resolvePath(entry.path), entry.path, "Context"));
-    }
-    rows.push(this.listItem("Task History", model.taskHistoryPath, ".athva/contexts/task-history.md", "Index"));
-    for (const entry of model.taskEntries) {
-      rows.push(this.listItem(entry.title, this.contextManager.resolvePath(entry.path), entry.path, "Task"));
-    }
-
+    const rows = model.documents.map((doc) => this.listItem(doc));
     return `<div class="contexts-list">${rows.join("")}</div>`;
   }
 
-  private listItem(label: string, absolutePath: string, relativePath: string, tag: string): string {
-    const iconName = relativePath.split("/").pop() || relativePath;
+  private listItem(doc: ContextDocument): string {
+    const iconName = doc.path.split("/").pop() || doc.path;
+    const criticalBadge = doc.critical ? `<span class="contexts-item-critical">Critical</span>` : "";
     return `
-      <button type="button" class="contexts-item" data-path="${escapeHtml(absolutePath)}" data-name="${escapeHtml(iconName)}">
+      <button type="button" class="contexts-item" data-path="${escapeHtml(doc.absolutePath)}" data-name="${escapeHtml(iconName)}">
         <span class="contexts-item-icon">${getFileIcon(iconName)}</span>
         <span class="contexts-item-copy">
-          <span class="contexts-item-title">${escapeHtml(label)}</span>
-          <span class="contexts-item-path">${escapeHtml(relativePath)}</span>
+          <span class="contexts-item-title">${escapeHtml(doc.name)}</span>
+          <span class="contexts-item-path">${escapeHtml(doc.path)}</span>
         </span>
-        <span class="contexts-item-tag">${escapeHtml(tag)}</span>
+        ${criticalBadge}
+        <span class="contexts-item-tag">${escapeHtml(kindLabel(doc.kind))}</span>
       </button>
     `;
   }
 
   private renderGraph(model: ContextWorkspaceModel): string {
-    const nodes: string[] = [];
-    const edges: string[] = [];
+    const visibleDocs = model.documents.filter((doc) => this.filters[graphGroup(doc.kind)]);
+    const nodes = visibleDocs.map((doc, index) => this.graphNode(doc, index)).join("");
+    const visibleIds = new Set(visibleDocs.map((doc) => doc.id));
+    const edges = model.edges
+      .filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to))
+      .map((edge) => this.graphEdge(edge, visibleDocs))
+      .join("");
 
-    nodes.push(this.graphNode("Contexts", model.indexPath, 50, 14, "root"));
-    nodes.push(this.graphNode("Task History", model.taskHistoryPath, 78, 28, "history-root"));
-    edges.push(this.graphEdge(50, 14, 78, 28));
-
-    const coreEntries = model.coreEntries.length ? model.coreEntries : [];
-    const coreStep = coreEntries.length > 1 ? 56 / (coreEntries.length - 1) : 0;
-    coreEntries.forEach((entry, index) => {
-      const top = 24 + (coreStep * index);
-      const left = index % 2 === 0 ? 20 : 28;
-      const absolutePath = this.contextManager.resolvePath(entry.path);
-      nodes.push(this.graphNode(entry.name, absolutePath, left, top, "context"));
-      edges.push(this.graphEdge(50, 14, left, top));
-    });
-
-    const taskEntries = model.taskEntries.slice(0, 16);
-    const historyStep = taskEntries.length > 1 ? 52 / (taskEntries.length - 1) : 0;
-    taskEntries.forEach((entry, index) => {
-      const top = 34 + (historyStep * index);
-      const left = index % 2 === 0 ? 72 : 84;
-      const absolutePath = this.contextManager.resolvePath(entry.path);
-      nodes.push(this.graphNode(this.clip(entry.title, 28), absolutePath, left, top, "task"));
-      edges.push(this.graphEdge(78, 28, left, top));
-    });
-
-    return `<div class="contexts-graph-canvas">${edges.join("")}${nodes.join("")}</div>`;
-  }
-
-  private graphNode(label: string, absolutePath: string, left: number, top: number, kind: string): string {
-    const name = absolutePath.split("/").pop() || absolutePath;
     return `
-      <button
-        type="button"
-        class="contexts-graph-node contexts-graph-node-${kind}"
-        data-path="${escapeHtml(absolutePath)}"
-        data-name="${escapeHtml(name)}"
-        style="left:${left}%;top:${top}%"
-      >${escapeHtml(label)}</button>
+      <div class="contexts-graph-shell">
+        <div class="contexts-graph-toolbar">
+          <div class="contexts-graph-filters">
+            ${this.filterButton("context", "Contexts")}
+            ${this.filterButton("session", "Sessions")}
+            ${this.filterButton("task", "Tasks")}
+          </div>
+          <div class="contexts-graph-zoom">
+            <button type="button" class="contexts-mode-btn" data-zoom="out">-</button>
+            <button type="button" class="contexts-mode-btn" data-zoom="reset">${Math.round(this.zoom * 100)}%</button>
+            <button type="button" class="contexts-mode-btn" data-zoom="in">+</button>
+          </div>
+        </div>
+        <div class="contexts-graph-viewport">
+          <div class="contexts-graph-canvas" style="transform:scale(${this.zoom})">
+            <svg class="contexts-graph-svg" viewBox="0 0 1000 760" preserveAspectRatio="none">
+              <defs>
+                <marker id="contexts-arrow-end" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 z" fill="rgba(124, 227, 196, 0.75)"></path>
+                </marker>
+                <marker id="contexts-arrow-start" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto">
+                  <path d="M8,0 L0,4 L8,8 z" fill="rgba(124, 227, 196, 0.75)"></path>
+                </marker>
+              </defs>
+              ${edges}
+            </svg>
+            ${nodes}
+          </div>
+        </div>
+      </div>
     `;
   }
 
-  private graphEdge(fromLeft: number, fromTop: number, toLeft: number, toTop: number): string {
-    const dx = toLeft - fromLeft;
-    const dy = toTop - fromTop;
-    const length = Math.sqrt((dx * dx) + (dy * dy));
-    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-    return `<div class="contexts-graph-edge" style="left:${fromLeft}%;top:${fromTop}%;width:${length}%;transform:rotate(${angle}deg)"></div>`;
+  private filterButton(key: GraphFilterKey, label: string): string {
+    return `<button type="button" class="contexts-mode-btn${this.filters[key] ? " active" : ""}" data-filter="${key}">${label}</button>`;
+  }
+
+  private graphNode(doc: ContextDocument, index: number): string {
+    const position = this.positionForNode(doc, index);
+    const name = doc.absolutePath.split("/").pop() || doc.absolutePath;
+    const criticalClass = doc.critical ? " contexts-graph-node-critical" : "";
+    const label = doc.references.length > 0 ? `${doc.name} (${doc.references.length})` : doc.name;
+    return `
+      <button
+        type="button"
+        class="contexts-graph-node contexts-graph-node-${graphGroup(doc.kind)}${criticalClass}"
+        data-path="${escapeHtml(doc.absolutePath)}"
+        data-name="${escapeHtml(name)}"
+        style="left:${position.left}px;top:${position.top}px"
+        title="${escapeHtml(doc.path)}"
+      >${escapeHtml(this.clip(label, 32))}</button>
+    `;
+  }
+
+  private graphEdge(edge: ContextGraphEdge, docs: ContextDocument[]): string {
+    const fromIndex = docs.findIndex((doc) => doc.id === edge.from);
+    const toIndex = docs.findIndex((doc) => doc.id === edge.to);
+    if (fromIndex === -1 || toIndex === -1) return "";
+    const from = this.positionForNode(docs[fromIndex], fromIndex);
+    const to = this.positionForNode(docs[toIndex], toIndex);
+    return `<line class="contexts-graph-edge-line" x1="${from.left}" y1="${from.top}" x2="${to.left}" y2="${to.top}" marker-end="url(#contexts-arrow-end)"${edge.bidirectional ? ` marker-start="url(#contexts-arrow-start)"` : ""}></line>`;
+  }
+
+  private positionForNode(doc: ContextDocument, index: number): { left: number; top: number } {
+    const lane = graphGroup(doc.kind);
+    const itemsInLane = (this.model?.documents.filter((item) => this.filters[graphGroup(item.kind)] && graphGroup(item.kind) === lane).length || 1);
+    const laneIndex = (this.model?.documents.filter((item) => this.filters[graphGroup(item.kind)] && graphGroup(item.kind) === lane).findIndex((item) => item.id === doc.id) ?? index);
+    const leftMap: Record<GraphFilterKey, number> = { context: 180, session: 500, task: 820 };
+    const top = 100 + ((laneIndex + 1) * (560 / (itemsInLane + 1)));
+    const drift = ((index % 2) * 44) - 22;
+    return { left: leftMap[lane], top: top + drift };
   }
 
   private bind() {
     this.container.querySelectorAll<HTMLElement>(".contexts-mode-btn").forEach((button) => {
       button.addEventListener("click", () => {
-        const mode = button.dataset.mode === "graph" ? "graph" : "list";
-        this.setMode(mode);
+        const mode = button.dataset.mode;
+        const filter = button.dataset.filter as GraphFilterKey | undefined;
+        const zoom = button.dataset.zoom;
+        if (mode === "graph" || mode === "list") {
+          this.setMode(mode);
+          return;
+        }
+        if (filter) {
+          this.filters[filter] = !this.filters[filter];
+          this.draw();
+          return;
+        }
+        if (zoom === "in") this.zoom = Math.min(1.8, this.zoom + 0.15);
+        if (zoom === "out") this.zoom = Math.max(0.55, this.zoom - 0.15);
+        if (zoom === "reset") this.zoom = 1;
+        this.draw();
       });
     });
 

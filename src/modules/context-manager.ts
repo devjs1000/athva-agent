@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { readDir } from "@tauri-apps/plugin-fs";
 import type { ChatMessage, ChatMode, ToolCall } from "./chat-store";
 
 export interface ContextIndexEntry {
@@ -11,25 +12,56 @@ export interface TaskHistoryEntry {
   path: string;
 }
 
+export interface ContextDocument {
+  id: string;
+  name: string;
+  path: string;
+  absolutePath: string;
+  kind: "index" | "context" | "task-index" | "task" | "session-index" | "session";
+  sizeBytes: number;
+  critical: boolean;
+  references: string[];
+  summary: string;
+}
+
+export interface ContextGraphEdge {
+  from: string;
+  to: string;
+  bidirectional: boolean;
+}
+
+export interface TaskContextBuildOptions {
+  mode: "auto" | "manual";
+  selectedPaths?: string[];
+  sessionContext?: string;
+}
+
 export interface TaskContextSnapshot {
   promptContext: string;
   relevantFiles: string[];
   matchedContextNames: string[];
+  selectedPaths: string[];
+  oversizedDocuments: ContextDocument[];
 }
 
 export interface TaskCompletionRecord {
+  sessionId: string;
   userTask: string;
   mode: ChatMode;
   relevantContextFiles: string[];
   messages: ChatMessage[];
+  sessionContext?: string;
 }
 
 export interface ContextWorkspaceModel {
   rootPath: string;
   indexPath: string;
   taskHistoryPath: string;
+  sessionIndexPath: string;
   coreEntries: ContextIndexEntry[];
   taskEntries: TaskHistoryEntry[];
+  documents: ContextDocument[];
+  edges: ContextGraphEdge[];
 }
 
 const CONTEXT_ROOT_RELATIVE = ".athva/contexts";
@@ -39,27 +71,26 @@ const PROJECT_STRUCTURE_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/project-structure.m
 const PROJECT_CONVENTIONS_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/project-conventions.md`;
 const TASK_HISTORY_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/task-history.md`;
 const HISTORY_DIR_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/history`;
+const SESSIONS_DIR_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/sessions`;
+const SESSIONS_INDEX_RELATIVE = `${SESSIONS_DIR_RELATIVE}/index.md`;
 const LEGACY_CONTEXT_RELATIVE = ".athva/context.md";
+const CONTEXT_SIZE_LIMIT_BYTES = 100 * 1024;
 
 const DEFAULT_CONTEXT_INDEX: ContextIndexEntry[] = [
   { name: "Routes", path: ROUTES_RELATIVE },
   { name: "Project Structure", path: PROJECT_STRUCTURE_RELATIVE },
   { name: "Project Conventions", path: PROJECT_CONVENTIONS_RELATIVE },
   { name: "Task History", path: TASK_HISTORY_RELATIVE },
+  { name: "Sessions", path: SESSIONS_INDEX_RELATIVE },
 ];
 
 const DEFAULT_CONTEXT_FILE_CONTENT: Record<string, string> = {
   [ROUTES_RELATIVE]: "# Routes\n\n- Add route maps, endpoint summaries, and navigation notes here.\n",
   [PROJECT_STRUCTURE_RELATIVE]: "# Project Structure\n\n- Record high-signal folders, modules, and ownership notes here.\n",
   [PROJECT_CONVENTIONS_RELATIVE]: "# Project Conventions\n\n- Record project-specific coding, naming, workflow, and review conventions here.\n",
-  [TASK_HISTORY_RELATIVE]: "",
+  [TASK_HISTORY_RELATIVE]: "# Task History\n\n",
+  [SESSIONS_INDEX_RELATIVE]: "# Sessions\n\n",
 };
-
-const STOP_WORDS = new Set([
-  "about", "after", "agent", "also", "before", "build", "change", "code", "create", "current", "file", "files",
-  "from", "have", "into", "just", "like", "make", "need", "only", "project", "show", "that", "them", "this",
-  "with", "your",
-]);
 
 const KEYWORD_GROUPS: Array<{ entry: string; terms: string[] }> = [
   { entry: "Routes", terms: ["route", "routes", "router", "routing", "endpoint", "endpoints", "navigation", "nav", "url", "urls", "path", "paths", "page", "pages", "api"] },
@@ -67,12 +98,86 @@ const KEYWORD_GROUPS: Array<{ entry: string; terms: string[] }> = [
   { entry: "Project Conventions", terms: ["convention", "conventions", "style", "naming", "pattern", "patterns", "rule", "rules", "standard", "standards", "guideline", "guidelines"] },
 ];
 
+type FrontmatterResult = {
+  body: string;
+  metadata: {
+    critical: boolean;
+    references: string[];
+  };
+};
+
 function joinPath(root: string, relativePath: string): string {
   return `${root.replace(/\/+$/, "")}/${relativePath.replace(/^\/+/, "")}`;
 }
 
 function normalizeRelativeContextPath(value: string): string {
   return value.replace(/\\/g, "/").trim().replace(/^\/+/, "");
+}
+
+function normalizeReferencePath(projectPath: string, value: string): string | null {
+  const normalized = value.replace(/\\/g, "/").trim();
+  if (!normalized) return null;
+  if (normalized.startsWith(projectPath)) {
+    return normalizeRelativeContextPath(normalized.replace(`${projectPath}/`, ""));
+  }
+  if (normalized.startsWith(CONTEXT_ROOT_RELATIVE)) {
+    return normalizeRelativeContextPath(normalized);
+  }
+  if (normalized.startsWith("contexts/")) {
+    return normalizeRelativeContextPath(`.athva/${normalized}`);
+  }
+  if (normalized.startsWith("./")) {
+    return normalizeReferencePath(projectPath, normalized.slice(2));
+  }
+  return null;
+}
+
+function parseFrontmatter(content: string, projectPath: string): FrontmatterResult {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) {
+    return { body: content, metadata: { critical: false, references: [] } };
+  }
+
+  let critical = false;
+  const references: string[] = [];
+  let captureReferences = false;
+
+  for (const rawLine of match[1].split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^critical\s*:\s*true$/i.test(line)) {
+      critical = true;
+      captureReferences = false;
+      continue;
+    }
+    if (/^references\s*:\s*$/i.test(line)) {
+      captureReferences = true;
+      continue;
+    }
+    const inlineReference = line.match(/^references\s*:\s*(.+)$/i);
+    if (inlineReference) {
+      captureReferences = false;
+      inlineReference[1].split(",").forEach((part) => {
+        const normalized = normalizeReferencePath(projectPath, part);
+        if (normalized) references.push(normalized);
+      });
+      continue;
+    }
+    if (captureReferences) {
+      const itemMatch = line.match(/^-\s+(.+)$/);
+      if (!itemMatch) {
+        captureReferences = false;
+        continue;
+      }
+      const normalized = normalizeReferencePath(projectPath, itemMatch[1]);
+      if (normalized) references.push(normalized);
+    }
+  }
+
+  return {
+    body: content.slice(match[0].length),
+    metadata: { critical, references: Array.from(new Set(references)) },
+  };
 }
 
 function parseMappingFile(content: string, keyLabel: "name" | "title"): Array<Record<"name" | "path" | "title", string>> {
@@ -120,17 +225,6 @@ function extractTaskTitle(task: string): string {
   return clip(firstLine.replace(/\s+/g, " "), 80);
 }
 
-function tokenize(text: string): string[] {
-  return Array.from(new Set(
-    text
-      .toLowerCase()
-      .split(/[^a-z0-9/_\-.]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 4)
-      .filter((token) => !STOP_WORDS.has(token)),
-  ));
-}
-
 function extractMentionedPaths(text: string): string[] {
   const matches = new Set<string>();
   const patterns = [
@@ -149,8 +243,50 @@ function extractMentionedPaths(text: string): string[] {
   return Array.from(matches);
 }
 
+function extractReferences(projectPath: string, relativePath: string, content: string): string[] {
+  const frontmatter = parseFrontmatter(content, projectPath);
+  const matches = new Set<string>(frontmatter.metadata.references);
+  const patterns = [
+    /\[[^\]]+\]\(([^)]+)\)/g,
+    /(?:->|→)\s*([./A-Za-z0-9_-]+(?:\/[./A-Za-z0-9_-]+)+\.md)/g,
+    /(?:references?|refs?)\s*:\s*(.+)$/gim,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of frontmatter.body.matchAll(pattern)) {
+      const rawValue = (match[1] || "").trim();
+      if (!rawValue) continue;
+      if (pattern === patterns[2]) {
+        rawValue.split(",").forEach((part) => {
+          const normalized = normalizeReferencePath(projectPath, part);
+          if (normalized && normalized !== relativePath) matches.add(normalized);
+        });
+        continue;
+      }
+      const normalized = normalizeReferencePath(projectPath, rawValue);
+      if (normalized && normalized !== relativePath) matches.add(normalized);
+    }
+  }
+
+  return Array.from(matches);
+}
+
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.filter(Boolean)));
+}
+
+function buildDocumentSummary(content: string): string {
+  const body = parseFrontmatter(content, "").body;
+  const lines = body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .slice(0, 3);
+  return clip(lines.join(" "), 180);
+}
+
+function formatContextSection(title: string, content: string): string {
+  return `### ${title}\n${content.trim()}`;
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {
@@ -172,8 +308,9 @@ function parseTaskHistory(content: string): TaskHistoryEntry[] {
     .map((entry) => ({ title: entry.title, path: entry.path }));
 }
 
-function scoreContextEntry(entry: ContextIndexEntry, queryText: string, explicitPaths: string[]): number {
+function scoreContextEntry(entry: ContextDocument, queryText: string, explicitPaths: string[]): number {
   const lowerName = entry.name.toLowerCase();
+  const lowerPath = entry.path.toLowerCase();
   let score = 0;
 
   for (const group of KEYWORD_GROUPS) {
@@ -183,16 +320,13 @@ function scoreContextEntry(entry: ContextIndexEntry, queryText: string, explicit
     }
   }
 
-  if (entry.name === "Project Structure" && explicitPaths.length > 0) score += 3;
-  if (entry.name === "Routes" && explicitPaths.some((path) => /route|router|page|api/i.test(path))) score += 2;
-  if (entry.name === "Task History") score += 1;
-  if (queryText.includes(lowerName)) score += 2;
+  if (entry.kind === "session" || entry.kind === "task") score += 1;
+  if (entry.kind === "context" && explicitPaths.length > 0 && /structure|routes|conventions/.test(lowerPath)) score += 2;
+  if (queryText.includes(lowerName)) score += 3;
+  if (explicitPaths.some((path) => lowerPath.includes(path.toLowerCase()))) score += 4;
+  if (entry.references.some((ref) => explicitPaths.some((path) => ref.includes(path.toLowerCase())))) score += 2;
 
   return score;
-}
-
-function formatContextSection(title: string, content: string): string {
-  return `### ${title}\n${content.trim()}`;
 }
 
 function summarizeToolActivity(messages: ChatMessage[]): {
@@ -246,10 +380,6 @@ export class ContextManager {
     return this.projectPath ? joinPath(this.projectPath, CONTEXT_ROOT_RELATIVE) : "";
   }
 
-  getProjectConventionsPath(): string {
-    return joinPath(this.projectPath, PROJECT_CONVENTIONS_RELATIVE);
-  }
-
   getIndexPath(): string {
     return joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE);
   }
@@ -263,6 +393,7 @@ export class ContextManager {
 
     await invoke("create_dir", { path: this.getRootPath() }).catch(() => { });
     await invoke("create_dir", { path: joinPath(this.projectPath, HISTORY_DIR_RELATIVE) }).catch(() => { });
+    await invoke("create_dir", { path: joinPath(this.projectPath, SESSIONS_DIR_RELATIVE) }).catch(() => { });
 
     await ensureFile(joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE), serializeIndex(DEFAULT_CONTEXT_INDEX));
     for (const [relativePath, content] of Object.entries(DEFAULT_CONTEXT_FILE_CONTENT)) {
@@ -272,69 +403,74 @@ export class ContextManager {
     await this.migrateLegacyContext();
   }
 
-  async buildTaskContext(task: string, history: ChatMessage[]): Promise<TaskContextSnapshot> {
+  async buildTaskContext(task: string, history: ChatMessage[], options?: TaskContextBuildOptions): Promise<TaskContextSnapshot> {
     await this.ensureStructure();
 
-    const index = await this.readContextIndex();
+    const model = await this.buildWorkspaceModel();
     const queryText = `${task}\n${history.slice(-6).map((message) => message.content).join("\n")}`.toLowerCase();
     const explicitPaths = extractMentionedPaths(queryText);
+    const selectedSet = new Set((options?.selectedPaths || []).map((path) => normalizeRelativeContextPath(path)));
 
-    const selectedEntries = index
-      .map((entry) => ({ entry, score: scoreContextEntry(entry, queryText, explicitPaths) }))
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 4)
-      .map(({ entry }) => entry);
-
-    const matchedTaskHistory = await this.findRelevantTaskHistory(queryText);
-    const sections: string[] = [];
-    const relevantFiles = [joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE)];
-
-    sections.push(
-      "[Context Index]\n" +
-      index
-        .map((entry) => `- ${entry.name} -> ${entry.path}`)
-        .join("\n"),
-    );
-
-    for (const entry of selectedEntries) {
-      const content = await readFileIfExists(joinPath(this.projectPath, entry.path));
-      if (!content?.trim()) continue;
-      sections.push(formatContextSection(entry.name, content));
-      relevantFiles.push(joinPath(this.projectPath, entry.path));
+    let selectedDocuments = model.documents.filter((doc) => doc.kind !== "index" && doc.kind !== "task-index");
+    if (options?.mode === "manual" && selectedSet.size > 0) {
+      selectedDocuments = selectedDocuments.filter((doc) => selectedSet.has(doc.path));
+    } else {
+      selectedDocuments = selectedDocuments
+        .map((entry) => ({ entry, score: scoreContextEntry(entry, queryText, explicitPaths) }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map(({ entry }) => entry);
     }
 
-    if (matchedTaskHistory.length > 0) {
-      sections.push(
-        "### Related Task History\n" +
-        matchedTaskHistory
-          .map((entry) => `- ${entry.title} -> ${entry.path}`)
-          .join("\n"),
-      );
+    const oversizedDocuments = selectedDocuments.filter((doc) => doc.sizeBytes > CONTEXT_SIZE_LIMIT_BYTES && !doc.critical);
+    selectedDocuments = selectedDocuments.filter((doc) => doc.sizeBytes <= CONTEXT_SIZE_LIMIT_BYTES || doc.critical);
 
-      for (const entry of matchedTaskHistory) {
-        const content = await readFileIfExists(joinPath(this.projectPath, entry.path));
-        if (!content?.trim()) continue;
-        sections.push(formatContextSection(`Task: ${entry.title}`, clip(content, 2200)));
-        relevantFiles.push(joinPath(this.projectPath, entry.path));
-      }
+    const sections: string[] = [];
+    const relevantFiles = [model.indexPath];
+    const registryLines = model.documents
+      .filter((doc) => doc.kind !== "task")
+      .slice(0, 20)
+      .map((doc) => `- ${doc.name} -> ${doc.path}${doc.references.length ? ` [refs: ${doc.references.join(", ")}]` : ""}`);
+
+    sections.push("[Available Contexts]\n" + registryLines.join("\n"));
+
+    for (const entry of selectedDocuments) {
+      const content = await readFileIfExists(entry.absolutePath);
+      if (!content?.trim()) continue;
+      sections.push(formatContextSection(entry.name, content));
+      relevantFiles.push(entry.absolutePath);
+    }
+
+    if (options?.sessionContext?.trim()) {
+      sections.push(`### Session Working Context\n${options.sessionContext.trim()}`);
     }
 
     return {
       promptContext: sections.join("\n\n").trim(),
       relevantFiles: uniquePaths(relevantFiles),
-      matchedContextNames: selectedEntries.map((entry) => entry.name),
+      matchedContextNames: selectedDocuments.map((entry) => entry.name),
+      selectedPaths: selectedDocuments.map((entry) => entry.path),
+      oversizedDocuments,
     };
   }
 
   async buildWorkspaceModel(): Promise<ContextWorkspaceModel> {
     await this.ensureStructure();
+    const coreEntries = await this.readContextIndex();
+    const taskEntries = await this.readTaskHistory();
+    const documents = await this.readContextDocuments();
+    const edges = this.buildGraphEdges(documents);
+
     return {
       rootPath: this.getRootPath(),
       indexPath: joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE),
       taskHistoryPath: joinPath(this.projectPath, TASK_HISTORY_RELATIVE),
-      coreEntries: await this.readContextIndex(),
-      taskEntries: await this.readTaskHistory(),
+      sessionIndexPath: joinPath(this.projectPath, SESSIONS_INDEX_RELATIVE),
+      coreEntries,
+      taskEntries,
+      documents,
+      edges,
     };
   }
 
@@ -342,19 +478,20 @@ export class ContextManager {
     if (!this.projectPath || !record.userTask.trim()) return;
     await this.ensureStructure();
 
+    const sessionDirRelative = `${SESSIONS_DIR_RELATIVE}/${record.sessionId}`;
+    const tasksDirRelative = `${sessionDirRelative}/tasks`;
+    const sessionFileRelative = `${sessionDirRelative}/session.md`;
+    const taskIndexRelative = `${tasksDirRelative}/index.md`;
+    await invoke("create_dir", { path: joinPath(this.projectPath, tasksDirRelative) }).catch(() => { });
+
     const title = extractTaskTitle(record.userTask);
-    const date = new Date().toISOString().replace(/[:]/g, "-");
-    const slug = slugify(title);
-    const relativePath = `${HISTORY_DIR_RELATIVE}/${date}-${slug}.md`;
-    const absolutePath = joinPath(this.projectPath, relativePath);
     const summary = summarizeToolActivity(record.messages);
     const finalAssistant = [...record.messages].reverse().find((message) => message.role === "assistant")?.content.trim() || "";
+    const taskFileRelative = await this.nextAvailableTaskPath(tasksDirRelative, slugify(title));
+    const taskFileAbsolute = joinPath(this.projectPath, taskFileRelative);
 
-    const content = [
+    const taskContent = [
       `# ${title}`,
-      "",
-      `- Recorded At: ${new Date().toISOString()}`,
-      `- Mode: ${record.mode}`,
       "",
       "## Request",
       "",
@@ -362,7 +499,9 @@ export class ContextManager {
       "",
       "## Relevant Context Files",
       "",
-      ...record.relevantContextFiles.map((path) => `- ${path.replace(`${this.projectPath}/`, "")}`),
+      ...(record.relevantContextFiles.length
+        ? record.relevantContextFiles.map((path) => `- ${path.replace(`${this.projectPath}/`, "")}`)
+        : ["- None"]),
       "",
       "## Files Read",
       "",
@@ -381,14 +520,53 @@ export class ContextManager {
       finalAssistant || "No assistant summary captured.",
       "",
     ].join("\n");
+    await invoke("write_file", { path: taskFileAbsolute, content: taskContent });
 
-    await invoke("write_file", { path: absolutePath, content });
+    const taskIndexRaw = (await readFileIfExists(joinPath(this.projectPath, taskIndexRelative))) || "# Tasks\n\n";
+    const nextTaskIndex = `${taskIndexRaw.trimEnd()}\n- ${title} -> ${taskFileRelative}\n`;
+    await invoke("write_file", { path: joinPath(this.projectPath, taskIndexRelative), content: nextTaskIndex });
+
+    const sessionSummary = clip(finalAssistant || record.userTask, 220);
+    const sessionContent = [
+      `# Session ${record.sessionId}`,
+      "",
+      `- Session ID: ${record.sessionId}`,
+      `- Summary: ${sessionSummary}`,
+      `- Tasks Index: ${taskIndexRelative}`,
+      ...(record.sessionContext?.trim() ? ["", "## Working Context", "", record.sessionContext.trim()] : []),
+      "",
+    ].join("\n");
+    await invoke("write_file", { path: joinPath(this.projectPath, sessionFileRelative), content: sessionContent });
+
+    const sessionsIndexRaw = (await readFileIfExists(joinPath(this.projectPath, SESSIONS_INDEX_RELATIVE))) || "# Sessions\n\n";
+    const sessionLine = `- ${record.sessionId}: ${sessionSummary}`;
+    const nextSessionsIndex = sessionsIndexRaw.includes(sessionLine)
+      ? sessionsIndexRaw
+      : `${sessionsIndexRaw.trimEnd()}\n${sessionLine}\n`;
+    await invoke("write_file", { path: joinPath(this.projectPath, SESSIONS_INDEX_RELATIVE), content: nextSessionsIndex });
 
     const taskHistory = await this.readTaskHistory();
-    const nextHistory = [{ title, path: relativePath }, ...taskHistory].slice(0, 300);
+    const nextHistory = [{ title, path: taskFileRelative }, ...taskHistory.filter((entry) => entry.path !== taskFileRelative)].slice(0, 300);
     await invoke("write_file", {
       path: joinPath(this.projectPath, TASK_HISTORY_RELATIVE),
       content: serializeTaskHistory(nextHistory),
+    });
+  }
+
+  async setContextCritical(relativePath: string, critical: boolean): Promise<void> {
+    const absolutePath = this.resolvePath(relativePath);
+    const existing = await readFileIfExists(absolutePath);
+    if (existing === null) return;
+    const parsed = parseFrontmatter(existing, this.projectPath);
+    const frontmatter = ["---", `critical: ${critical ? "true" : "false"}`];
+    if (parsed.metadata.references.length > 0) {
+      frontmatter.push("references:");
+      parsed.metadata.references.forEach((ref) => frontmatter.push(`- ${ref}`));
+    }
+    frontmatter.push("---", "");
+    await invoke("write_file", {
+      path: absolutePath,
+      content: `${frontmatter.join("\n")}${parsed.body.trimStart()}`,
     });
   }
 
@@ -436,25 +614,97 @@ export class ContextManager {
     return parseTaskHistory(raw);
   }
 
-  private async findRelevantTaskHistory(queryText: string): Promise<TaskHistoryEntry[]> {
-    const entries = await this.readTaskHistory();
-    if (entries.length === 0) return [];
+  private async readContextDocuments(): Promise<ContextDocument[]> {
+    const documents: ContextDocument[] = [];
+    const entries = await this.collectMarkdownFiles(this.getRootPath());
 
-    const tokens = tokenize(queryText);
-    if (tokens.length === 0) return entries.slice(0, 2);
+    for (const absolutePath of entries) {
+      const content = await readFileIfExists(absolutePath);
+      if (content === null) continue;
+      const relativePath = normalizeRelativeContextPath(absolutePath.replace(`${this.projectPath}/`, ""));
+      const parsed = parseFrontmatter(content, this.projectPath);
+      documents.push({
+        id: relativePath,
+        name: this.documentName(relativePath, content),
+        path: relativePath,
+        absolutePath,
+        kind: this.documentKind(relativePath),
+        sizeBytes: new TextEncoder().encode(content).length,
+        critical: parsed.metadata.critical,
+        references: extractReferences(this.projectPath, relativePath, content),
+        summary: buildDocumentSummary(content),
+      });
+    }
 
-    return entries
-      .map((entry) => {
-        const haystack = `${entry.title} ${entry.path}`.toLowerCase();
-        let score = 0;
-        for (const token of tokens) {
-          if (haystack.includes(token)) score += token.length > 6 ? 3 : 2;
+    return documents.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  private buildGraphEdges(documents: ContextDocument[]): ContextGraphEdge[] {
+    const knownPaths = new Set(documents.map((doc) => doc.path));
+    const edges = new Map<string, ContextGraphEdge>();
+
+    for (const document of documents) {
+      for (const ref of document.references) {
+        if (!knownPaths.has(ref)) continue;
+        const reverse = documents.find((candidate) => candidate.path === ref)?.references.includes(document.path) || false;
+        const key = reverse
+          ? [document.path, ref].sort().join("::")
+          : `${document.path}->${ref}`;
+        if (!edges.has(key)) {
+          edges.set(key, {
+            from: reverse ? [document.path, ref].sort()[0] : document.path,
+            to: reverse ? [document.path, ref].sort()[1] : ref,
+            bidirectional: reverse,
+          });
         }
-        return { entry, score };
-      })
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map(({ entry }) => entry);
+      }
+    }
+
+    return Array.from(edges.values());
+  }
+
+  private async collectMarkdownFiles(rootPath: string): Promise<string[]> {
+    const out: string[] = [];
+    const visit = async (dir: string) => {
+      const entries = await readDir(dir).catch(() => []);
+      for (const entry of entries) {
+        const entryPath = `${dir.replace(/\/+$/, "")}/${entry.name}`;
+        if (entry.isDirectory) {
+          await visit(entryPath);
+          continue;
+        }
+        if (entryPath.endsWith(".md")) out.push(entryPath);
+      }
+    };
+    await visit(rootPath);
+    return out;
+  }
+
+  private documentName(relativePath: string, content: string): string {
+    const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+    if (heading) return heading;
+    const baseName = relativePath.split("/").pop() || relativePath;
+    return baseName.replace(/\.md$/i, "").replace(/[-_]+/g, " ");
+  }
+
+  private documentKind(relativePath: string): ContextDocument["kind"] {
+    if (relativePath === CONTEXT_INDEX_RELATIVE) return "index";
+    if (relativePath === TASK_HISTORY_RELATIVE || relativePath.endsWith("/tasks/index.md")) return "task-index";
+    if (relativePath === SESSIONS_INDEX_RELATIVE) return "session-index";
+    if (relativePath.includes("/sessions/") && relativePath.endsWith("/session.md")) return "session";
+    if (relativePath.includes("/sessions/")) return "task";
+    return "context";
+  }
+
+  private async nextAvailableTaskPath(baseDirRelative: string, slug: string): Promise<string> {
+    let attempt = 0;
+    while (attempt < 100) {
+      const suffix = attempt === 0 ? "" : `-${attempt + 1}`;
+      const relativePath = `${baseDirRelative}/${slug}${suffix}.md`;
+      const exists = await readFileIfExists(joinPath(this.projectPath, relativePath));
+      if (exists === null) return relativePath;
+      attempt += 1;
+    }
+    return `${baseDirRelative}/${slug}-${Date.now()}.md`;
   }
 }

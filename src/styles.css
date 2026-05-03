@@ -2043,25 +2043,67 @@ body {
   letter-spacing: 0.06em;
 }
 
+.contexts-item-critical {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 193, 94, 0.14);
+  color: #ffcf80;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.contexts-graph-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.contexts-graph-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.contexts-graph-filters,
+.contexts-graph-zoom {
+  display: flex;
+  gap: 8px;
+}
+
+.contexts-graph-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .contexts-graph-canvas {
   position: relative;
-  height: 100%;
-  min-height: 420px;
+  width: 1000px;
+  height: 760px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background:
     radial-gradient(circle at top, rgba(124, 227, 196, 0.1), transparent 42%),
     radial-gradient(circle at bottom right, rgba(89, 182, 255, 0.1), transparent 34%),
     rgba(9, 16, 24, 0.96);
-  overflow: hidden;
+  transform-origin: top left;
 }
 
-.contexts-graph-edge {
+.contexts-graph-svg {
   position: absolute;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(124, 227, 196, 0.55), rgba(89, 182, 255, 0.12));
-  transform-origin: 0 50%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+}
+
+.contexts-graph-edge-line {
+  stroke: rgba(124, 227, 196, 0.48);
+  stroke-width: 2;
 }
 
 .contexts-graph-node {
@@ -2085,16 +2127,20 @@ body {
   border-color: rgba(124, 227, 196, 0.35);
 }
 
-.contexts-graph-node-root {
+.contexts-graph-node-context {
   background: linear-gradient(135deg, rgba(21, 63, 56, 0.98), rgba(12, 29, 37, 0.98));
 }
 
-.contexts-graph-node-history-root {
+.contexts-graph-node-session {
   background: linear-gradient(135deg, rgba(39, 48, 82, 0.98), rgba(18, 23, 38, 0.98));
 }
 
 .contexts-graph-node-task {
   background: linear-gradient(135deg, rgba(43, 36, 73, 0.96), rgba(22, 22, 38, 0.96));
+}
+
+.contexts-graph-node-critical {
+  box-shadow: 0 0 0 1px rgba(255, 193, 94, 0.28), 0 8px 24px rgba(0, 0, 0, 0.22);
 }
 
 .docs-page-title {
@@ -5111,6 +5157,56 @@ thead .md-td {
 
 .chat-sessions:empty {
   display: none;
+}
+
+.chat-context-scope {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  flex-shrink: 0;
+}
+
+.chat-context-scope-shell {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.chat-context-scope-copy,
+.chat-context-scope-actions,
+.chat-context-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chat-context-scope-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.chat-context-scope-mode,
+.chat-context-chip {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(124, 227, 196, 0.12);
+  color: #9af0d7;
+}
+
+.chat-context-chip-row {
+  margin-top: 8px;
+}
+
+.chat-context-chip.muted {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
 }
 
 .chat-session-item {

@@ -26,6 +26,7 @@ import {
   compressToolResult,
   type ToolExecContext,
 } from "./chat-tool-executor";
+import { showConfirmDialog, showInputDialog } from "./dialogs";
 import {
   AGENT_COMPACT_THRESHOLD_TOKENS,
   AGENT_KEEP_RECENT_MESSAGES,
@@ -258,6 +259,13 @@ export class Chatbot {
   private normalizeSessionMode(session: ChatSession) {
     if (!session.mode) session.mode = "chat";
     if (session.mode === "workflow") session.mode = "agent";
+    if (!session.contextState) {
+      session.contextState = {
+        mode: "auto",
+        selectedPaths: [],
+        workingContext: "",
+      };
+    }
   }
 
   private syncCurrentSessionInList() {
@@ -453,6 +461,85 @@ export class Chatbot {
         this.removeSession((btn as HTMLElement).dataset.delete!);
       });
     });
+
+    this.renderContextScopeBar();
+  }
+
+  private renderContextScopeBar() {
+    const host = document.getElementById("chat-context-scope");
+    if (!host) return;
+    this.normalizeSessionMode(this.session);
+    const state = this.session.contextState!;
+    const chips = state.selectedPaths.length
+      ? state.selectedPaths.map((path) => `<span class="chat-context-chip">${this.escapeHtml(path.split("/").pop() || path)}</span>`).join("")
+      : `<span class="chat-context-chip muted">Auto selection</span>`;
+    host.innerHTML = `
+      <div class="chat-context-scope-shell">
+        <div class="chat-context-scope-copy">
+          <span class="chat-context-scope-label">Context Scope</span>
+          <span class="chat-context-scope-mode">${state.mode === "manual" ? "Manual" : "Auto"}</span>
+        </div>
+        <div class="chat-context-scope-actions">
+          <button class="btn-icon btn-icon-sm chat-context-action" data-context-mode="${state.mode === "manual" ? "auto" : "manual"}">${state.mode === "manual" ? "Auto" : "Manual"}</button>
+          <button class="btn-icon btn-icon-sm chat-context-action" data-context-action="select">Select</button>
+        </div>
+      </div>
+      <div class="chat-context-chip-row">${chips}</div>
+    `;
+
+    host.querySelectorAll<HTMLElement>("[data-context-mode]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        this.session.contextState!.mode = button.dataset.contextMode === "manual" ? "manual" : "auto";
+        await saveSession(this.session);
+        this.renderContextScopeBar();
+      });
+    });
+
+    host.querySelector('[data-context-action="select"]')?.addEventListener("click", () => {
+      void this.openContextSelector();
+    });
+  }
+
+  private async openContextSelector() {
+    const projectPath = this.getProjectPath();
+    if (!projectPath) return;
+    const model = await this.contextManager.buildWorkspaceModel();
+    const state = this.session.contextState!;
+    const selected = new Set(state.selectedPaths);
+    const docs = model.documents.filter((doc) => doc.kind !== "task" && doc.kind !== "task-index");
+    const lines = docs.map((doc, index) => {
+      const marker = selected.has(doc.path) ? "x" : " ";
+      const critical = doc.critical ? " critical" : "";
+      const sizeKb = Math.max(1, Math.round(doc.sizeBytes / 1024));
+      return `${index + 1}. [${marker}] ${doc.name} (${doc.path}, ${sizeKb}KB${critical})`;
+    }).join("\n");
+    const answer = await showInputDialog(
+      "Select Contexts",
+      "Enter comma-separated numbers to include for this session, or leave blank for auto mode",
+      Array.from(selected)
+        .map((path) => docs.findIndex((doc) => doc.path === path) + 1)
+        .filter((value) => value > 0)
+        .join(", "),
+    );
+    if (answer === null) return;
+    const nextSelected = answer
+      .split(",")
+      .map((part) => Number(part.trim()))
+      .filter((value) => Number.isFinite(value) && value >= 1 && value <= docs.length)
+      .map((value) => docs[value - 1].path);
+
+    const openRequested = await showConfirmDialog(
+      "Context List",
+      lines || "No contexts available.",
+      "Apply",
+      "Close",
+    );
+    if (!openRequested) return;
+
+    state.mode = nextSelected.length > 0 ? "manual" : "auto";
+    state.selectedPaths = nextSelected;
+    await saveSession(this.session);
+    this.renderContextScopeBar();
   }
 
   // ── Messages ──
@@ -942,7 +1029,23 @@ export class Chatbot {
       return;
     }
 
-    const snapshot = await this.contextManager.buildTaskContext(task, this.session.messages);
+    this.normalizeSessionMode(this.session);
+    const state = this.session.contextState!;
+    const snapshot = await this.contextManager.buildTaskContext(task, this.session.messages, {
+      mode: state.mode,
+      selectedPaths: state.selectedPaths,
+      sessionContext: state.workingContext,
+    });
+    if (snapshot.oversizedDocuments.length > 0) {
+      const decision = await showInputDialog(
+        "Large Context",
+        'Type "compress" to keep a trimmed version or "discard" to skip it',
+        "compress",
+      );
+      if (decision?.toLowerCase() === "discard") {
+        state.selectedPaths = state.selectedPaths.filter((path) => !snapshot.oversizedDocuments.some((doc) => doc.path === path));
+      }
+    }
     this.activeTaskContext = snapshot;
     this.projectContext = snapshot.promptContext;
   }
@@ -954,11 +1057,22 @@ export class Chatbot {
     if (!hasAssistantOrToolActivity) return;
 
     await this.contextManager.recordTaskCompletion({
+      sessionId: this.session.id,
       userTask,
       mode: this.session.mode,
       relevantContextFiles: this.activeTaskContext?.relevantFiles || [],
       messages: taskMessages,
+      sessionContext: this.session.contextState?.workingContext || "",
     });
+
+    const lastAssistant = [...taskMessages].reverse().find((message) => message.role === "assistant")?.content.trim() || "";
+    if (this.session.contextState) {
+      this.session.contextState.workingContext = capText(
+        [this.session.contextState.workingContext, lastAssistant].filter(Boolean).join("\n\n"),
+        4000,
+        "\n…[session context truncated]",
+      );
+    }
   }
 
   private async executeToolCalls(
