@@ -1,6 +1,7 @@
 import { getFileIcon } from "./file-icons";
 import type { ContextDocument, ContextGraphEdge, ContextWorkspaceModel } from "./context-manager";
 import { ContextManager } from "./context-manager";
+import { showConfirmDialog } from "./dialogs";
 
 type ContextWorkspaceMode = "list" | "graph";
 type GraphFilterKey = "context" | "session" | "task";
@@ -81,6 +82,7 @@ export class ContextsWorkspace {
             <p class="contexts-view-subtitle">Reference-aware context graph with session and task lineage.</p>
           </div>
           <div class="contexts-view-actions">
+            <button type="button" class="contexts-mode-btn" data-action="reset">Reset</button>
             <button type="button" class="contexts-mode-btn${this.mode === "list" ? " active" : ""}" data-mode="list">List</button>
             <button type="button" class="contexts-mode-btn${this.mode === "graph" ? " active" : ""}" data-mode="graph">Graph</button>
           </div>
@@ -210,6 +212,11 @@ export class ContextsWorkspace {
         const mode = button.dataset.mode;
         const filter = button.dataset.filter as GraphFilterKey | undefined;
         const zoom = button.dataset.zoom;
+        const action = button.dataset.action;
+        if (action === "reset") {
+          void this.resetContexts();
+          return;
+        }
         if (mode === "graph" || mode === "list") {
           this.setMode(mode);
           return;
@@ -238,5 +245,17 @@ export class ContextsWorkspace {
 
   private clip(value: string, limit: number): string {
     return value.length > limit ? `${value.slice(0, limit)}…` : value;
+  }
+
+  private async resetContexts() {
+    const ok = await showConfirmDialog(
+      "Reset Contexts",
+      "Clear everything in the contexts folder and rebuild the default context files? This cannot be undone.",
+      "Reset",
+      "Cancel",
+    );
+    if (!ok) return;
+    await this.contextManager.resetContexts();
+    await this.reload();
   }
 }

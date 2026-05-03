@@ -403,6 +403,12 @@ export class ContextManager {
     await this.migrateLegacyContext();
   }
 
+  async resetContexts(): Promise<void> {
+    if (!this.projectPath) return;
+    await invoke("delete_path", { path: this.getRootPath() }).catch(() => { });
+    await this.ensureStructure();
+  }
+
   async buildTaskContext(task: string, history: ChatMessage[], options?: TaskContextBuildOptions): Promise<TaskContextSnapshot> {
     await this.ensureStructure();
 

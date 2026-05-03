@@ -1461,6 +1461,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   editor.setContextsViewContext(contextManager, (path, name) => {
     void openFileWithGuards(path, name);
   });
+  fileExplorer.setOnResetContexts(async () => {
+    await contextManager.resetContexts();
+    if (currentProjectPath) {
+      await fileExplorer.loadRoot(currentProjectPath);
+    }
+    await editor.refreshContextsView();
+  });
 
   // Refresh file explorer and reload open tab when agent writes/creates files
   chatbot.setOnFileChanged((path: string) => {

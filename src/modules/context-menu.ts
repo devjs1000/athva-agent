@@ -10,6 +10,7 @@ export interface ContextMenuTarget {
 
 export type OnRefresh = (dirPath: string) => void;
 export type OnOpenFile = (path: string, name: string) => void;
+export type OnResetContexts = () => Promise<void>;
 
 interface MenuItem {
   label: string;
@@ -22,6 +23,7 @@ export class ContextMenu {
   private el: HTMLElement;
   private onRefresh: OnRefresh;
   private onOpenFile: OnOpenFile;
+  private onResetContexts: OnResetContexts | null = null;
   private onRenameCallback: ((oldPath: string, newPath: string) => void) | null = null;
   private projectRoot: string = "";
 
@@ -47,6 +49,10 @@ export class ContextMenu {
 
   setOnRename(cb: (oldPath: string, newPath: string) => void) {
     this.onRenameCallback = cb;
+  }
+
+  setOnResetContexts(cb: OnResetContexts) {
+    this.onResetContexts = cb;
   }
 
   show(x: number, y: number, target: ContextMenuTarget) {
@@ -75,6 +81,7 @@ export class ContextMenu {
   private buildMenu(target: ContextMenuTarget): MenuItem[] {
     const dir = target.isDir ? target.path : target.parentDir;
     const isProjectRoot = target.path === this.projectRoot;
+    const isContextsRoot = target.isDir && /\/\.athva\/contexts$/.test(target.path);
 
     const items: MenuItem[] = [
       {
@@ -86,6 +93,16 @@ export class ContextMenu {
         action: () => this.promptNewFolder(dir),
       },
     ];
+
+    if (isContextsRoot && this.onResetContexts) {
+      items.push(
+        { separator: true, label: "" },
+        {
+          label: "Reset Contexts",
+          action: () => this.confirmResetContexts(target),
+        },
+      );
+    }
 
     if (!isProjectRoot) {
       items.push(
@@ -263,6 +280,23 @@ export class ContextMenu {
       this.onRefresh(target.parentDir);
     } catch (e) {
       await showConfirmDialog("Error", `Failed to delete: ${e}`, "OK");
+    }
+  }
+
+  private async confirmResetContexts(target: ContextMenuTarget) {
+    if (!this.onResetContexts) return;
+    const ok = await showConfirmDialog(
+      "Reset Contexts",
+      `Clear everything inside "${target.name}" and rebuild the default context files? This cannot be undone.`,
+      "Reset",
+      "Cancel",
+    );
+    if (!ok) return;
+    try {
+      await this.onResetContexts();
+      this.onRefresh(target.path);
+    } catch (e) {
+      await showConfirmDialog("Error", `Failed to reset contexts: ${e}`, "OK");
     }
   }
 
