@@ -80,6 +80,7 @@ export type WorkspaceActionPlacement =
   | "bottom-right";
 
 export type WorkspaceActionId =
+  | "explorer"
   | "settings"
   | "run-script"
   | "format"
@@ -161,6 +162,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   security: { ...DEFAULT_SECURITY_SETTINGS },
   workspaceActions: {
     placements: {
+      explorer: "left-sidebar-strip",
       settings: "top-right",
       "run-script": "top-right",
       format: "top-right",

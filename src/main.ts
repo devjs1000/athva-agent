@@ -91,6 +91,7 @@ const ACTION_PLACEMENT_ORDER: WorkspaceActionPlacement[] = [
 ];
 
 const ACTION_ITEM_ORDER: WorkspaceActionId[] = [
+  "explorer",
   "settings",
   "run-script",
   "format",
