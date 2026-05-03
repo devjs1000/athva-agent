@@ -157,50 +157,6 @@ export class Chatbot {
     this.activeTaskContext = null;
   }
 
-  /** Open the manual context editor modal */
-  openContextEditor() {
-    const modal = document.getElementById("context-modal");
-    const textarea = document.getElementById("context-editor-textarea") as HTMLTextAreaElement;
-    if (!modal || !textarea) return;
-
-    modal.classList.remove("hidden");
-    void this.contextManager.loadProjectConventions().then((content) => {
-      textarea.value = content;
-      textarea.focus();
-    });
-
-    const close = () => modal.classList.add("hidden");
-
-    const saveBtn = document.getElementById("btn-save-context");
-    const cancelBtn = document.getElementById("btn-cancel-context");
-
-    // Remove old listeners by replacing elements
-    const newSave = saveBtn!.cloneNode(true) as HTMLElement;
-    const newCancel = cancelBtn!.cloneNode(true) as HTMLElement;
-    saveBtn!.replaceWith(newSave);
-    cancelBtn!.replaceWith(newCancel);
-
-    newSave.addEventListener("click", async () => {
-      newSave.textContent = "Saving...";
-      (newSave as HTMLButtonElement).disabled = true;
-      await this.saveContext(textarea.value);
-      close();
-    });
-    newCancel.addEventListener("click", close);
-
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) close();
-    }, { once: true });
-  }
-
-  private async saveContext(content: string) {
-    try {
-      await this.contextManager.saveProjectConventions(content);
-    } catch (e) {
-      console.error("Failed to save context:", e);
-    }
-  }
-
   private onFileChanged(path: string) {
     if (this.onFileChangedCb) this.onFileChangedCb(path);
   }

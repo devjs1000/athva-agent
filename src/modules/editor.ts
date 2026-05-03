@@ -8,6 +8,8 @@ import { showConfirmDialog, showInputDialog } from "./dialogs";
 import { renderMarkdown } from "./markdown-renderer";
 import { TodoPanel } from "./todo-panel";
 import { DocumentEditor } from "./doc-editor";
+import { ContextsWorkspace } from "./contexts-workspace";
+import { ContextManager } from "./context-manager";
 import { renderCSVPreview, renderFlowPreview, renderTextPreview, renderXlsxPreview } from "./preview-renderers";
 import { ColorHighlighter } from "./color-highlighter";
 import { ErrorLens } from "./error-lens";
@@ -71,6 +73,7 @@ interface OpenTab {
   lockedView?: boolean;
   untitled?: boolean;
   docRoot?: string;
+  specialView?: "contexts";
 }
 
 interface WebMediaStatePayload {
@@ -223,6 +226,11 @@ export class Editor {
   private todoPanelEl: HTMLElement = document.createElement("div");
   private activeTodoPanel: TodoPanel | null = null;
   private activeDocEditor: DocumentEditor | null = null;
+  private activeContextsView: ContextsWorkspace | null = null;
+  private contextsViewContext: {
+    contextManager: ContextManager;
+    onOpenFile: (path: string, name: string) => void;
+  } | null = null;
   private docEditorActive = false;
   /** Project roots for which we have already loaded node_modules types into Monaco */
   private projectTypesLoaded: Set<string> = new Set();
@@ -786,6 +794,10 @@ export class Editor {
   }
 
   async reloadFile(path: string) {
+    if (path.startsWith("athva://contexts")) {
+      await this.refreshContextsView();
+      return;
+    }
     const tab = this.tabs.find((t) => t.path === path);
     if (!tab) return;
     try {
@@ -800,6 +812,8 @@ export class Editor {
         } else if (this.activeDocEditor) {
           // Reload the document editor in-place
           this.activeDocEditor.reload(content);
+        } else if (this.activeContextsView) {
+          await this.activeContextsView.reload();
         } else {
           const cursor = this.monacoEditor.getPosition();
           const model = this.models.get(path);
@@ -874,6 +888,7 @@ export class Editor {
         this.todoPanelEl.classList.add("hidden");
         this.activeTodoPanel = null;
         this.activeDocEditor = null;
+        this.activeContextsView = null;
         this.emptyEl.style.display = "flex";
         this.protectedBannerEl.classList.add("hidden");
       }
@@ -993,6 +1008,38 @@ export class Editor {
     this.onHoverInfo = callback;
   }
 
+  setContextsViewContext(contextManager: ContextManager, onOpenFile: (path: string, name: string) => void) {
+    this.contextsViewContext = { contextManager, onOpenFile };
+  }
+
+  async openContextsView(rootPath: string) {
+    const virtualPath = `athva://contexts?root=${encodeURIComponent(rootPath)}`;
+    const existing = this.tabs.find((t) => t.path === virtualPath);
+    if (existing) {
+      this.switchToTab(virtualPath);
+      await this.refreshContextsView();
+      return;
+    }
+
+    const tab: OpenTab = {
+      path: virtualPath,
+      name: "Contexts",
+      content: "",
+      modified: false,
+      pinned: false,
+      specialView: "contexts",
+      lockedView: false,
+    };
+    this.tabs.push(tab);
+    this.switchToTab(virtualPath);
+    await this.refreshContextsView();
+  }
+
+  async refreshContextsView() {
+    if (!this.activeContextsView) return;
+    await this.activeContextsView.reload();
+  }
+
   private switchToTab(path: string) {
     const prevWebLabel = this.activeWebLabel;
     this.activeTab = path;
@@ -1051,6 +1098,7 @@ export class Editor {
     this.todoPanelEl.classList.add("hidden");
     this.activeTodoPanel = null;
     this.activeDocEditor = null;
+    this.activeContextsView = null;
 
     // Image preview — read binary → base64 data URL (asset:// protocol not configured)
     if (IMAGE_EXTS.has(ext)) {
@@ -1071,6 +1119,21 @@ export class Editor {
       this.updateProtectedBanner(tab);
       this.renderTabs();
       void this.loadMediaPreview(path, ext, "video");
+      return;
+    }
+
+    if (tab.specialView === "contexts") {
+      this.editorEl.style.display = "none";
+      this.todoPanelEl.classList.remove("hidden");
+      if (!this.contextsViewContext) return;
+      this.activeContextsView = new ContextsWorkspace(
+        this.todoPanelEl,
+        this.contextsViewContext.contextManager,
+        this.contextsViewContext.onOpenFile,
+      );
+      void this.activeContextsView.render();
+      this.updateProtectedBanner(tab);
+      this.renderTabs();
       return;
     }
 

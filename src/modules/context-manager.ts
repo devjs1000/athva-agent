@@ -174,7 +174,7 @@ function parseTaskHistory(content: string): TaskHistoryEntry[] {
 
 function scoreContextEntry(entry: ContextIndexEntry, queryText: string, explicitPaths: string[]): number {
   const lowerName = entry.name.toLowerCase();
-  let score = entry.name === "Project Conventions" ? 2 : 0;
+  let score = 0;
 
   for (const group of KEYWORD_GROUPS) {
     if (group.entry !== entry.name) continue;
@@ -250,17 +250,12 @@ export class ContextManager {
     return joinPath(this.projectPath, PROJECT_CONVENTIONS_RELATIVE);
   }
 
-  async loadProjectConventions(): Promise<string> {
-    await this.ensureStructure();
-    return (await readFileIfExists(this.getProjectConventionsPath())) || DEFAULT_CONTEXT_FILE_CONTENT[PROJECT_CONVENTIONS_RELATIVE];
+  getIndexPath(): string {
+    return joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE);
   }
 
-  async saveProjectConventions(content: string): Promise<void> {
-    await this.ensureStructure();
-    await invoke("write_file", {
-      path: this.getProjectConventionsPath(),
-      content,
-    });
+  resolvePath(relativePath: string): string {
+    return joinPath(this.projectPath, normalizeRelativeContextPath(relativePath));
   }
 
   async ensureStructure(): Promise<void> {
@@ -402,18 +397,26 @@ export class ContextManager {
     const legacyContent = await readFileIfExists(legacyPath);
     if (!legacyContent?.trim()) return;
 
-    const conventionsPath = this.getProjectConventionsPath();
-    const current = (await readFileIfExists(conventionsPath)) || "";
-    if (!current.includes("Migrated Legacy Context")) {
-      const merged = [
-        current.trimEnd(),
-        "",
-        "## Migrated Legacy Context",
-        "",
-        legacyContent.trim(),
-        "",
-      ].join("\n");
-      await invoke("write_file", { path: conventionsPath, content: merged });
+    const migratedRelativePath = `${HISTORY_DIR_RELATIVE}/legacy-project-context.md`;
+    const migratedPath = joinPath(this.projectPath, migratedRelativePath);
+    const existing = await readFileIfExists(migratedPath);
+    if (!existing?.trim()) {
+      await invoke("write_file", {
+        path: migratedPath,
+        content: `# Legacy Project Context\n\n${legacyContent.trim()}\n`,
+      });
+    }
+
+    const history = await this.readTaskHistory();
+    if (!history.some((entry) => entry.path === migratedRelativePath)) {
+      const nextHistory = [
+        { title: "Legacy project context migration", path: migratedRelativePath },
+        ...history,
+      ].slice(0, 300);
+      await invoke("write_file", {
+        path: joinPath(this.projectPath, TASK_HISTORY_RELATIVE),
+        content: serializeTaskHistory(nextHistory),
+      });
     }
 
     await invoke("delete_path", { path: legacyPath }).catch(() => { });

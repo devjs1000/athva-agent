@@ -4,224 +4,173 @@ import { ContextManager } from "./context-manager";
 
 type ContextWorkspaceMode = "list" | "graph";
 
+function escapeHtml(value: string): string {
+  const div = document.createElement("div");
+  div.textContent = value;
+  return div.innerHTML;
+}
+
 export class ContextsWorkspace {
-  private panel: HTMLElement;
-  private titleEl: HTMLElement;
-  private emptyEl: HTMLElement;
-  private listEl: HTMLElement;
-  private graphEl: HTMLElement;
-  private listBtn: HTMLButtonElement;
-  private graphBtn: HTMLButtonElement;
-  private closeBtn: HTMLButtonElement | null;
-  private contextManager: ContextManager;
-  private onOpenFile: (path: string, name: string) => void;
-  private rootPath = "";
-  private activePath = "";
-  private mode: ContextWorkspaceMode = "list";
   private model: ContextWorkspaceModel | null = null;
+  private mode: ContextWorkspaceMode = "list";
 
   constructor(
-    panelId: string,
-    titleId: string,
-    emptyId: string,
-    listId: string,
-    graphId: string,
-    listBtnId: string,
-    graphBtnId: string,
-    contextManager: ContextManager,
-    onOpenFile: (path: string, name: string) => void,
-  ) {
-    this.panel = document.getElementById(panelId)!;
-    this.titleEl = document.getElementById(titleId)!;
-    this.emptyEl = document.getElementById(emptyId)!;
-    this.listEl = document.getElementById(listId)!;
-    this.graphEl = document.getElementById(graphId)!;
-    this.listBtn = document.getElementById(listBtnId) as HTMLButtonElement;
-    this.graphBtn = document.getElementById(graphBtnId) as HTMLButtonElement;
-    this.closeBtn = document.getElementById("btn-close-contexts-sidebar") as HTMLButtonElement | null;
-    this.contextManager = contextManager;
-    this.onOpenFile = onOpenFile;
+    private readonly container: HTMLElement,
+    private readonly contextManager: ContextManager,
+    private readonly onOpenFile: (path: string, name: string) => void,
+  ) { }
 
-    this.listBtn.addEventListener("click", () => this.setMode("list"));
-    this.graphBtn.addEventListener("click", () => this.setMode("graph"));
-    this.closeBtn?.addEventListener("click", () => this.close());
-  }
-
-  async openRoot(rootPath: string): Promise<void> {
-    this.rootPath = rootPath;
-    this.titleEl.textContent = "Contexts";
-    this.panel.classList.remove("hidden");
-    await this.reload();
+  async render(): Promise<void> {
+    this.model = await this.contextManager.buildWorkspaceModel();
+    this.draw();
   }
 
   async reload(): Promise<void> {
-    if (!this.rootPath) return;
-    this.model = await this.contextManager.buildWorkspaceModel();
-    this.render();
+    await this.render();
   }
 
-  close() {
-    this.rootPath = "";
-    this.activePath = "";
-    this.model = null;
-    this.panel.classList.add("hidden");
-    this.listEl.innerHTML = "";
-    this.graphEl.innerHTML = "";
-  }
-
-  isOpen(): boolean {
-    return !this.panel.classList.contains("hidden");
-  }
-
-  containsPath(path: string): boolean {
-    return !!this.rootPath && (path === this.rootPath || path.startsWith(`${this.rootPath}/`));
-  }
-
-  getRootPath(): string {
-    return this.rootPath;
-  }
-
-  setActivePath(path: string) {
-    this.activePath = path;
-    this.listEl.querySelectorAll<HTMLElement>(".contexts-item").forEach((el) => {
-      el.classList.toggle("active", el.dataset.path === path);
-    });
-    this.graphEl.querySelectorAll<HTMLElement>(".contexts-graph-node").forEach((el) => {
-      el.classList.toggle("active", el.dataset.path === path);
-    });
-  }
-
-  private setMode(mode: ContextWorkspaceMode) {
+  setMode(mode: ContextWorkspaceMode) {
     this.mode = mode;
-    this.listBtn.classList.toggle("active", mode === "list");
-    this.graphBtn.classList.toggle("active", mode === "graph");
-    this.listEl.classList.toggle("hidden", mode !== "list");
-    this.graphEl.classList.toggle("hidden", mode !== "graph");
+    this.draw();
   }
 
-  private render() {
+  private draw() {
     const model = this.model;
-    if (!model) return;
-
-    const hasItems = model.coreEntries.length > 0 || model.taskEntries.length > 0;
-    this.emptyEl.classList.toggle("hidden", hasItems);
-    this.listEl.innerHTML = "";
-    this.graphEl.innerHTML = "";
-    if (!hasItems) return;
-
-    this.renderList(model);
-    this.renderGraph(model);
-    this.setMode(this.mode);
-    if (this.activePath) this.setActivePath(this.activePath);
-  }
-
-  private renderList(model: ContextWorkspaceModel) {
-    this.listEl.appendChild(this.buildItem("Context Index", model.indexPath, ".athva/contexts/context.md"));
-
-    for (const entry of model.coreEntries) {
-      this.listEl.appendChild(this.buildItem(entry.name, this.absolutePath(entry.path), entry.path));
+    if (!model) {
+      this.container.innerHTML = "";
+      return;
     }
 
-    this.listEl.appendChild(this.buildItem("Task History", model.taskHistoryPath, ".athva/contexts/task-history.md"));
+    const listMarkup = this.renderList(model);
+    const graphMarkup = this.renderGraph(model);
 
-    for (const entry of model.taskEntries.slice(0, 48)) {
-      this.listEl.appendChild(this.buildItem(entry.title, this.absolutePath(entry.path), entry.path, "history"));
-    }
-  }
-
-  private buildItem(label: string, absolutePath: string, relativePath: string, kind: "context" | "history" = "context"): HTMLElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "contexts-item";
-    button.dataset.path = absolutePath;
-    button.innerHTML = `
-      <span class="contexts-item-icon">${getFileIcon(relativePath.split("/").pop() || relativePath)}</span>
-      <span class="contexts-item-copy">
-        <span class="contexts-item-title">${this.escapeHtml(label)}</span>
-        <span class="contexts-item-path">${this.escapeHtml(relativePath)}</span>
-      </span>
-      <span class="contexts-item-tag">${kind === "history" ? "Task" : "Context"}</span>
+    this.container.innerHTML = `
+      <div class="contexts-view-shell">
+        <div class="contexts-view-header">
+          <div class="contexts-view-header-copy">
+            <div class="contexts-view-kicker">ATHVA CONTEXTS</div>
+            <h2 class="contexts-view-title">Contexts</h2>
+            <p class="contexts-view-subtitle">Indexed context files with lightweight history references.</p>
+          </div>
+          <div class="contexts-view-actions">
+            <button type="button" class="contexts-mode-btn${this.mode === "list" ? " active" : ""}" data-mode="list">List</button>
+            <button type="button" class="contexts-mode-btn${this.mode === "graph" ? " active" : ""}" data-mode="graph">Graph</button>
+          </div>
+        </div>
+        <div class="contexts-view-meta">
+          <span class="contexts-meta-chip">${model.coreEntries.length} core files</span>
+          <span class="contexts-meta-chip">${model.taskEntries.length} task records</span>
+          <span class="contexts-meta-chip">Root: .athva/contexts</span>
+        </div>
+        <div class="contexts-view-body">
+          ${this.mode === "list" ? listMarkup : graphMarkup}
+        </div>
+      </div>
     `;
-    button.addEventListener("click", () => {
-      this.activePath = absolutePath;
-      this.setActivePath(absolutePath);
-      this.onOpenFile(absolutePath, absolutePath.split("/").pop() || absolutePath);
-    });
-    return button;
+
+    this.bind();
   }
 
-  private renderGraph(model: ContextWorkspaceModel) {
-    const rootNode = this.buildGraphNode("Contexts", model.indexPath, 50, 16, "root");
-    this.graphEl.appendChild(rootNode);
+  private renderList(model: ContextWorkspaceModel): string {
+    const rows: string[] = [];
 
-    const taskHistoryNode = this.buildGraphNode("Task History", model.taskHistoryPath, 78, 30, "history-root");
-    this.graphEl.appendChild(taskHistoryNode);
-    this.graphEl.appendChild(this.buildEdge(50, 16, 78, 30));
+    rows.push(this.listItem("Context Index", model.indexPath, ".athva/contexts/context.md", "Index"));
+    for (const entry of model.coreEntries) {
+      rows.push(this.listItem(entry.name, this.contextManager.resolvePath(entry.path), entry.path, "Context"));
+    }
+    rows.push(this.listItem("Task History", model.taskHistoryPath, ".athva/contexts/task-history.md", "Index"));
+    for (const entry of model.taskEntries) {
+      rows.push(this.listItem(entry.title, this.contextManager.resolvePath(entry.path), entry.path, "Task"));
+    }
 
-    const coreStep = model.coreEntries.length > 1 ? 60 / (model.coreEntries.length - 1) : 0;
-    model.coreEntries.forEach((entry, index) => {
-      const top = 26 + (coreStep * index);
-      const left = 22 + (index % 2 === 0 ? 0 : 4);
-      const node = this.buildGraphNode(entry.name, this.absolutePath(entry.path), left, top, "context");
-      this.graphEl.appendChild(node);
-      this.graphEl.appendChild(this.buildEdge(50, 16, left, top));
-    });
-
-    const historyEntries = model.taskEntries.slice(0, 12);
-    const historyStep = historyEntries.length > 1 ? 56 / (historyEntries.length - 1) : 0;
-    historyEntries.forEach((entry, index) => {
-      const top = 36 + (historyStep * index);
-      const left = 74 + (index % 2 === 0 ? 8 : 0);
-      const node = this.buildGraphNode(this.clip(entry.title, 24), this.absolutePath(entry.path), left, top, "history");
-      this.graphEl.appendChild(node);
-      this.graphEl.appendChild(this.buildEdge(78, 30, left, top));
-    });
+    return `<div class="contexts-list">${rows.join("")}</div>`;
   }
 
-  private buildGraphNode(label: string, absolutePath: string, left: number, top: number, kind: string): HTMLElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `contexts-graph-node contexts-graph-node-${kind}`;
-    button.dataset.path = absolutePath;
-    button.style.left = `${left}%`;
-    button.style.top = `${top}%`;
-    button.textContent = label;
-    button.addEventListener("click", () => {
-      this.activePath = absolutePath;
-      this.setActivePath(absolutePath);
-      this.onOpenFile(absolutePath, absolutePath.split("/").pop() || absolutePath);
-    });
-    return button;
+  private listItem(label: string, absolutePath: string, relativePath: string, tag: string): string {
+    const iconName = relativePath.split("/").pop() || relativePath;
+    return `
+      <button type="button" class="contexts-item" data-path="${escapeHtml(absolutePath)}" data-name="${escapeHtml(iconName)}">
+        <span class="contexts-item-icon">${getFileIcon(iconName)}</span>
+        <span class="contexts-item-copy">
+          <span class="contexts-item-title">${escapeHtml(label)}</span>
+          <span class="contexts-item-path">${escapeHtml(relativePath)}</span>
+        </span>
+        <span class="contexts-item-tag">${escapeHtml(tag)}</span>
+      </button>
+    `;
   }
 
-  private buildEdge(fromLeft: number, fromTop: number, toLeft: number, toTop: number): HTMLElement {
+  private renderGraph(model: ContextWorkspaceModel): string {
+    const nodes: string[] = [];
+    const edges: string[] = [];
+
+    nodes.push(this.graphNode("Contexts", model.indexPath, 50, 14, "root"));
+    nodes.push(this.graphNode("Task History", model.taskHistoryPath, 78, 28, "history-root"));
+    edges.push(this.graphEdge(50, 14, 78, 28));
+
+    const coreEntries = model.coreEntries.length ? model.coreEntries : [];
+    const coreStep = coreEntries.length > 1 ? 56 / (coreEntries.length - 1) : 0;
+    coreEntries.forEach((entry, index) => {
+      const top = 24 + (coreStep * index);
+      const left = index % 2 === 0 ? 20 : 28;
+      const absolutePath = this.contextManager.resolvePath(entry.path);
+      nodes.push(this.graphNode(entry.name, absolutePath, left, top, "context"));
+      edges.push(this.graphEdge(50, 14, left, top));
+    });
+
+    const taskEntries = model.taskEntries.slice(0, 16);
+    const historyStep = taskEntries.length > 1 ? 52 / (taskEntries.length - 1) : 0;
+    taskEntries.forEach((entry, index) => {
+      const top = 34 + (historyStep * index);
+      const left = index % 2 === 0 ? 72 : 84;
+      const absolutePath = this.contextManager.resolvePath(entry.path);
+      nodes.push(this.graphNode(this.clip(entry.title, 28), absolutePath, left, top, "task"));
+      edges.push(this.graphEdge(78, 28, left, top));
+    });
+
+    return `<div class="contexts-graph-canvas">${edges.join("")}${nodes.join("")}</div>`;
+  }
+
+  private graphNode(label: string, absolutePath: string, left: number, top: number, kind: string): string {
+    const name = absolutePath.split("/").pop() || absolutePath;
+    return `
+      <button
+        type="button"
+        class="contexts-graph-node contexts-graph-node-${kind}"
+        data-path="${escapeHtml(absolutePath)}"
+        data-name="${escapeHtml(name)}"
+        style="left:${left}%;top:${top}%"
+      >${escapeHtml(label)}</button>
+    `;
+  }
+
+  private graphEdge(fromLeft: number, fromTop: number, toLeft: number, toTop: number): string {
     const dx = toLeft - fromLeft;
     const dy = toTop - fromTop;
     const length = Math.sqrt((dx * dx) + (dy * dy));
     const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-    const edge = document.createElement("div");
-    edge.className = "contexts-graph-edge";
-    edge.style.left = `${fromLeft}%`;
-    edge.style.top = `${fromTop}%`;
-    edge.style.width = `${length}%`;
-    edge.style.transform = `rotate(${angle}deg)`;
-    return edge;
+    return `<div class="contexts-graph-edge" style="left:${fromLeft}%;top:${fromTop}%;width:${length}%;transform:rotate(${angle}deg)"></div>`;
   }
 
-  private absolutePath(relativePath: string): string {
-    const projectRoot = this.rootPath.replace(/\/\.athva\/contexts\/?$/, "");
-    const normalized = relativePath.replace(/^\.athva\/contexts\/?/, "");
-    return `${projectRoot}/.athva/contexts/${normalized.replace(/^\/+/, "")}`;
+  private bind() {
+    this.container.querySelectorAll<HTMLElement>(".contexts-mode-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.mode === "graph" ? "graph" : "list";
+        this.setMode(mode);
+      });
+    });
+
+    this.container.querySelectorAll<HTMLElement>("[data-path]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const path = button.dataset.path;
+        const name = button.dataset.name;
+        if (!path || !name) return;
+        this.onOpenFile(path, name);
+      });
+    });
   }
 
   private clip(value: string, limit: number): string {
     return value.length > limit ? `${value.slice(0, limit)}…` : value;
-  }
-
-  private escapeHtml(value: string): string {
-    const div = document.createElement("div");
-    div.textContent = value;
-    return div.innerHTML;
   }
 }

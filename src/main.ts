@@ -39,7 +39,6 @@ import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modu
 import { ProjectSwitcher } from "./modules/project-switcher";
 import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
-import { ContextsWorkspace } from "./modules/contexts-workspace";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -61,7 +60,6 @@ let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
 let docsWorkspace!: DocsWorkspace;
-let contextsWorkspace!: ContextsWorkspace;
 let contextManager!: ContextManager;
 let currentProjectPath: string = "";
 let appUnlocked = false;
@@ -448,7 +446,6 @@ async function openProject(path: string) {
   await editor.closeAllTabs();
   editor.setProjectRoot(project.path);
   docsWorkspace?.close();
-  contextsWorkspace?.close();
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
   globalSearch.setProjectRoot(project.path);
@@ -1385,7 +1382,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     },
     (path, name) => {
       if (name === "DOCS") {
-        contextsWorkspace.close();
         void docsWorkspace.openRoot(path).then((pages) => {
           if (!pages.length) return;
           if (!docsWorkspace.containsPath(editor.getActiveFilePath())) {
@@ -1399,7 +1395,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       if (path.endsWith("/.athva/contexts")) {
         docsWorkspace.close();
-        void contextsWorkspace.openRoot(path);
+        void editor.openContextsView(path);
       }
     }
   );
@@ -1412,20 +1408,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     (page) => {
       void openFileWithGuards(page.path, page.name);
     }
-  );
-
-  contextsWorkspace = new ContextsWorkspace(
-    "contexts-sidebar-panel",
-    "contexts-sidebar-title",
-    "contexts-pages-empty",
-    "contexts-pages-list",
-    "contexts-graph",
-    "btn-contexts-list-view",
-    "btn-contexts-graph-view",
-    contextManager,
-    (path, name) => {
-      void openFileWithGuards(path, name);
-    },
   );
 
   // Init sidebar time widget
@@ -1475,18 +1457,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     contextManager,
   );
   chatbot.setMemory(agentMemory, () => appSettings);
+  editor.setContextsViewContext(contextManager, (path, name) => {
+    void openFileWithGuards(path, name);
+  });
 
   // Refresh file explorer and reload open tab when agent writes/creates files
   chatbot.setOnFileChanged((path: string) => {
     if (currentProjectPath) {
       fileExplorer.loadRoot(currentProjectPath);
     }
-    if (path && contextsWorkspace?.containsPath(path)) {
-      void contextsWorkspace.reload().then(() => contextsWorkspace.setActivePath(path));
-    }
     // If the changed file is currently open in the editor, reload it
     if (path && editor.getActiveFilePath() === path) {
       editor.reloadFile(path);
+    }
+    if (path?.includes("/.athva/contexts/")) {
+      void editor.refreshContextsView();
     }
   });
 
@@ -1744,7 +1729,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     toggleChat();
     syncTopBarActionStates();
   });
-  $("btn-edit-context").addEventListener("click", () => chatbot.openContextEditor());
+  $("btn-edit-context").addEventListener("click", () => {
+    if (!currentProjectPath) return;
+    void editor.openContextsView(contextManager.getRootPath());
+  });
 
   // ── Settings buttons ──
   $("btn-close-settings").addEventListener("click", () => showPage("workspace"));
@@ -1928,9 +1916,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (docsWorkspace.containsPath(path)) {
         void docsWorkspace.reload().then(() => docsWorkspace.setActivePage(path));
       }
-      if (contextsWorkspace.containsPath(path)) {
-        void contextsWorkspace.reload().then(() => contextsWorkspace.setActivePath(path));
-      }
+      if (path.includes("/.athva/contexts/")) void editor.refreshContextsView();
     }
   });
   editor.setOnDocLinkNavigate(async (fromPath, href) => {
@@ -1944,8 +1930,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (docsWorkspace.containsPath(oldPath) || docsWorkspace.containsPath(newPath)) {
       void docsWorkspace.reload().then(() => docsWorkspace.setActivePage(newPath));
     }
-    if (contextsWorkspace.containsPath(oldPath) || contextsWorkspace.containsPath(newPath)) {
-      void contextsWorkspace.reload().then(() => contextsWorkspace.setActivePath(newPath));
+    if (oldPath.includes("/.athva/contexts/") || newPath.includes("/.athva/contexts/")) {
+      void editor.refreshContextsView();
     }
   });
 
