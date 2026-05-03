@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { readFile, readDir } from "@tauri-apps/plugin-fs";
 import { listen } from "@tauri-apps/api/event";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
+import { showConfirmDialog, showInputDialog } from "./dialogs";
 import { renderMarkdown } from "./markdown-renderer";
 import { TodoPanel } from "./todo-panel";
 import { DocumentEditor } from "./doc-editor";
@@ -68,6 +69,8 @@ interface OpenTab {
   kind?: "file" | "web";
   url?: string;
   lockedView?: boolean;
+  untitled?: boolean;
+  docRoot?: string;
 }
 
 interface WebMediaStatePayload {
@@ -196,10 +199,12 @@ export class Editor {
   private editorContextMenu: HTMLElement;
   private onAskAI: ((prompt: string, code: string) => void) | null = null;
   private onSaveCallback: ((path: string, content: string) => void) | null = null;
+  private onTabSavedCallback: ((path: string, content: string, meta?: { created?: boolean; previousPath?: string }) => void) | null = null;
   private onCreateEditorTab: (() => void) | null = null;
   private onUnlockProtected: ((path: string) => void) | null = null;
   private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
   private onHoverInfo: ((request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) | null = null;
+  private onDocLinkNavigate: ((fromPath: string, href: string) => Promise<boolean>) | null = null;
   private webFrameEl: HTMLIFrameElement;
   private tabPickerDropdown: HTMLElement;
   private webTabLabels: Map<string, string> = new Map();
@@ -232,6 +237,8 @@ export class Editor {
   private readonly projectDependencyCache: Map<string, string[]> = new Map();
   private readonly projectSourceFileCache: Map<string, string[]> = new Map();
   private readonly projectCompilerConfigCache: Map<string, ProjectCompilerConfig> = new Map();
+  private untitledCounter = 0;
+  private projectRoot = "";
   //@ts-ignore — holds reference to prevent GC; lifecycle managed internally
   private colorHighlighter: ColorHighlighter | null = null;
 
@@ -288,6 +295,9 @@ export class Editor {
       () => this.redo()
     );
     this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, () => this.redo());
+    this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void this.saveActiveTab();
+    });
 
     // Tab key: try Emmet first, then let Monaco handle indent
     this.monacoEditor.onKeyDown((e) => {
@@ -428,7 +438,7 @@ export class Editor {
         this.renderTabs();
       }
       if (this.saveTimeout) clearTimeout(this.saveTimeout);
-      if (tab?.lockedView) return;
+      if (tab?.lockedView || tab?.untitled) return;
       this.saveTimeout = setTimeout(() => this.saveCurrentFile(), 1000);
     });
 
@@ -723,9 +733,10 @@ export class Editor {
     setAICompleterEnabled(settings.aiInlineSuggestions);
   }
 
-  async openFile(path: string, name: string, line?: number, column?: number) {
+  async openFile(path: string, name: string, line?: number, column?: number, docRoot?: string) {
     const existing = this.tabs.find((t) => t.path === path);
     if (existing) {
+      existing.docRoot = docRoot;
       this.switchToTab(path);
       if (line !== undefined) this.gotoPosition(line, column);
       return;
@@ -744,7 +755,7 @@ export class Editor {
       }
     }
 
-    const tab: OpenTab = { path, name, content, modified: false, pinned: false };
+    const tab: OpenTab = { path, name, content, modified: false, pinned: false, docRoot };
     this.tabs.push(tab);
     this.switchToTab(path);
     if (line !== undefined && !isBinary) this.gotoPosition(line, column);
@@ -809,11 +820,24 @@ export class Editor {
     }
   }
 
-  closeTab(path: string) {
+  async closeTab(path: string): Promise<string | void> {
     const idx = this.tabs.findIndex((t) => t.path === path);
     if (idx === -1) return;
 
     const tab = this.tabs[idx];
+    if (tab.untitled && tab.modified) {
+      const shouldSave = await showConfirmDialog(
+        "Save New File",
+        `${tab.name} has unsaved changes. Save it before closing?`,
+        "Save",
+        "Discard"
+      );
+      if (shouldSave) {
+        const saved = await this.saveTab(tab);
+        if (!saved) return;
+      }
+    }
+
     if (tab.kind === "web") {
       const label = this.webTabLabels.get(path);
       if (label) {
@@ -931,7 +955,7 @@ export class Editor {
       // Set up Monaco with current content
       const ext = tab.name.split(".").pop()?.toLowerCase() || "";
       const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
-      const uri = monaco.Uri.file(path);
+      const uri = this.getModelUri(tab);
 
       let model = this.models.get(path);
       if (!model) {
@@ -1117,7 +1141,7 @@ export class Editor {
     }
 
     const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
-    const uri = monaco.Uri.file(path);
+    const uri = this.getModelUri(tab);
 
     let model = this.models.get(path) ?? monaco.editor.getModel(uri);
     if (!model) {
@@ -1189,6 +1213,7 @@ export class Editor {
       case "markdown": {
         this.svgPreviewEl.classList.add("md-mode");
         this.svgPreviewEl.innerHTML = `<div class="md-preview-body">${renderMarkdown(content)}</div>`;
+        this.attachPreviewLinkHandlers(tab);
         break;
       }
       case "csv": {
@@ -1938,14 +1963,18 @@ export class Editor {
     this.renderTabs();
   }
 
-  closeOtherTabs(path: string) {
+  async closeOtherTabs(path: string) {
     const toClose = this.tabs.filter((t) => t.path !== path && !t.pinned);
-    toClose.forEach((t) => this.closeTab(t.path));
+    for (const tab of toClose) {
+      await this.closeTab(tab.path);
+    }
   }
 
-  closeAllTabs() {
+  async closeAllTabs() {
     const toClose = [...this.tabs];
-    toClose.forEach((t) => this.closeTab(t.path));
+    for (const tab of toClose) {
+      await this.closeTab(tab.path);
+    }
   }
 
   openWebTab(url: string, title: string) {
@@ -2237,8 +2266,8 @@ export class Editor {
     const items: { label?: string; action?: () => void; separator?: boolean }[] = [
       { label: tab.pinned ? "Unpin Tab" : "Pin Tab", action: () => this.pinTab(path) },
       { separator: true },
-      { label: "Close Other Tabs", action: () => this.closeOtherTabs(path) },
-      { label: "Close All Tabs", action: () => this.closeAllTabs() },
+      { label: "Close Other Tabs", action: () => { void this.closeOtherTabs(path); } },
+      { label: "Close All Tabs", action: () => { void this.closeAllTabs(); } },
     ];
 
     for (const item of items) {
@@ -2375,7 +2404,7 @@ export class Editor {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const path = (btn as HTMLElement).dataset.close!;
-        this.closeTab(path);
+        void this.closeTab(path);
       });
     });
 
@@ -2413,15 +2442,18 @@ export class Editor {
 
   private async saveCurrentFile() {
     const tab = this.tabs.find((t) => t.path === this.activeTab);
-    if (!tab || !tab.modified || tab.lockedView) return;
+    if (!tab || !tab.modified || tab.lockedView) return false;
 
     try {
       await invoke("write_file", { path: tab.path, content: tab.content });
       tab.modified = false;
       this.renderTabs();
       this.onSaveCallback?.(tab.path, tab.content);
+      this.onTabSavedCallback?.(tab.path, tab.content);
+      return true;
     } catch (e) {
       console.error(`Failed to save file [${tab.path}]:`, e);
+      return false;
     }
   }
 
@@ -2476,6 +2508,32 @@ export class Editor {
 
   openReplace() {
     this.monacoEditor.getAction("editor.action.startFindReplaceAction")?.run();
+  }
+
+  createUntitledFile() {
+    this.untitledCounter += 1;
+    const path = `untitled://Untitled-${this.untitledCounter}.md`;
+    const name = `Untitled-${this.untitledCounter}.md`;
+    const existing = this.tabs.find((tab) => tab.path === path);
+    if (existing) {
+      this.switchToTab(path);
+      return;
+    }
+    this.tabs.push({
+      path,
+      name,
+      content: "",
+      modified: false,
+      pinned: false,
+      untitled: true,
+    });
+    this.switchToTab(path);
+  }
+
+  async saveActiveTab(): Promise<boolean> {
+    const tab = this.tabs.find((t) => t.path === this.activeTab);
+    if (!tab || tab.lockedView) return false;
+    return this.saveTab(tab);
   }
 
   hasOpenFile(): boolean {
@@ -2573,10 +2631,91 @@ export class Editor {
     this.onSaveCallback = handler;
   }
 
+  setOnTabSaved(handler: (path: string, content: string, meta?: { created?: boolean; previousPath?: string }) => void) {
+    this.onTabSavedCallback = handler;
+  }
+
+  setOnDocLinkNavigate(handler: (fromPath: string, href: string) => Promise<boolean>) {
+    this.onDocLinkNavigate = handler;
+  }
+
+  setProjectRoot(path: string) {
+    this.projectRoot = path;
+  }
+
   private getSelectedText(): string {
     const sel = this.monacoEditor.getSelection();
     if (!sel) return "";
     return this.monacoEditor.getModel()?.getValueInRange(sel) ?? "";
+  }
+
+  private getModelUri(tab: OpenTab): monaco.Uri {
+    return tab.untitled ? monaco.Uri.parse(tab.path) : monaco.Uri.file(tab.path);
+  }
+
+  private async saveTab(tab: OpenTab): Promise<boolean> {
+    if (tab.untitled) return this.saveUntitledTab(tab);
+    if (this.activeTab !== tab.path) {
+      const currentActive = this.activeTab;
+      this.activeTab = tab.path;
+      const saved = await this.saveCurrentFile();
+      this.activeTab = currentActive;
+      return saved;
+    }
+    return this.saveCurrentFile();
+  }
+
+  private async saveUntitledTab(tab: OpenTab): Promise<boolean> {
+    const suggestedPath = this.projectRoot ? `${this.projectRoot}/${tab.name}` : tab.name;
+    const targetPath = await showInputDialog("Save New File", "Enter the file path to save", suggestedPath);
+    if (!targetPath) return false;
+
+    const content = this.monacoEditor.getModel()?.getValue() ?? tab.content;
+    const previousPath = tab.path;
+    try {
+      await invoke("write_file", { path: targetPath, content });
+      tab.path = targetPath;
+      tab.name = targetPath.split("/").pop() || tab.name;
+      tab.content = content;
+      tab.modified = false;
+      tab.untitled = false;
+
+      const oldModel = this.models.get(previousPath);
+      if (oldModel) {
+        oldModel.dispose();
+        this.models.delete(previousPath);
+      }
+
+      const ext = tab.name.split(".").pop()?.toLowerCase() || "";
+      const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
+      const newModel = monaco.editor.createModel(content, language, monaco.Uri.file(targetPath));
+      this.models.set(targetPath, newModel);
+      this.activeTab = targetPath;
+      this.monacoEditor.setModel(newModel);
+      (this.monacoEditor as any)._athvaFilePath = targetPath;
+      (this.monacoEditor as any)._athvaFileName = tab.name;
+      this.renderTabs();
+      this.onSaveCallback?.(targetPath, content);
+      this.onTabSavedCallback?.(targetPath, content, { created: true, previousPath });
+      return true;
+    } catch (e) {
+      console.error(`Failed to save untitled file [${targetPath}]:`, e);
+      return false;
+    }
+  }
+
+  private attachPreviewLinkHandlers(tab: OpenTab) {
+    if (!tab.docRoot || !this.onDocLinkNavigate) return;
+    this.svgPreviewEl.querySelectorAll<HTMLAnchorElement>(".md-link").forEach((link) => {
+      const href = link.getAttribute("href") || "";
+      if (/^(https?:|mailto:)/i.test(href)) return;
+      link.removeAttribute("target");
+      link.removeAttribute("rel");
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        void this.onDocLinkNavigate?.(tab.path, href);
+      });
+    });
   }
 
   private showEditorContextMenu(e: MouseEvent) {

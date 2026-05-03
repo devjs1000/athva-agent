@@ -32,6 +32,10 @@ function inlineFormat(s: string): string {
         /!\[([^\]]*)\]\(([^)]+)\)/g,
         '<img src="$2" alt="$1" class="md-img" />'
       )
+      .replace(
+        /\[\[([^[\]]+)\]\]/g,
+        '<a href="wiki:$1" class="md-link md-link-internal">$1</a>'
+      )
       // links
       .replace(
         /\[([^\]]+)\]\(([^)]+)\)/g,

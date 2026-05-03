@@ -9,18 +9,21 @@ export interface FileEntry {
 }
 
 export type OnFileSelect = (path: string, name: string) => void;
+export type OnDirectorySelect = (path: string, name: string) => void;
 
 export class FileExplorer {
   private container: HTMLElement;
   private onFileSelect: OnFileSelect;
+  private onDirectorySelect: OnDirectorySelect | null;
   private contextMenu: ContextMenu;
   private rootPath: string = "";
   // Track loaded dir containers so we can refresh specific dirs
   private dirContainers: Map<string, { el: HTMLElement; depth: number }> = new Map();
 
-  constructor(containerId: string, onFileSelect: OnFileSelect) {
+  constructor(containerId: string, onFileSelect: OnFileSelect, onDirectorySelect?: OnDirectorySelect) {
     this.container = document.getElementById(containerId)!;
     this.onFileSelect = onFileSelect;
+    this.onDirectorySelect = onDirectorySelect ?? null;
 
     this.contextMenu = new ContextMenu(
       (dirPath) => this.refreshDir(dirPath),
@@ -161,6 +164,7 @@ export class FileExplorer {
             chevron.classList.add("expanded");
             icon.innerHTML = getFolderIcon(entry.name, true);
           }
+          this.onDirectorySelect?.(entry.path, entry.name);
         });
       } else {
         item.addEventListener("click", () => {

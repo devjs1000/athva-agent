@@ -32,7 +32,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 - `src/main.ts`: bootstraps the workspace, wires page state, and connects modules together.
 - `src/modules/editor.ts`: Ace editor wrapper with tabs, autosave, formatting, linting, minimap support, HTML/JSX/TSX Emmet expansion, delayed TypeScript hover info, AI completion hooks, and the custom completion surface wiring.
 - `src/modules/custom-autocomplete.ts`: custom completion popup and inline preview layer that reuses Ace completers while filtering member-access contexts to relevant object/property completions.
-- `src/modules/file-explorer.ts`: renders project trees and integrates the file context menu.
+- `src/modules/file-explorer.ts`: renders project trees, integrates the file context menu, and emits folder selection events for DOCS-mode navigation.
+- `src/modules/docs-workspace.ts`: renders the DOCS page sidebar, indexes page files under a `DOCS` folder, and resolves internal page links.
 - `src/modules/settings.ts`: defines app settings types/defaults and binds the settings UI, including persisted workspace action placements across titlebar, side rails, and status bar zones plus the active runtime file icon theme selection.
 - `src/modules/chatbot.ts`: manages chat sessions and provider API calls, including rolling agent-history compaction and capped project/session context to keep token use stable.
 - `src/modules/chat-store.ts`: stores chat sessions in IndexedDB.
@@ -78,8 +79,8 @@ Athva Agent is a Tauri desktop application with a vanilla TypeScript frontend an
 
 1. Explorer or quick-open selects a file
 2. Editor calls `read_file`
-3. Content opens in an Ace tab
-4. On change, the editor updates tab state and autosaves via `write_file`
+3. Content opens in a Monaco tab or document surface, with `DOCS` pages optionally getting a dedicated page-navigation sidebar
+4. On change, the editor updates tab state and autosaves via `write_file`, except untitled buffers which stay in memory until explicitly saved
 5. TypeScript-family files run worker-based diagnostics
 
 ### Chat
@@ -203,4 +204,6 @@ pnpm quality:analyze <project-path> --config /path/to/quality-config.json --outp
 - Athva now consumes a limited subset of installed VSIX assets directly: color themes, SVG-based file icon themes, and snippet contributions. These apply through Athva's native theme, explorer icon, and snippet systems rather than a VS Code extension host.
 - Extensions that depend on executable activation, VS Code APIs, language servers, TextMate grammar injection, debugger hooks, or custom views still do not run inside Athva.
 - Workspace action placement is configured in-app via per-button move menus and persisted in settings rather than project files, and placements attach to real IDE chrome regions instead of floating overlays.
+- The terminal toggle is available from the toolbar and keyboard shortcuts, and the explorer can now be collapsed independently without changing workspace action placement.
+- A folder named `DOCS` activates a page-navigation sidebar with internal link resolution, but editing still uses the existing editor surfaces.
 - The repository README is still minimal and does not yet replace this file as authoritative technical documentation.

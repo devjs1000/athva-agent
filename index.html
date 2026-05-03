@@ -398,6 +398,11 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             </button>
             </div>
+            <div>
+            <button id="btn-toggle-sidebar" class="btn-icon" title="Toggle Explorer (Cmd+B)" aria-label="Toggle Explorer">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+            </button>
+            </div>
             <div class="workspace-action-item" data-action-id="chat">
             <button id="btn-toggle-chat" class="btn-icon" title="Toggle AI Chat" aria-label="Toggle AI Chat">
               <!-- sparkles / AI -->
@@ -476,6 +481,20 @@
 
           <!-- Left panel stack (panels moved here when their button is on the left sidebar strip) -->
           <div id="left-panel-stack" class="left-panel-stack"></div>
+
+          <div id="docs-sidebar-panel" class="docs-sidebar-panel hidden">
+            <div class="docs-sidebar-header">
+              <div class="docs-sidebar-title-wrap">
+                <span class="docs-sidebar-title-kicker">DOCS</span>
+                <span id="docs-sidebar-title" class="docs-sidebar-title">DOCS</span>
+              </div>
+              <button id="btn-close-docs-sidebar" class="sidebar-tab-btn" title="Close Docs Sidebar" aria-label="Close Docs Sidebar">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+              </button>
+            </div>
+            <div id="docs-pages-empty" class="docs-pages-empty">No pages found in this DOCS folder.</div>
+            <div id="docs-pages-list" class="docs-pages-list"></div>
+          </div>
 
           <!-- Editor + Terminal vertical split -->
           <div id="editor-area" class="editor-area">

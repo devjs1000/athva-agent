@@ -37,6 +37,7 @@ import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type Inst
 import { CommandPalette } from "./modules/command-palette";
 import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modules/extension-runtime";
 import { ProjectSwitcher } from "./modules/project-switcher";
+import { DocsWorkspace } from "./modules/docs-workspace";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -57,6 +58,7 @@ let projectSwitcher!: ProjectSwitcher;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
+let docsWorkspace!: DocsWorkspace;
 let currentProjectPath: string = "";
 let appUnlocked = false;
 let lastSecuritySignature = "";
@@ -439,7 +441,9 @@ async function openProject(path: string) {
   $("workspace-project-name").textContent = project.name;
   showPage("workspace");
 
-  editor.closeAllTabs();
+  await editor.closeAllTabs();
+  editor.setProjectRoot(project.path);
+  docsWorkspace?.close();
   await fileExplorer.loadRoot(project.path);
   quickOpen.setProjectRoot(project.path);
   globalSearch.setProjectRoot(project.path);
@@ -650,6 +654,17 @@ function syncTopBarActionStates() {
   document.getElementById("btn-toggle-terminal")?.classList.toggle("active", terminal?.getIsVisible?.() ?? false);
   document.getElementById("btn-toggle-scm")?.classList.toggle("active", sourceControl?.isOpen?.() ?? false);
   document.getElementById("btn-toggle-snippets")?.classList.toggle("active", snippetsPanel?.isVisible?.() ?? false);
+  document.getElementById("btn-toggle-sidebar")?.classList.toggle("active", !$("sidebar").classList.contains("hidden"));
+}
+
+function toggleSidebar(force?: boolean) {
+  const sidebar = $("sidebar");
+  const resizeHandle = $("sidebar-resize");
+  const shouldShow = force ?? sidebar.classList.contains("hidden");
+  sidebar.classList.toggle("hidden", !shouldShow);
+  resizeHandle.classList.toggle("hidden", !shouldShow);
+  syncTopBarActionStates();
+  setTimeout(() => editor.resize(), 0);
 }
 
 function applyPanelSidePlacement(panelId: string, resizeId: string | null, actionId: WorkspaceActionId) {
@@ -1313,8 +1328,14 @@ async function openFileWithGuards(path: string, name: string, line?: number, col
     if (line !== undefined) editor.gotoPosition(line, column ?? 1);
     return;
   }
-  await editor.openFile(path, name, line, column);
+  const docRoot = docsWorkspace?.containsPath(path) ? docsWorkspace.getRootPath() : undefined;
+  await editor.openFile(path, name, line, column, docRoot);
   fileExplorer.setActiveFile(path);
+  if (docRoot) {
+    docsWorkspace.setActivePage(path);
+  } else if (docsWorkspace?.isOpen()) {
+    docsWorkspace.close();
+  }
 }
 
 function syncChatAutoApproveToggle() {
@@ -1352,9 +1373,33 @@ window.addEventListener("DOMContentLoaded", async () => {
   editor.addCompletionProvider(twCompleter.languages, twCompleter.provider);
 
   // Init file explorer
-  fileExplorer = new FileExplorer("file-tree", (path, name) => {
-    void openFileWithGuards(path, name);
-  });
+  fileExplorer = new FileExplorer(
+    "file-tree",
+    (path, name) => {
+      void openFileWithGuards(path, name);
+    },
+    (path, name) => {
+      if (name !== "DOCS") return;
+      void docsWorkspace.openRoot(path).then((pages) => {
+        if (!pages.length) return;
+        if (!docsWorkspace.containsPath(editor.getActiveFilePath())) {
+          void openFileWithGuards(pages[0].path, pages[0].name);
+          return;
+        }
+        docsWorkspace.setActivePage(editor.getActiveFilePath());
+      });
+    }
+  );
+
+  docsWorkspace = new DocsWorkspace(
+    "docs-sidebar-panel",
+    "docs-sidebar-title",
+    "docs-pages-list",
+    "docs-pages-empty",
+    (page) => {
+      void openFileWithGuards(page.path, page.name);
+    }
+  );
 
   // Init sidebar time widget
   new SidebarTimeWidget("sidebar-time-widget");
@@ -1622,6 +1667,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     terminal.toggle();
     syncTopBarActionStates();
   });
+  $("btn-toggle-sidebar").addEventListener("click", () => toggleSidebar());
   function setActiveTab(tab: "explorer" | "search") {
     $("sidebar-tab-explorer").classList.toggle("active", tab === "explorer");
     $("sidebar-tab-search").classList.toggle("active", tab === "search");
@@ -1724,11 +1770,27 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    // Ctrl/Cmd + N → New tab picker
+    // Ctrl/Cmd + B → Toggle sidebar
+    if (isMod && e.key.toLowerCase() === "b" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      if (isWorkspace) toggleSidebar();
+      return;
+    }
+
+    // Ctrl/Cmd + N → New untitled file
     if (isMod && e.key === "n" && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       if (isWorkspace) {
-        editor.openNewTabPicker();
+        editor.createUntitledFile();
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + S → Save active file
+    if (isMod && e.key.toLowerCase() === "s" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      if (isWorkspace) {
+        void editor.saveActiveTab();
       }
       return;
     }
@@ -1769,11 +1831,12 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    // Ctrl/Cmd + ` → Toggle terminal
-    if (isMod && e.key === "`") {
+    // Ctrl + ` or Cmd + ` → Toggle terminal
+    if ((e.ctrlKey && e.key === "`") || (isMod && e.key === "`")) {
       e.preventDefault();
       if (isWorkspace) {
         terminal.toggle();
+        syncTopBarActionStates();
       }
       return;
     }
@@ -1826,8 +1889,25 @@ window.addEventListener("DOMContentLoaded", async () => {
   editor.setOnSave((path: string, content: string) => {
     void exportsTracker.onFileSave(path, content);
   });
+  editor.setOnTabSaved((path: string, _content: string, meta) => {
+    if (meta?.created && currentProjectPath) {
+      void fileExplorer.loadRoot(currentProjectPath);
+      if (docsWorkspace.containsPath(path)) {
+        void docsWorkspace.reload().then(() => docsWorkspace.setActivePage(path));
+      }
+    }
+  });
+  editor.setOnDocLinkNavigate(async (fromPath, href) => {
+    const page = docsWorkspace.resolvePageLink(fromPath, href);
+    if (!page) return false;
+    await openFileWithGuards(page.path, page.name);
+    return true;
+  });
   fileExplorer.setOnRename((oldPath: string, newPath: string) => {
     void exportsTracker.onFileRenamed(oldPath, newPath);
+    if (docsWorkspace.containsPath(oldPath) || docsWorkspace.containsPath(newPath)) {
+      void docsWorkspace.reload().then(() => docsWorkspace.setActivePage(newPath));
+    }
   });
 
   // ── Battery monitor ──

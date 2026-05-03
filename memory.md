@@ -48,11 +48,20 @@ This file is the reusable code registry for the current implementation. Entries 
 ### File Explorer
 
 - path: `src/modules/file-explorer.ts`
-- responsibility: recursive directory rendering, active file highlighting, context menu integration, targeted directory refresh
+- responsibility: recursive directory rendering, active file highlighting, context menu integration, targeted directory refresh, and DOCS-folder selection events
 - reuse_when:
   - displaying project trees
   - refreshing a changed directory after file operations
 - last_analyzed_at: 2026-04-04T08:29:52Z
+
+### Docs Workspace
+
+- path: `src/modules/docs-workspace.ts`
+- responsibility: `DOCS` folder page indexing, sidebar rendering, active page highlighting, and internal page-link resolution
+- reuse_when:
+  - adding book-like documentation navigation
+  - resolving wiki links or relative page links inside documentation surfaces
+- last_analyzed_at: 2026-05-03T00:00:00Z
 
 ### Settings System
 

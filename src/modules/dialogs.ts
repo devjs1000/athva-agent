@@ -53,7 +53,12 @@ export function showInputDialog(title: string, placeholder: string, defaultValue
   });
 }
 
-export function showConfirmDialog(title: string, message: string, confirmLabel: string = "Delete"): Promise<boolean> {
+export function showConfirmDialog(
+  title: string,
+  message: string,
+  confirmLabel: string = "Delete",
+  cancelLabel: string = "Cancel"
+): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.getElementById("confirm-dialog")!;
     const titleEl = document.getElementById("confirm-dialog-title")!;
@@ -64,6 +69,7 @@ export function showConfirmDialog(title: string, message: string, confirmLabel: 
     titleEl.textContent = title;
     msgEl.textContent = message;
     okBtn.textContent = confirmLabel;
+    cancelBtn.textContent = cancelLabel;
 
     overlay.classList.remove("hidden");
     cancelBtn.focus();
