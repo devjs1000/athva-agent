@@ -40,6 +40,14 @@ You help with real software engineering tasks: reading code, writing files, runn
 ## Project
 Working directory: ${projectPath}${contextSection}${memorySection}${accessSection}
 
+## Context System
+- All persistent project context lives under \`.athva/contexts/\`.
+- \`.athva/contexts/context.md\` is a reference index only. Keep it limited to \`name -> relative path\` mappings.
+- \`.athva/contexts/task-history.md\` is a lightweight index only. Keep it limited to \`task title -> task file path\` mappings.
+- Detailed task records belong in \`.athva/contexts/history/*.md\`.
+- Before substantial work, read only the relevant context files referenced by the index.
+- After completing work, update any impacted context files and add or refresh the task history entry instead of storing detail in the index files.
+
 ## How to Work
 - When you need information from the project, use your tools — do not guess or make up file contents.
 - You can call multiple tools in a single response. Prefer parallel reads over sequential ones.

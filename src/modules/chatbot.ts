@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AISettings, AgentAccess, AppSettings } from "./settings";
 import type { AgentMemory } from "./agent-memory";
+import { ContextManager, type TaskContextSnapshot } from "./context-manager";
 import {
   type ChatSession,
   type ChatMode,
@@ -48,6 +49,8 @@ export class Chatbot {
   private memory: AgentMemory | null = null;
   private getAppSettings: (() => AppSettings) | null = null;
   private projectContext: string = "";
+  private contextManager: ContextManager;
+  private activeTaskContext: TaskContextSnapshot | null = null;
   private sessionContextMenu: HTMLElement;
   private currentProjectPath: string = "";
 
@@ -67,7 +70,8 @@ export class Chatbot {
     sessionListId: string,
     getAISettings: () => AISettings,
     getAgentAccess: () => AgentAccess,
-    getProjectPath: () => string
+    getProjectPath: () => string,
+    contextManager: ContextManager,
   ) {
     this.messagesEl = document.getElementById(messagesId)!;
     this.inputEl = document.getElementById(inputId) as HTMLTextAreaElement;
@@ -76,6 +80,7 @@ export class Chatbot {
     this.getAISettings = getAISettings;
     this.getAgentAccess = getAgentAccess;
     this.getProjectPath = getProjectPath;
+    this.contextManager = contextManager;
     this.session = createSession();
 
     // Session context menu (right-click)
@@ -129,10 +134,13 @@ export class Chatbot {
     this.getAppSettings = getAppSettings;
   }
 
-  /** Load .athva/context.md from the project root and inject into system prompts.
-   *  Auto-creates the file if it doesn't exist so the agent can persist knowledge from the start. */
+  /** Load and bootstrap the modular project context workspace. */
   async setProjectPath(projectPath: string) {
-    if (!projectPath) { this.projectContext = ""; return; }
+    if (!projectPath) {
+      this.projectContext = "";
+      this.activeTaskContext = null;
+      return;
+    }
 
     // Reload sessions scoped to new project
     if (this.currentProjectPath !== projectPath) {
@@ -144,20 +152,9 @@ export class Chatbot {
       await this.loadSessionsForProject(previousSessionId);
     }
 
-    const contextPath = `${projectPath}/.athva/context.md`;
-    try {
-      const content = await invoke<string>("read_file", { path: contextPath });
-      this.projectContext = content || "";
-    } catch {
-      // File doesn't exist yet — create it with a starter template so agent can persist knowledge
-      try {
-        const starter = `# Project Context — ${projectPath.split("/").pop() || "project"}\n\nThis file is auto-managed by Athva Agent. It stores project knowledge across sessions.\n`;
-        await invoke("write_file", { path: contextPath, content: starter });
-        this.projectContext = starter;
-      } catch {
-        this.projectContext = "";
-      }
-    }
+    await this.contextManager.setProjectPath(projectPath);
+    this.projectContext = "";
+    this.activeTaskContext = null;
   }
 
   /** Open the manual context editor modal */
@@ -166,9 +163,11 @@ export class Chatbot {
     const textarea = document.getElementById("context-editor-textarea") as HTMLTextAreaElement;
     if (!modal || !textarea) return;
 
-    textarea.value = this.projectContext;
     modal.classList.remove("hidden");
-    textarea.focus();
+    void this.contextManager.loadProjectConventions().then((content) => {
+      textarea.value = content;
+      textarea.focus();
+    });
 
     const close = () => modal.classList.add("hidden");
 
@@ -195,13 +194,8 @@ export class Chatbot {
   }
 
   private async saveContext(content: string) {
-    const projectPath = this.getProjectPath();
-    if (!projectPath) return;
     try {
-      // Ensure .athva/ directory exists by writing the file (write_file creates parent dirs on Rust side)
-      const contextPath = `${projectPath}/.athva/context.md`;
-      await invoke("write_file", { path: contextPath, content });
-      this.projectContext = content;
+      await this.contextManager.saveProjectConventions(content);
     } catch (e) {
       console.error("Failed to save context:", e);
     }
@@ -672,6 +666,7 @@ export class Chatbot {
   private async send() {
     const text = this.inputEl.value.trim();
     if (!text || this.isStreaming) return;
+    const startIndex = this.session.messages.length;
 
     this.inputEl.value = "";
     this.session.messages.push({ role: "user", content: text });
@@ -689,16 +684,18 @@ export class Chatbot {
       return;
     }
 
+    await this.refreshActiveTaskContext(text);
+
     if (this.session.mode === "agent") {
-      await this.runAgentLoop(settings);
+      await this.runAgentLoop(settings, startIndex, text);
     } else {
-      await this.runChatResponse(settings);
+      await this.runChatResponse(settings, startIndex, text);
     }
   }
 
   // ── Chat Mode (simple streaming response) ──
 
-  private async runChatResponse(settings: AISettings) {
+  private async runChatResponse(settings: AISettings, startIndex: number, userTask: string) {
     // Fetch relevant memories for system context injection
     const lastUserMsg = [...this.session.messages].reverse().find((m) => m.role === "user")?.content || "";
     const memoryContext = await this.fetchMemoryContext(lastUserMsg);
@@ -728,6 +725,7 @@ export class Chatbot {
       this.sendBtn.removeAttribute("disabled");
       this.sendBtn.textContent = "Send";
       this.session.updatedAt = Date.now();
+      await this.recordTaskCompletion(startIndex, userTask);
       await saveSession(this.session);
       this.renderSessionList();
       void this.compactHistory(settings);
@@ -866,7 +864,7 @@ export class Chatbot {
     return [systemMsg, ...msgs, ...recent];
   }
 
-  private async runAgentLoop(settings: AISettings): Promise<void> {
+  private async runAgentLoop(settings: AISettings, startIndex: number, userTask: string): Promise<void> {
     this.isStreaming = true;
     this.agentAborted = false;
     this.abortController = new AbortController();
@@ -972,11 +970,39 @@ export class Chatbot {
       this.sendBtn.removeAttribute("disabled");
       this.sendBtn.textContent = "Send";
       this.session.updatedAt = Date.now();
+      await this.recordTaskCompletion(startIndex, userTask);
       await saveSession(this.session);
       this.renderSessionList();
       this.scrollToBottom();
       void this.compactHistory(settings);
     }
+  }
+
+  private async refreshActiveTaskContext(task: string) {
+    const projectPath = this.getProjectPath();
+    if (!projectPath) {
+      this.projectContext = "";
+      this.activeTaskContext = null;
+      return;
+    }
+
+    const snapshot = await this.contextManager.buildTaskContext(task, this.session.messages);
+    this.activeTaskContext = snapshot;
+    this.projectContext = snapshot.promptContext;
+  }
+
+  private async recordTaskCompletion(startIndex: number, userTask: string) {
+    if (!this.currentProjectPath || !userTask.trim()) return;
+    const taskMessages = this.session.messages.slice(startIndex);
+    const hasAssistantOrToolActivity = taskMessages.some((message) => message.role !== "user");
+    if (!hasAssistantOrToolActivity) return;
+
+    await this.contextManager.recordTaskCompletion({
+      userTask,
+      mode: this.session.mode,
+      relevantContextFiles: this.activeTaskContext?.relevantFiles || [],
+      messages: taskMessages,
+    });
   }
 
   private async executeToolCalls(

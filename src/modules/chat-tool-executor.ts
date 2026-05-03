@@ -400,11 +400,11 @@ export async function executeTool(tc: ToolCall, ctx: ToolExecContext): Promise<s
 
     case "write_file": {
       if (!access.fileWrite) throw new Error("File write permission denied");
+      if (tc.args.path.endsWith("/.athva/context.md")) {
+        throw new Error('Legacy context path is blocked. Write context files under ".athva/contexts/" only.');
+      }
       await invoke("write_file", { path: tc.args.path, content: tc.args.content });
       ctx.onFileChanged(tc.args.path);
-      if (tc.args.path.endsWith("/.athva/context.md")) {
-        ctx.setProjectContext(tc.args.content);
-      }
       return `File written: ${tc.args.path}`;
     }
 

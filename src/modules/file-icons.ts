@@ -69,7 +69,7 @@ interface FileIcon {
 }
 
 export interface AthvaSpecialEntry {
-  kind: "docs-folder" | "extensions-folder" | "todo-file" | "spreadsheet-file" | "text-file" | "flow-file" | "extension-file";
+  kind: "docs-folder" | "contexts-folder" | "extensions-folder" | "todo-file" | "spreadsheet-file" | "text-file" | "flow-file" | "extension-file";
   label: string;
   accent: string;
 }
@@ -287,6 +287,9 @@ export function getAthvaSpecialEntry(name: string, isDir: boolean): AthvaSpecial
   if (isDir) {
     if (lower === "docs") {
       return { kind: "docs-folder", label: "DOCS", accent: "#59b6ff" };
+    }
+    if (lower === "contexts") {
+      return { kind: "contexts-folder", label: "CTX", accent: "#7ce3c4" };
     }
     if (lower === "extensions") {
       return { kind: "extensions-folder", label: "EXT", accent: "#d78bff" };

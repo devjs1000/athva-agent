@@ -188,11 +188,11 @@
         <div class="dialog context-editor-dialog">
           <div class="context-editor-header">
             <div>
-              <h2>Project Context</h2>
-              <p class="context-editor-desc">Content of <code>.athva/context.md</code> — injected into every AI conversation for this project. Add your stack, conventions, goals, etc.</p>
+              <h2>Project Conventions</h2>
+              <p class="context-editor-desc">Edit <code>.athva/contexts/project-conventions.md</code>. Use the Contexts workspace for the full indexed context graph.</p>
             </div>
           </div>
-          <textarea id="context-editor-textarea" class="context-editor-textarea" placeholder="# Project Context&#10;&#10;## Stack&#10;- TypeScript + Vite&#10;&#10;## Conventions&#10;- Use kebab-case for filenames" autocomplete="off" spellcheck="false"></textarea>
+          <textarea id="context-editor-textarea" class="context-editor-textarea" placeholder="# Project Conventions&#10;&#10;## Stack&#10;- TypeScript + Vite&#10;&#10;## Naming&#10;- Use kebab-case for filenames" autocomplete="off" spellcheck="false"></textarea>
           <div class="dialog-actions">
             <button id="btn-cancel-context" class="btn-secondary">Cancel</button>
             <button id="btn-save-context" class="btn-primary">Save</button>
@@ -494,6 +494,25 @@
             </div>
             <div id="docs-pages-empty" class="docs-pages-empty">No pages found in this DOCS folder.</div>
             <div id="docs-pages-list" class="docs-pages-list"></div>
+          </div>
+
+          <div id="contexts-sidebar-panel" class="docs-sidebar-panel contexts-sidebar-panel hidden">
+            <div class="docs-sidebar-header">
+              <div class="docs-sidebar-title-wrap">
+                <span class="docs-sidebar-title-kicker">ATHVA</span>
+                <span id="contexts-sidebar-title" class="docs-sidebar-title">Contexts</span>
+              </div>
+              <div class="contexts-sidebar-actions">
+                <button id="btn-contexts-list-view" class="sidebar-tab-btn active" title="Context List View" aria-label="Context List View">List</button>
+                <button id="btn-contexts-graph-view" class="sidebar-tab-btn" title="Context Graph View" aria-label="Context Graph View">Graph</button>
+                <button id="btn-close-contexts-sidebar" class="sidebar-tab-btn" title="Close Contexts Sidebar" aria-label="Close Contexts Sidebar">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                </button>
+              </div>
+            </div>
+            <div id="contexts-pages-empty" class="docs-pages-empty">No context entries found in this workspace.</div>
+            <div id="contexts-pages-list" class="docs-pages-list"></div>
+            <div id="contexts-graph" class="contexts-graph hidden"></div>
           </div>
 
           <!-- Editor + Terminal vertical split -->
@@ -867,7 +886,7 @@
                     Agent
                   </button>
                 </div>
-                <button id="btn-edit-context" class="btn-icon btn-icon-sm" title="Edit Project Context (.athva/context.md)">
+                <button id="btn-edit-context" class="btn-icon btn-icon-sm" title="Edit Project Conventions (.athva/contexts/project-conventions.md)">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/></svg>
                 </button>
                 <button id="btn-new-chat" class="btn-icon btn-icon-sm" title="New Chat">
