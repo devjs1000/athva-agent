@@ -1468,6 +1468,20 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     await editor.refreshContextsView();
   });
+  fileExplorer.setOnInitContexts(async () => {
+    await contextManager.initContexts();
+    if (currentProjectPath) {
+      await fileExplorer.loadRoot(currentProjectPath);
+    }
+    await editor.refreshContextsView();
+  });
+  fileExplorer.setOnCompactContexts(async () => {
+    await contextManager.compactContexts();
+    if (currentProjectPath) {
+      await fileExplorer.loadRoot(currentProjectPath);
+    }
+    await editor.refreshContextsView();
+  });
 
   // Refresh file explorer and reload open tab when agent writes/creates files
   chatbot.setOnFileChanged((path: string) => {

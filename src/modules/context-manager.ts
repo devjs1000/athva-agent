@@ -7,11 +7,6 @@ export interface ContextIndexEntry {
   path: string;
 }
 
-export interface TaskHistoryEntry {
-  title: string;
-  path: string;
-}
-
 export interface ContextDocument {
   id: string;
   name: string;
@@ -56,10 +51,8 @@ export interface TaskCompletionRecord {
 export interface ContextWorkspaceModel {
   rootPath: string;
   indexPath: string;
-  taskHistoryPath: string;
   sessionIndexPath: string;
   coreEntries: ContextIndexEntry[];
-  taskEntries: TaskHistoryEntry[];
   documents: ContextDocument[];
   edges: ContextGraphEdge[];
 }
@@ -69,18 +62,21 @@ const CONTEXT_INDEX_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/context.md`;
 const ROUTES_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/routes.md`;
 const PROJECT_STRUCTURE_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/project-structure.md`;
 const PROJECT_CONVENTIONS_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/project-conventions.md`;
-const TASK_HISTORY_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/task-history.md`;
-const HISTORY_DIR_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/history`;
+const LEGACY_CONTEXT_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/legacy-project-context.md`;
 const SESSIONS_DIR_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/sessions`;
 const SESSIONS_INDEX_RELATIVE = `${SESSIONS_DIR_RELATIVE}/index.md`;
-const LEGACY_CONTEXT_RELATIVE = ".athva/context.md";
+const OLD_LEGACY_CONTEXT_RELATIVE = ".athva/context.md";
+const OBSOLETE_TASK_HISTORY_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/task-history.md`;
+const OBSOLETE_HISTORY_DIR_RELATIVE = `${CONTEXT_ROOT_RELATIVE}/history`;
 const CONTEXT_SIZE_LIMIT_BYTES = 100 * 1024;
+const GRAPH_BASE_WIDTH = 1200;
+const GRAPH_BASE_HEIGHT = 820;
+const PROJECT_SCAN_LIMIT = 220;
 
 const DEFAULT_CONTEXT_INDEX: ContextIndexEntry[] = [
   { name: "Routes", path: ROUTES_RELATIVE },
   { name: "Project Structure", path: PROJECT_STRUCTURE_RELATIVE },
   { name: "Project Conventions", path: PROJECT_CONVENTIONS_RELATIVE },
-  { name: "Task History", path: TASK_HISTORY_RELATIVE },
   { name: "Sessions", path: SESSIONS_INDEX_RELATIVE },
 ];
 
@@ -88,7 +84,6 @@ const DEFAULT_CONTEXT_FILE_CONTENT: Record<string, string> = {
   [ROUTES_RELATIVE]: "# Routes\n\n- Add route maps, endpoint summaries, and navigation notes here.\n",
   [PROJECT_STRUCTURE_RELATIVE]: "# Project Structure\n\n- Record high-signal folders, modules, and ownership notes here.\n",
   [PROJECT_CONVENTIONS_RELATIVE]: "# Project Conventions\n\n- Record project-specific coding, naming, workflow, and review conventions here.\n",
-  [TASK_HISTORY_RELATIVE]: "# Task History\n\n",
   [SESSIONS_INDEX_RELATIVE]: "# Sessions\n\n",
 };
 
@@ -180,21 +175,21 @@ function parseFrontmatter(content: string, projectPath: string): FrontmatterResu
   };
 }
 
-function parseMappingFile(content: string, keyLabel: "name" | "title"): Array<Record<"name" | "path" | "title", string>> {
-  const entries: Array<Record<"name" | "path" | "title", string>> = [];
+function stripFrontmatter(content: string): string {
+  return parseFrontmatter(content, "").body;
+}
+
+function parseMappingFile(content: string): ContextIndexEntry[] {
+  const entries: ContextIndexEntry[] = [];
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
     if (!line) continue;
     const match = line.match(/^(.*?)\s*(?:->|→)\s*(.*?)$/);
     if (!match) continue;
-    const left = match[1].trim();
-    const right = normalizeRelativeContextPath(match[2]);
-    if (!left || !right.startsWith(CONTEXT_ROOT_RELATIVE)) continue;
-    entries.push({
-      name: keyLabel === "name" ? left : "",
-      title: keyLabel === "title" ? left : "",
-      path: right,
-    });
+    const name = match[1].trim();
+    const path = normalizeRelativeContextPath(match[2]);
+    if (!name || !path.startsWith(CONTEXT_ROOT_RELATIVE)) continue;
+    entries.push({ name, path });
   }
   return entries;
 }
@@ -203,20 +198,12 @@ function serializeIndex(entries: ContextIndexEntry[]): string {
   return entries.map((entry) => `${entry.name} -> ${entry.path}`).join("\n");
 }
 
-function serializeTaskHistory(entries: TaskHistoryEntry[]): string {
-  return entries.map((entry) => `${entry.title} -> ${entry.path}`).join("\n");
-}
-
 function clip(value: string, limit: number): string {
   return value.length > limit ? `${value.slice(0, limit)}…` : value;
 }
 
 function slugify(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
   return slug || "task";
 }
 
@@ -276,7 +263,7 @@ function uniquePaths(paths: string[]): string[] {
 }
 
 function buildDocumentSummary(content: string): string {
-  const body = parseFrontmatter(content, "").body;
+  const body = stripFrontmatter(content);
   const lines = body
     .split("\n")
     .map((line) => line.trim())
@@ -287,25 +274,6 @@ function buildDocumentSummary(content: string): string {
 
 function formatContextSection(title: string, content: string): string {
   return `### ${title}\n${content.trim()}`;
-}
-
-async function readFileIfExists(path: string): Promise<string | null> {
-  try {
-    return await invoke<string>("read_file", { path });
-  } catch {
-    return null;
-  }
-}
-
-async function ensureFile(path: string, content: string): Promise<void> {
-  const existing = await readFileIfExists(path);
-  if (existing !== null) return;
-  await invoke("write_file", { path, content });
-}
-
-function parseTaskHistory(content: string): TaskHistoryEntry[] {
-  return parseMappingFile(content, "title")
-    .map((entry) => ({ title: entry.title, path: entry.path }));
 }
 
 function scoreContextEntry(entry: ContextDocument, queryText: string, explicitPaths: string[]): number {
@@ -321,10 +289,11 @@ function scoreContextEntry(entry: ContextDocument, queryText: string, explicitPa
   }
 
   if (entry.kind === "session" || entry.kind === "task") score += 1;
-  if (entry.kind === "context" && explicitPaths.length > 0 && /structure|routes|conventions/.test(lowerPath)) score += 2;
+  if (entry.kind === "context" && explicitPaths.length > 0 && /structure|routes|conventions|legacy/.test(lowerPath)) score += 2;
   if (queryText.includes(lowerName)) score += 3;
   if (explicitPaths.some((path) => lowerPath.includes(path.toLowerCase()))) score += 4;
   if (entry.references.some((ref) => explicitPaths.some((path) => ref.includes(path.toLowerCase())))) score += 2;
+  if (entry.critical) score += 1;
 
   return score;
 }
@@ -366,14 +335,71 @@ function collectToolCallArtifacts(
   if (toolCall.name === "run_command" && toolCall.args.command) commands.add(toolCall.args.command);
 }
 
+function withFrontmatter(content: string, critical: boolean, references: string[]): string {
+  const body = stripFrontmatter(content).trimStart();
+  const lines = ["---", `critical: ${critical ? "true" : "false"}`];
+  if (references.length > 0) {
+    lines.push("references:");
+    references.forEach((ref) => lines.push(`- ${ref}`));
+  }
+  lines.push("---", "");
+  return `${lines.join("\n")}${body}`;
+}
+
+function compactMarkdownContent(content: string, targetBytes: number): string {
+  const parsed = parseFrontmatter(content, "");
+  const lines = parsed.body.split("\n");
+  const kept: string[] = [];
+  let used = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (kept.length > 0 && kept[kept.length - 1] !== "") kept.push("");
+      continue;
+    }
+
+    const preferred =
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("- ") ||
+      trimmed.startsWith("* ") ||
+      trimmed.startsWith("##") ||
+      trimmed.startsWith("###") ||
+      trimmed.includes("->") ||
+      kept.length < 24;
+    if (!preferred) continue;
+
+    const nextLine = clip(line, 320);
+    const nextBytes = new TextEncoder().encode(`${kept.join("\n")}\n${nextLine}`).length;
+    if (nextBytes > targetBytes) break;
+    kept.push(nextLine);
+    used = nextBytes;
+  }
+
+  const note = used < new TextEncoder().encode(parsed.body).length ? "\n\n> Context compacted to reduce size.\n" : "";
+  return withFrontmatter(`${kept.join("\n").trim()}\n${note}`, parsed.metadata.critical, parsed.metadata.references);
+}
+
+async function readFileIfExists(path: string): Promise<string | null> {
+  try {
+    return await invoke<string>("read_file", { path });
+  } catch {
+    return null;
+  }
+}
+
+async function ensureFile(path: string, content: string): Promise<void> {
+  const existing = await readFileIfExists(path);
+  if (existing !== null) return;
+  await invoke("write_file", { path, content });
+}
+
 export class ContextManager {
   private projectPath = "";
 
   async setProjectPath(projectPath: string) {
     this.projectPath = projectPath;
-    if (projectPath) {
-      await this.ensureStructure();
-    }
+    if (projectPath) await this.ensureStructure();
   }
 
   getRootPath(): string {
@@ -384,22 +410,23 @@ export class ContextManager {
     return joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE);
   }
 
+  getGraphBaseSize() {
+    return { width: GRAPH_BASE_WIDTH, height: GRAPH_BASE_HEIGHT };
+  }
+
   resolvePath(relativePath: string): string {
     return joinPath(this.projectPath, normalizeRelativeContextPath(relativePath));
   }
 
   async ensureStructure(): Promise<void> {
     if (!this.projectPath) return;
-
     await invoke("create_dir", { path: this.getRootPath() }).catch(() => { });
-    await invoke("create_dir", { path: joinPath(this.projectPath, HISTORY_DIR_RELATIVE) }).catch(() => { });
     await invoke("create_dir", { path: joinPath(this.projectPath, SESSIONS_DIR_RELATIVE) }).catch(() => { });
-
     await ensureFile(joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE), serializeIndex(DEFAULT_CONTEXT_INDEX));
     for (const [relativePath, content] of Object.entries(DEFAULT_CONTEXT_FILE_CONTENT)) {
       await ensureFile(joinPath(this.projectPath, relativePath), content);
     }
-
+    await this.cleanupObsoleteStructure();
     await this.migrateLegacyContext();
   }
 
@@ -407,6 +434,88 @@ export class ContextManager {
     if (!this.projectPath) return;
     await invoke("delete_path", { path: this.getRootPath() }).catch(() => { });
     await this.ensureStructure();
+  }
+
+  async initContexts(): Promise<void> {
+    if (!this.projectPath) return;
+    await this.ensureStructure();
+
+    const topLevelEntries = await this.readProjectTree(this.projectPath, 2, PROJECT_SCAN_LIMIT);
+    const packageJsonRaw = await readFileIfExists(joinPath(this.projectPath, "package.json"));
+    const readmeRaw = await readFileIfExists(joinPath(this.projectPath, "README.md"));
+    const packageJson = packageJsonRaw ? this.safeJsonParse(packageJsonRaw) : null;
+    const routeHints = topLevelEntries.filter((entry) => /route|router|page|pages|api/i.test(entry)).slice(0, 24);
+    const structureHints = topLevelEntries.filter((entry) => !/node_modules|dist|\.git|\.athva/.test(entry)).slice(0, 40);
+    const dependencyNames = packageJson
+      ? Object.keys({ ...(packageJson.dependencies || {}), ...(packageJson.devDependencies || {}) }).slice(0, 24)
+      : [];
+    const scriptNames = packageJson ? Object.keys(packageJson.scripts || {}) : [];
+
+    await invoke("write_file", {
+      path: joinPath(this.projectPath, ROUTES_RELATIVE),
+      content: [
+        "# Routes",
+        "",
+        ...(routeHints.length
+          ? ["## Discovered Hints", "", ...routeHints.map((entry: string) => `- ${entry}`)]
+          : ["- No route or API-oriented paths were detected from the initial scan."]),
+        "",
+        "## Notes",
+        "",
+        readmeRaw ? clip(stripFrontmatter(readmeRaw), 1400) : "- Add route maps, endpoint summaries, and navigation notes here.",
+        "",
+      ].join("\n"),
+    });
+
+    await invoke("write_file", {
+      path: joinPath(this.projectPath, PROJECT_STRUCTURE_RELATIVE),
+      content: [
+        "# Project Structure",
+        "",
+        "## Top-Level Scan",
+        "",
+        ...structureHints.map((entry: string) => `- ${entry}`),
+        "",
+        "## Packages",
+        "",
+        ...(dependencyNames.length ? dependencyNames.map((dep) => `- ${dep}`) : ["- No package manifest detected."]),
+        "",
+      ].join("\n"),
+    });
+
+    await invoke("write_file", {
+      path: joinPath(this.projectPath, PROJECT_CONVENTIONS_RELATIVE),
+      content: [
+        "# Project Conventions",
+        "",
+        "## Tooling",
+        "",
+        ...(scriptNames.length ? scriptNames.map((script) => `- npm script: ${script}`) : ["- No scripts discovered."]),
+        "",
+        "## Repository Notes",
+        "",
+        packageJson ? `- Package manager manifest detected: package.json` : "- Package manager manifest not detected.",
+        readmeRaw ? `- README present and can be used as a human-authored baseline.` : "- README not detected.",
+        "",
+        "- Replace this generated base with repo-specific conventions as you refine the contexts.",
+        "",
+      ].join("\n"),
+    });
+  }
+
+  async compactContexts(): Promise<void> {
+    if (!this.projectPath) return;
+    await this.ensureStructure();
+    const documents = await this.readContextDocuments();
+
+    for (const document of documents) {
+      if (document.kind === "session-index" || document.kind === "index") continue;
+      if (document.sizeBytes <= 12 * 1024) continue;
+      const content = await readFileIfExists(document.absolutePath);
+      if (!content) continue;
+      const compacted = compactMarkdownContent(content, 12 * 1024);
+      await invoke("write_file", { path: document.absolutePath, content: compacted });
+    }
   }
 
   async buildTaskContext(task: string, history: ChatMessage[], options?: TaskContextBuildOptions): Promise<TaskContextSnapshot> {
@@ -417,7 +526,7 @@ export class ContextManager {
     const explicitPaths = extractMentionedPaths(queryText);
     const selectedSet = new Set((options?.selectedPaths || []).map((path) => normalizeRelativeContextPath(path)));
 
-    let selectedDocuments = model.documents.filter((doc) => doc.kind !== "index" && doc.kind !== "task-index");
+    let selectedDocuments = model.documents.filter((doc) => !["index", "task-index", "session-index"].includes(doc.kind));
     if (options?.mode === "manual" && selectedSet.size > 0) {
       selectedDocuments = selectedDocuments.filter((doc) => selectedSet.has(doc.path));
     } else {
@@ -436,7 +545,7 @@ export class ContextManager {
     const relevantFiles = [model.indexPath];
     const registryLines = model.documents
       .filter((doc) => doc.kind !== "task")
-      .slice(0, 20)
+      .slice(0, 24)
       .map((doc) => `- ${doc.name} -> ${doc.path}${doc.references.length ? ` [refs: ${doc.references.join(", ")}]` : ""}`);
 
     sections.push("[Available Contexts]\n" + registryLines.join("\n"));
@@ -464,20 +573,22 @@ export class ContextManager {
   async buildWorkspaceModel(): Promise<ContextWorkspaceModel> {
     await this.ensureStructure();
     const coreEntries = await this.readContextIndex();
-    const taskEntries = await this.readTaskHistory();
     const documents = await this.readContextDocuments();
-    const edges = this.buildGraphEdges(documents);
-
     return {
       rootPath: this.getRootPath(),
       indexPath: joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE),
-      taskHistoryPath: joinPath(this.projectPath, TASK_HISTORY_RELATIVE),
       sessionIndexPath: joinPath(this.projectPath, SESSIONS_INDEX_RELATIVE),
       coreEntries,
-      taskEntries,
       documents,
-      edges,
+      edges: this.buildGraphEdges(documents),
     };
+  }
+
+  async readDocument(pathOrRelativePath: string): Promise<string> {
+    const absolutePath = pathOrRelativePath.startsWith(this.projectPath)
+      ? pathOrRelativePath
+      : this.resolvePath(pathOrRelativePath);
+    return (await readFileIfExists(absolutePath)) || "";
   }
 
   async recordTaskCompletion(record: TaskCompletionRecord): Promise<void> {
@@ -550,13 +661,6 @@ export class ContextManager {
       ? sessionsIndexRaw
       : `${sessionsIndexRaw.trimEnd()}\n${sessionLine}\n`;
     await invoke("write_file", { path: joinPath(this.projectPath, SESSIONS_INDEX_RELATIVE), content: nextSessionsIndex });
-
-    const taskHistory = await this.readTaskHistory();
-    const nextHistory = [{ title, path: taskFileRelative }, ...taskHistory.filter((entry) => entry.path !== taskFileRelative)].slice(0, 300);
-    await invoke("write_file", {
-      path: joinPath(this.projectPath, TASK_HISTORY_RELATIVE),
-      content: serializeTaskHistory(nextHistory),
-    });
   }
 
   async setContextCritical(relativePath: string, critical: boolean): Promise<void> {
@@ -564,25 +668,18 @@ export class ContextManager {
     const existing = await readFileIfExists(absolutePath);
     if (existing === null) return;
     const parsed = parseFrontmatter(existing, this.projectPath);
-    const frontmatter = ["---", `critical: ${critical ? "true" : "false"}`];
-    if (parsed.metadata.references.length > 0) {
-      frontmatter.push("references:");
-      parsed.metadata.references.forEach((ref) => frontmatter.push(`- ${ref}`));
-    }
-    frontmatter.push("---", "");
     await invoke("write_file", {
       path: absolutePath,
-      content: `${frontmatter.join("\n")}${parsed.body.trimStart()}`,
+      content: withFrontmatter(existing, critical, parsed.metadata.references),
     });
   }
 
   private async migrateLegacyContext(): Promise<void> {
-    const legacyPath = joinPath(this.projectPath, LEGACY_CONTEXT_RELATIVE);
+    const legacyPath = joinPath(this.projectPath, OLD_LEGACY_CONTEXT_RELATIVE);
     const legacyContent = await readFileIfExists(legacyPath);
     if (!legacyContent?.trim()) return;
 
-    const migratedRelativePath = `${HISTORY_DIR_RELATIVE}/legacy-project-context.md`;
-    const migratedPath = joinPath(this.projectPath, migratedRelativePath);
+    const migratedPath = joinPath(this.projectPath, LEGACY_CONTEXT_RELATIVE);
     const existing = await readFileIfExists(migratedPath);
     if (!existing?.trim()) {
       await invoke("write_file", {
@@ -591,33 +688,28 @@ export class ContextManager {
       });
     }
 
-    const history = await this.readTaskHistory();
-    if (!history.some((entry) => entry.path === migratedRelativePath)) {
-      const nextHistory = [
-        { title: "Legacy project context migration", path: migratedRelativePath },
-        ...history,
-      ].slice(0, 300);
+    const index = await this.readContextIndex();
+    if (!index.some((entry) => entry.path === LEGACY_CONTEXT_RELATIVE)) {
+      index.push({ name: "Legacy Project Context", path: LEGACY_CONTEXT_RELATIVE });
       await invoke("write_file", {
-        path: joinPath(this.projectPath, TASK_HISTORY_RELATIVE),
-        content: serializeTaskHistory(nextHistory),
+        path: joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE),
+        content: serializeIndex(index),
       });
     }
 
     await invoke("delete_path", { path: legacyPath }).catch(() => { });
   }
 
+  private async cleanupObsoleteStructure(): Promise<void> {
+    await invoke("delete_path", { path: joinPath(this.projectPath, OBSOLETE_TASK_HISTORY_RELATIVE) }).catch(() => { });
+    await invoke("delete_path", { path: joinPath(this.projectPath, OBSOLETE_HISTORY_DIR_RELATIVE) }).catch(() => { });
+  }
+
   private async readContextIndex(): Promise<ContextIndexEntry[]> {
     const indexPath = joinPath(this.projectPath, CONTEXT_INDEX_RELATIVE);
     const raw = (await readFileIfExists(indexPath)) || "";
-    const parsed = parseMappingFile(raw, "name")
-      .map((entry) => ({ name: entry.name, path: entry.path }));
+    const parsed = parseMappingFile(raw);
     return parsed.length > 0 ? parsed : DEFAULT_CONTEXT_INDEX;
-  }
-
-  private async readTaskHistory(): Promise<TaskHistoryEntry[]> {
-    const historyPath = joinPath(this.projectPath, TASK_HISTORY_RELATIVE);
-    const raw = (await readFileIfExists(historyPath)) || "";
-    return parseTaskHistory(raw);
   }
 
   private async readContextDocuments(): Promise<ContextDocument[]> {
@@ -647,15 +739,14 @@ export class ContextManager {
 
   private buildGraphEdges(documents: ContextDocument[]): ContextGraphEdge[] {
     const knownPaths = new Set(documents.map((doc) => doc.path));
+    const byPath = new Map(documents.map((doc) => [doc.path, doc]));
     const edges = new Map<string, ContextGraphEdge>();
 
     for (const document of documents) {
       for (const ref of document.references) {
         if (!knownPaths.has(ref)) continue;
-        const reverse = documents.find((candidate) => candidate.path === ref)?.references.includes(document.path) || false;
-        const key = reverse
-          ? [document.path, ref].sort().join("::")
-          : `${document.path}->${ref}`;
+        const reverse = byPath.get(ref)?.references.includes(document.path) || false;
+        const key = reverse ? [document.path, ref].sort().join("::") : `${document.path}->${ref}`;
         if (!edges.has(key)) {
           edges.set(key, {
             from: reverse ? [document.path, ref].sort()[0] : document.path,
@@ -686,6 +777,26 @@ export class ContextManager {
     return out;
   }
 
+  private async readProjectTree(rootPath: string, maxDepth: number, limit: number): Promise<string[]> {
+    const out: string[] = [];
+    const visit = async (dir: string, depth: number) => {
+      if (out.length >= limit) return;
+      const entries = await readDir(dir).catch(() => []);
+      for (const entry of entries) {
+        if (out.length >= limit) break;
+        const entryPath = `${dir.replace(/\/+$/, "")}/${entry.name}`;
+        const relativePath = entryPath.replace(`${rootPath}/`, "");
+        if (/^(\.git|node_modules|dist|dist-cli|target)$/.test(relativePath.split("/")[0])) continue;
+        out.push(relativePath + (entry.isDirectory ? "/" : ""));
+        if (entry.isDirectory && depth < maxDepth) {
+          await visit(entryPath, depth + 1);
+        }
+      }
+    };
+    await visit(rootPath, 0);
+    return out;
+  }
+
   private documentName(relativePath: string, content: string): string {
     const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
     if (heading) return heading;
@@ -695,7 +806,7 @@ export class ContextManager {
 
   private documentKind(relativePath: string): ContextDocument["kind"] {
     if (relativePath === CONTEXT_INDEX_RELATIVE) return "index";
-    if (relativePath === TASK_HISTORY_RELATIVE || relativePath.endsWith("/tasks/index.md")) return "task-index";
+    if (relativePath.endsWith("/tasks/index.md")) return "task-index";
     if (relativePath === SESSIONS_INDEX_RELATIVE) return "session-index";
     if (relativePath.includes("/sessions/") && relativePath.endsWith("/session.md")) return "session";
     if (relativePath.includes("/sessions/")) return "task";
@@ -712,5 +823,13 @@ export class ContextManager {
       attempt += 1;
     }
     return `${baseDirRelative}/${slug}-${Date.now()}.md`;
+  }
+
+  private safeJsonParse(value: string): any {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
   }
 }

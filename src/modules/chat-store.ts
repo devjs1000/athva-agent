@@ -31,6 +31,8 @@ export interface ChatSession {
     mode: "auto" | "manual";
     selectedPaths: string[];
     workingContext: string;
+    lastTaskContext: string;
+    lastMatchedContextNames: string[];
   };
 }
 
@@ -120,6 +122,8 @@ export function createSession(mode: ChatMode = "chat", projectPath?: string): Ch
       mode: "auto",
       selectedPaths: [],
       workingContext: "",
+      lastTaskContext: "",
+      lastMatchedContextNames: [],
     },
   };
 }

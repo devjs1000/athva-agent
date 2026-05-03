@@ -264,7 +264,12 @@ export class Chatbot {
         mode: "auto",
         selectedPaths: [],
         workingContext: "",
+        lastTaskContext: "",
+        lastMatchedContextNames: [],
       };
+    } else {
+      session.contextState.lastTaskContext ||= "";
+      session.contextState.lastMatchedContextNames ||= [];
     }
   }
 
@@ -473,6 +478,12 @@ export class Chatbot {
     const chips = state.selectedPaths.length
       ? state.selectedPaths.map((path) => `<span class="chat-context-chip">${this.escapeHtml(path.split("/").pop() || path)}</span>`).join("")
       : `<span class="chat-context-chip muted">Auto selection</span>`;
+    const matched = state.lastMatchedContextNames.length
+      ? state.lastMatchedContextNames.map((name) => `<span class="chat-context-chip">${this.escapeHtml(name)}</span>`).join("")
+      : `<span class="chat-context-chip muted">No extracted context yet</span>`;
+    const preview = state.lastTaskContext
+      ? `<pre class="chat-context-preview">${this.escapeHtml(state.lastTaskContext)}</pre>`
+      : `<div class="chat-context-preview-empty">The agent has not built a task context for this session yet.</div>`;
     host.innerHTML = `
       <div class="chat-context-scope-shell">
         <div class="chat-context-scope-copy">
@@ -482,9 +493,15 @@ export class Chatbot {
         <div class="chat-context-scope-actions">
           <button class="btn-icon btn-icon-sm chat-context-action" data-context-mode="${state.mode === "manual" ? "auto" : "manual"}">${state.mode === "manual" ? "Auto" : "Manual"}</button>
           <button class="btn-icon btn-icon-sm chat-context-action" data-context-action="select">Select</button>
+          <button class="btn-icon btn-icon-sm chat-context-action" data-context-action="toggle-preview">View</button>
         </div>
       </div>
       <div class="chat-context-chip-row">${chips}</div>
+      <div class="chat-context-chip-row">${matched}</div>
+      <details class="chat-context-details" ${state.lastTaskContext ? "open" : ""}>
+        <summary>Current Agent Context</summary>
+        ${preview}
+      </details>
     `;
 
     host.querySelectorAll<HTMLElement>("[data-context-mode]").forEach((button) => {
@@ -497,6 +514,11 @@ export class Chatbot {
 
     host.querySelector('[data-context-action="select"]')?.addEventListener("click", () => {
       void this.openContextSelector();
+    });
+    host.querySelector('[data-context-action="toggle-preview"]')?.addEventListener("click", () => {
+      const details = host.querySelector<HTMLDetailsElement>(".chat-context-details");
+      if (!details) return;
+      details.open = !details.open;
     });
   }
 
@@ -1048,6 +1070,12 @@ export class Chatbot {
     }
     this.activeTaskContext = snapshot;
     this.projectContext = snapshot.promptContext;
+    if (this.session.contextState) {
+      this.session.contextState.lastTaskContext = snapshot.promptContext;
+      this.session.contextState.lastMatchedContextNames = snapshot.matchedContextNames;
+      void saveSession(this.session);
+    }
+    this.renderContextScopeBar();
   }
 
   private async recordTaskCompletion(startIndex: number, userTask: string) {

@@ -67,6 +67,14 @@ export class FileExplorer {
     this.contextMenu.setOnResetContexts(cb);
   }
 
+  setOnInitContexts(cb: () => Promise<void>) {
+    this.contextMenu.setOnInitContexts(cb);
+  }
+
+  setOnCompactContexts(cb: () => Promise<void>) {
+    this.contextMenu.setOnCompactContexts(cb);
+  }
+
   setActiveFile(path: string) {
     this.container.querySelectorAll(".tree-item").forEach((el) => {
       el.classList.toggle("active", (el as HTMLElement).dataset.path === path);

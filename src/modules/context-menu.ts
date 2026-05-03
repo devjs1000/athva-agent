@@ -11,6 +11,8 @@ export interface ContextMenuTarget {
 export type OnRefresh = (dirPath: string) => void;
 export type OnOpenFile = (path: string, name: string) => void;
 export type OnResetContexts = () => Promise<void>;
+export type OnInitContexts = () => Promise<void>;
+export type OnCompactContexts = () => Promise<void>;
 
 interface MenuItem {
   label: string;
@@ -24,6 +26,8 @@ export class ContextMenu {
   private onRefresh: OnRefresh;
   private onOpenFile: OnOpenFile;
   private onResetContexts: OnResetContexts | null = null;
+  private onInitContexts: OnInitContexts | null = null;
+  private onCompactContexts: OnCompactContexts | null = null;
   private onRenameCallback: ((oldPath: string, newPath: string) => void) | null = null;
   private projectRoot: string = "";
 
@@ -53,6 +57,14 @@ export class ContextMenu {
 
   setOnResetContexts(cb: OnResetContexts) {
     this.onResetContexts = cb;
+  }
+
+  setOnInitContexts(cb: OnInitContexts) {
+    this.onInitContexts = cb;
+  }
+
+  setOnCompactContexts(cb: OnCompactContexts) {
+    this.onCompactContexts = cb;
   }
 
   show(x: number, y: number, target: ContextMenuTarget) {
@@ -94,19 +106,30 @@ export class ContextMenu {
       },
     ];
 
-    if (isContextsRoot && this.onResetContexts) {
+    if (isContextsRoot) {
       items.push(
         { separator: true, label: "" },
-        {
+        ...(this.onInitContexts ? [{
+          label: "Init Contexts",
+          action: () => this.confirmInitContexts(target),
+        }] : []),
+        ...(this.onCompactContexts ? [{
+          label: "Compact Contexts",
+          action: () => this.confirmCompactContexts(target),
+        }] : []),
+        ...(this.onResetContexts ? [{
           label: "Reset Contexts",
           action: () => this.confirmResetContexts(target),
-        },
+        }] : []),
       );
     }
 
     if (!isProjectRoot) {
       items.push(
-        { separator: true, label: "" },
+        {
+          separator: true,
+          label: "",
+        },
         {
           label: "Rename",
           action: () => this.promptRename(target),
@@ -297,6 +320,40 @@ export class ContextMenu {
       this.onRefresh(target.path);
     } catch (e) {
       await showConfirmDialog("Error", `Failed to reset contexts: ${e}`, "OK");
+    }
+  }
+
+  private async confirmInitContexts(target: ContextMenuTarget) {
+    if (!this.onInitContexts) return;
+    const ok = await showConfirmDialog(
+      "Init Contexts",
+      `Scan the repo and regenerate the base context files inside "${target.name}"? Existing files may be overwritten.`,
+      "Init",
+      "Cancel",
+    );
+    if (!ok) return;
+    try {
+      await this.onInitContexts();
+      this.onRefresh(target.path);
+    } catch (e) {
+      await showConfirmDialog("Error", `Failed to initialize contexts: ${e}`, "OK");
+    }
+  }
+
+  private async confirmCompactContexts(target: ContextMenuTarget) {
+    if (!this.onCompactContexts) return;
+    const ok = await showConfirmDialog(
+      "Compact Contexts",
+      `Shrink larger context files inside "${target.name}" to reduce size?`,
+      "Compact",
+      "Cancel",
+    );
+    if (!ok) return;
+    try {
+      await this.onCompactContexts();
+      this.onRefresh(target.path);
+    } catch (e) {
+      await showConfirmDialog("Error", `Failed to compact contexts: ${e}`, "OK");
     }
   }
 
