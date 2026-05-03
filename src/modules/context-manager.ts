@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { readDir } from "@tauri-apps/plugin-fs";
 import type { ChatMessage, ChatMode, ToolCall } from "./chat-store";
 
 export interface ContextIndexEntry {
@@ -100,6 +99,12 @@ type FrontmatterResult = {
     references: string[];
   };
 };
+
+interface DirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
 
 function joinPath(root: string, relativePath: string): string {
   return `${root.replace(/\/+$/, "")}/${relativePath.replace(/^\/+/, "")}`;
@@ -763,14 +768,13 @@ export class ContextManager {
   private async collectMarkdownFiles(rootPath: string): Promise<string[]> {
     const out: string[] = [];
     const visit = async (dir: string) => {
-      const entries = await readDir(dir).catch(() => []);
+      const entries = await invoke<DirEntry[]>("read_dir", { path: dir }).catch(() => []);
       for (const entry of entries) {
-        const entryPath = `${dir.replace(/\/+$/, "")}/${entry.name}`;
-        if (entry.isDirectory) {
-          await visit(entryPath);
+        if (entry.is_dir) {
+          await visit(entry.path);
           continue;
         }
-        if (entryPath.endsWith(".md")) out.push(entryPath);
+        if (entry.path.endsWith(".md")) out.push(entry.path);
       }
     };
     await visit(rootPath);
@@ -781,15 +785,14 @@ export class ContextManager {
     const out: string[] = [];
     const visit = async (dir: string, depth: number) => {
       if (out.length >= limit) return;
-      const entries = await readDir(dir).catch(() => []);
+      const entries = await invoke<DirEntry[]>("read_dir", { path: dir }).catch(() => []);
       for (const entry of entries) {
         if (out.length >= limit) break;
-        const entryPath = `${dir.replace(/\/+$/, "")}/${entry.name}`;
-        const relativePath = entryPath.replace(`${rootPath}/`, "");
+        const relativePath = entry.path.replace(`${rootPath}/`, "");
         if (/^(\.git|node_modules|dist|dist-cli|target)$/.test(relativePath.split("/")[0])) continue;
-        out.push(relativePath + (entry.isDirectory ? "/" : ""));
-        if (entry.isDirectory && depth < maxDepth) {
-          await visit(entryPath, depth + 1);
+        out.push(relativePath + (entry.is_dir ? "/" : ""));
+        if (entry.is_dir && depth < maxDepth) {
+          await visit(entry.path, depth + 1);
         }
       }
     };

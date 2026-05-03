@@ -1977,7 +1977,14 @@ body {
 }
 
 .contexts-view-main {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+
+.contexts-view-main > * {
+  flex: 1;
   min-height: 0;
 }
 
@@ -2082,6 +2089,7 @@ body {
   flex-direction: column;
   gap: 12px;
   height: 100%;
+  min-height: 520px;
 }
 
 .contexts-graph-toolbar {
@@ -2100,8 +2108,10 @@ body {
 
 .contexts-graph-viewport {
   flex: 1;
-  min-height: 0;
+  min-height: 420px;
   overflow: auto;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .contexts-graph-canvas {
@@ -2165,6 +2175,19 @@ body {
 
 .contexts-graph-node-critical {
   box-shadow: 0 0 0 1px rgba(255, 193, 94, 0.28), 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.contexts-graph-empty {
+  min-height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 20px;
 }
 
 .contexts-preview-header {

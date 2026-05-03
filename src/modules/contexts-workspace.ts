@@ -144,6 +144,25 @@ export class ContextsWorkspace {
 
   private renderGraph(model: ContextWorkspaceModel): string {
     const visibleDocs = model.documents.filter((doc) => this.filters[graphGroup(doc.kind)]);
+    if (visibleDocs.length === 0) {
+      return `
+        <div class="contexts-graph-shell">
+          <div class="contexts-graph-toolbar">
+            <div class="contexts-graph-filters">
+              ${this.filterButton("context", "Contexts")}
+              ${this.filterButton("session", "Sessions")}
+              ${this.filterButton("task", "Tasks")}
+            </div>
+            <div class="contexts-graph-zoom">
+              <button type="button" class="contexts-mode-btn" data-zoom="out">-</button>
+              <button type="button" class="contexts-mode-btn" data-zoom="reset">${Math.round(this.zoom * 100)}%</button>
+              <button type="button" class="contexts-mode-btn" data-zoom="in">+</button>
+            </div>
+          </div>
+          <div class="contexts-graph-empty">No graph nodes are visible. Re-enable a filter to show the visualization.</div>
+        </div>
+      `;
+    }
     const visibleIds = new Set(visibleDocs.map((doc) => doc.id));
     const { width, height } = this.contextManager.getGraphBaseSize();
     const scaledWidth = Math.round(width * this.zoom);
