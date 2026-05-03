@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getFolderIcon, getFileIcon } from "./file-icons";
+import { getAthvaSpecialEntry, getFolderIcon, getFileIcon } from "./file-icons";
 import { ContextMenu, type ContextMenuTarget } from "./context-menu";
 
 export interface FileEntry {
@@ -117,6 +117,17 @@ export class FileExplorer {
       name.className = "tree-item-name";
       name.textContent = entry.name;
       item.appendChild(name);
+
+      const special = getAthvaSpecialEntry(entry.name, entry.is_dir);
+      if (special) {
+        item.classList.add("tree-item-special", `tree-item-special-${special.kind}`);
+        item.style.setProperty("--special-accent", special.accent);
+        const badge = document.createElement("span");
+        badge.className = "tree-item-badge";
+        badge.textContent = special.label;
+        item.appendChild(badge);
+      }
+
       parent.appendChild(item);
 
       // Context menu on right-click

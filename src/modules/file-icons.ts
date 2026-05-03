@@ -68,6 +68,12 @@ interface FileIcon {
   svg: string;
 }
 
+export interface AthvaSpecialEntry {
+  kind: "docs-folder" | "extensions-folder" | "todo-file" | "spreadsheet-file" | "text-file" | "flow-file" | "extension-file";
+  label: string;
+  accent: string;
+}
+
 export interface RuntimeFileIconTheme {
   id: string;
   label: string;
@@ -272,6 +278,42 @@ export function getRuntimeFileIconThemes(): RuntimeFileIconTheme[] {
 
 function getActiveRuntimeTheme(): RuntimeFileIconTheme | null {
   return activeRuntimeFileIconThemeId ? runtimeFileIconThemes.get(activeRuntimeFileIconThemeId) ?? null : null;
+}
+
+export function getAthvaSpecialEntry(name: string, isDir: boolean): AthvaSpecialEntry | null {
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (isDir) {
+    if (lower === "docs") {
+      return { kind: "docs-folder", label: "DOCS", accent: "#59b6ff" };
+    }
+    if (lower === "extensions") {
+      return { kind: "extensions-folder", label: "EXT", accent: "#d78bff" };
+    }
+    return null;
+  }
+
+  const baseName = lower.replace(/\.(md|txt|json)$/, "");
+  if (baseName === "todo" || baseName === "todos") {
+    return { kind: "todo-file", label: "TODO", accent: "#ffb74d" };
+  }
+
+  const ext = lower.split(".").pop() || "";
+  if (ext === "csv" || ext === "xlsx" || ext === "xls") {
+    return { kind: "spreadsheet-file", label: ext === "csv" ? "CSV" : "XLS", accent: "#7ad97a" };
+  }
+  if (ext === "txt") {
+    return { kind: "text-file", label: "TXT", accent: "#c7d2da" };
+  }
+  if (ext === "flow") {
+    return { kind: "flow-file", label: "FLOW", accent: "#67c6ff" };
+  }
+  if (ext === "vsix") {
+    return { kind: "extension-file", label: "EXT", accent: "#d78bff" };
+  }
+
+  return null;
 }
 
 // ── Public API ──

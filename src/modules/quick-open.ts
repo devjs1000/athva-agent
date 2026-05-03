@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getFileIcon } from "./file-icons";
+import { getAthvaSpecialEntry, getFileIcon } from "./file-icons";
 
 interface FileEntry {
   name: string;
@@ -88,9 +88,11 @@ export class QuickOpen {
         const dir = relPath.includes("/")
           ? relPath.substring(0, relPath.lastIndexOf("/"))
           : "";
+        const special = getAthvaSpecialEntry(file.name, false);
         return `<div class="quick-open-item ${idx === this.selectedIndex ? "selected" : ""}" data-index="${idx}">
           <span class="quick-open-item-icon">${getFileIcon(file.name)}</span>
           <span class="quick-open-item-name">${this.escapeHtml(file.name)}</span>
+          ${special ? `<span class="quick-open-item-badge" style="--special-accent:${special.accent}">${this.escapeHtml(special.label)}</span>` : ""}
           <span class="quick-open-item-path">${this.escapeHtml(dir)}</span>
         </div>`;
       })
