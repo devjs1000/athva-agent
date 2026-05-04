@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getAthvaSpecialEntry, getFolderIcon, getFileIcon } from "./file-icons";
+import { getAthvaSpecialEntry, getAthvaSpecialEntryGuide, getFolderIcon, getFileIcon } from "./file-icons";
 import { ContextMenu, type ContextMenuTarget } from "./context-menu";
 
 export interface FileEntry {
@@ -12,10 +12,13 @@ export type OnFileSelect = (path: string, name: string) => void;
 export type OnDirectorySelect = (path: string, name: string) => void;
 
 export class FileExplorer {
+  private static readonly INFO_COLLAPSED_STORAGE_KEY = "athva.explorerInfoCollapsed";
   private container: HTMLElement;
   private onFileSelect: OnFileSelect;
   private onDirectorySelect: OnDirectorySelect | null;
   private contextMenu: ContextMenu;
+  private infoContainer: HTMLElement | null;
+  private infoCollapsed: boolean;
   private rootPath: string = "";
   // Track loaded dir containers so we can refresh specific dirs
   private dirContainers: Map<string, { el: HTMLElement; depth: number }> = new Map();
@@ -24,6 +27,8 @@ export class FileExplorer {
     this.container = document.getElementById(containerId)!;
     this.onFileSelect = onFileSelect;
     this.onDirectorySelect = onDirectorySelect ?? null;
+    this.infoContainer = document.getElementById("explorer-info");
+    this.infoCollapsed = localStorage.getItem(FileExplorer.INFO_COLLAPSED_STORAGE_KEY) === "1";
 
     this.contextMenu = new ContextMenu(
       (dirPath) => this.refreshDir(dirPath),
@@ -48,6 +53,8 @@ export class FileExplorer {
         parentDir: this.rootPath,
       });
     });
+
+    this.renderSpecialInfo();
   }
 
   async loadRoot(rootPath: string) {
@@ -196,5 +203,86 @@ export class FileExplorer {
         });
       }
     }
+  }
+
+  private renderSpecialInfo() {
+    if (!this.infoContainer) return;
+
+    this.infoContainer.innerHTML = "";
+    this.infoContainer.classList.toggle("collapsed", this.infoCollapsed);
+
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "explorer-info-header";
+    header.setAttribute("aria-expanded", String(!this.infoCollapsed));
+    header.addEventListener("click", () => this.toggleSpecialInfo());
+
+    const title = document.createElement("div");
+    title.className = "explorer-info-title";
+    title.textContent = "Info";
+    header.appendChild(title);
+
+    const chevron = document.createElement("span");
+    chevron.className = "explorer-info-chevron";
+    chevron.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.5L10 8l-4.5 4.5v-9Z"/></svg>`;
+    header.appendChild(chevron);
+
+    this.infoContainer.appendChild(header);
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "explorer-info-subtitle";
+    subtitle.textContent = "Special folders, names, and extensions highlighted in Explorer.";
+    if (this.infoCollapsed) {
+      subtitle.classList.add("hidden");
+    }
+    this.infoContainer.appendChild(subtitle);
+
+    for (const section of getAthvaSpecialEntryGuide()) {
+      const sectionEl = document.createElement("section");
+      sectionEl.className = "explorer-info-section";
+      if (this.infoCollapsed) {
+        sectionEl.classList.add("hidden");
+      }
+
+      const heading = document.createElement("div");
+      heading.className = "explorer-info-section-title";
+      heading.textContent = section.title;
+      sectionEl.appendChild(heading);
+
+      for (const item of section.items) {
+        const row = document.createElement("div");
+        row.className = "explorer-info-item";
+        row.style.setProperty("--special-accent", item.accent);
+
+        const badge = document.createElement("span");
+        badge.className = "explorer-info-badge";
+        badge.textContent = item.label;
+
+        const details = document.createElement("div");
+        details.className = "explorer-info-copy";
+
+        const pattern = document.createElement("code");
+        pattern.className = "explorer-info-pattern";
+        pattern.textContent = item.pattern;
+
+        const useCase = document.createElement("p");
+        useCase.className = "explorer-info-use";
+        useCase.textContent = item.useCase;
+
+        details.appendChild(pattern);
+        details.appendChild(useCase);
+        row.appendChild(badge);
+        row.appendChild(details);
+        sectionEl.appendChild(row);
+      }
+
+      this.infoContainer.appendChild(sectionEl);
+    }
+  }
+
+  private toggleSpecialInfo() {
+    this.infoCollapsed = !this.infoCollapsed;
+    localStorage.setItem(FileExplorer.INFO_COLLAPSED_STORAGE_KEY, this.infoCollapsed ? "1" : "0");
+    this.renderSpecialInfo();
   }
 }

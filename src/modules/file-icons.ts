@@ -74,6 +74,18 @@ export interface AthvaSpecialEntry {
   accent: string;
 }
 
+export interface AthvaSpecialGuideItem {
+  label: string;
+  pattern: string;
+  useCase: string;
+  accent: string;
+}
+
+export interface AthvaSpecialGuideSection {
+  title: string;
+  items: AthvaSpecialGuideItem[];
+}
+
 export interface RuntimeFileIconTheme {
   id: string;
   label: string;
@@ -317,6 +329,80 @@ export function getAthvaSpecialEntry(name: string, isDir: boolean): AthvaSpecial
   }
 
   return null;
+}
+
+export function getAthvaSpecialEntryGuide(): AthvaSpecialGuideSection[] {
+  return [
+    {
+      title: "Special folders",
+      items: [
+        {
+          label: "DOCS",
+          pattern: "docs/",
+          useCase: "Project docs, specs, and reference notes.",
+          accent: "#59b6ff",
+        },
+        {
+          label: "CTX",
+          pattern: "contexts/",
+          useCase: "Agent context packs, prompts, and working state.",
+          accent: "#7ce3c4",
+        },
+        {
+          label: "EXT",
+          pattern: "extensions/",
+          useCase: "Installed extension bundles and extension assets.",
+          accent: "#d78bff",
+        },
+      ],
+    },
+    {
+      title: "Special names",
+      items: [
+        {
+          label: "TODO",
+          pattern: "todo.* / todos.*",
+          useCase: "Task lists, pending work, and execution checkpoints.",
+          accent: "#ffb74d",
+        },
+      ],
+    },
+    {
+      title: "Special extensions",
+      items: [
+        {
+          label: "CSV",
+          pattern: ".csv",
+          useCase: "Flat tabular data for imports, exports, and quick analysis.",
+          accent: "#7ad97a",
+        },
+        {
+          label: "XLS",
+          pattern: ".xlsx, .xls",
+          useCase: "Spreadsheet workbooks with structured sheets and formulas.",
+          accent: "#7ad97a",
+        },
+        {
+          label: "TXT",
+          pattern: ".txt",
+          useCase: "Plain text notes, dumps, and scratch output.",
+          accent: "#c7d2da",
+        },
+        {
+          label: "FLOW",
+          pattern: ".flow",
+          useCase: "Flow definitions, process maps, or execution diagrams.",
+          accent: "#67c6ff",
+        },
+        {
+          label: "EXT",
+          pattern: ".vsix",
+          useCase: "VS Code extension packages ready to import or inspect.",
+          accent: "#d78bff",
+        },
+      ],
+    },
+  ];
 }
 
 // ── Public API ──

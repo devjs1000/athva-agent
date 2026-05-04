@@ -25,6 +25,7 @@ export class GlobalSearch {
   private replaceAllBtn: HTMLElement;
   private sidebarTitle: HTMLElement;
   private fileTree: HTMLElement;
+  private explorerInfo: HTMLElement | null;
 
   private projectRoot: string = "";
   private caseSensitive: boolean = false;
@@ -52,6 +53,7 @@ export class GlobalSearch {
     this.replaceAllBtn = document.getElementById("gs-replace-all-btn")!;
     this.sidebarTitle = document.getElementById("sidebar-title")!;
     this.fileTree = document.getElementById("file-tree")!;
+    this.explorerInfo = document.getElementById("explorer-info");
 
     this.queryInput.addEventListener("input", () => this.scheduleSearch());
     this.queryInput.addEventListener("keydown", (e) => {
@@ -86,6 +88,7 @@ export class GlobalSearch {
   open() {
     this.panel.classList.remove("hidden");
     this.fileTree.classList.add("hidden");
+    this.explorerInfo?.classList.add("hidden");
     this.sidebarTitle.textContent = "SEARCH";
     this.queryInput.focus();
     this.queryInput.select();
@@ -95,6 +98,7 @@ export class GlobalSearch {
   close() {
     this.panel.classList.add("hidden");
     this.fileTree.classList.remove("hidden");
+    this.explorerInfo?.classList.remove("hidden");
     this.sidebarTitle.textContent = "EXPLORER";
   }
 
