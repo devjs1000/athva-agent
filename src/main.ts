@@ -39,6 +39,7 @@ import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modu
 import { ProjectSwitcher } from "./modules/project-switcher";
 import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
+import { ScreenSaver } from "./modules/screen-saver";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -61,6 +62,7 @@ let snippetsPanel!: SnippetsPanel;
 let exportsTracker!: ExportsTracker;
 let docsWorkspace!: DocsWorkspace;
 let contextManager!: ContextManager;
+let screenSaver!: ScreenSaver;
 let currentProjectPath: string = "";
 let appUnlocked = false;
 let lastSecuritySignature = "";
@@ -851,6 +853,7 @@ function onSettingsChange(settings: AppSettings) {
   setActiveRuntimeFileIconTheme(settings.appearance.fileIconTheme || "");
   applyTheme(settings.appearance);
   renderWorkspaceActionPlacements();
+  screenSaver?.updateSettings(settings.appearance.screenSaver);
   if (currentProjectPath) {
     void fileExplorer.loadRoot(currentProjectPath);
   }
@@ -1416,6 +1419,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init settings UI
   settingsUI = new SettingsUI(appSettings, onSettingsChange);
+
+  // Init screen saver
+  screenSaver = new ScreenSaver();
+  screenSaver.updateSettings(appSettings.appearance.screenSaver);
+
+  document.addEventListener("athva:screensaver-preview", ((e: CustomEvent) => {
+    screenSaver.preview(e.detail);
+  }) as EventListener);
 
   const chatAutoApproveToggle = $("chat-auto-approve") as HTMLInputElement;
   syncChatAutoApproveToggle();

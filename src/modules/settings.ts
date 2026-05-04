@@ -4,6 +4,13 @@ import { readFile } from "@tauri-apps/plugin-fs";
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from "./editor";
 import { getModelsForProvider } from "./model-list";
 import { PRESET_THEMES, applyTheme, getThemeColors } from "./theme-engine";
+import {
+  DEFAULT_SCREEN_SAVER_SETTINGS,
+  ANIMATION_OPTIONS,
+  runAnimationLoop,
+  type ScreenSaverSettings,
+  type ScreenSaverAnimation,
+} from "./screen-saver";
 
 export interface ThemeColors {
   topBar: string;
@@ -33,6 +40,7 @@ export interface AppearanceSettings {
     workspaceOpacity: number;
     workspaceBlur: number;
   };
+  screenSaver: ScreenSaverSettings;
 }
 
 export interface AISettings {
@@ -119,6 +127,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
     workspaceOpacity: 0.2,
     workspaceBlur: 0,
   },
+  screenSaver: { ...DEFAULT_SCREEN_SAVER_SETTINGS },
 };
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
@@ -200,6 +209,7 @@ export async function loadSettings(): Promise<AppSettings> {
         colorOverrides: parsed.appearance?.colorOverrides ?? {},
         customThemes: parsed.appearance?.customThemes ?? [],
         backgroundImage: { ...DEFAULT_APPEARANCE_SETTINGS.backgroundImage, ...parsed.appearance?.backgroundImage },
+        screenSaver: { ...DEFAULT_SCREEN_SAVER_SETTINGS, ...parsed.appearance?.screenSaver },
       },
     };
   } catch {
@@ -300,6 +310,19 @@ export class SettingsUI {
   private appearanceWorkspaceBlur: HTMLInputElement;
   private appearanceRestoreBtn: HTMLButtonElement;
 
+  // Screen saver elements
+  private ssEnabledEl: HTMLInputElement;
+  private ssTimeoutEl: HTMLInputElement;
+  private ssTimeoutValEl: HTMLElement;
+  private ssModeAnimEl: HTMLInputElement;
+  private ssModeImageEl: HTMLInputElement;
+  private ssAnimationEl: HTMLSelectElement;
+  private ssAnimationCardsEl: HTMLElement;
+  private ssImageBtn: HTMLButtonElement;
+  private ssImageClearBtn: HTMLButtonElement;
+  private ssImagePreviewEl: HTMLElement;
+  private ssAnimationCleanups: (() => void)[] = [];
+
   // Save button
   private saveBtnEl: HTMLElement;
 
@@ -369,6 +392,18 @@ export class SettingsUI {
     this.appearanceWorkspaceBlur = document.getElementById("appearance-workspace-blur") as HTMLInputElement;
     this.appearanceRestoreBtn = document.getElementById("appearance-restore-defaults") as HTMLButtonElement;
 
+    // Screen saver
+    this.ssEnabledEl = document.getElementById("setting-ss-enabled") as HTMLInputElement;
+    this.ssTimeoutEl = document.getElementById("setting-ss-timeout") as HTMLInputElement;
+    this.ssTimeoutValEl = document.getElementById("setting-ss-timeout-val")!;
+    this.ssModeAnimEl = document.getElementById("setting-ss-mode-animation") as HTMLInputElement;
+    this.ssModeImageEl = document.getElementById("setting-ss-mode-image") as HTMLInputElement;
+    this.ssAnimationEl = document.getElementById("setting-ss-animation") as HTMLSelectElement;
+    this.ssAnimationCardsEl = document.getElementById("ss-animation-cards")!;
+    this.ssImageBtn = document.getElementById("ss-image-btn") as HTMLButtonElement;
+    this.ssImageClearBtn = document.getElementById("ss-image-clear") as HTMLButtonElement;
+    this.ssImagePreviewEl = document.getElementById("ss-image-preview")!;
+
     this.saveBtnEl = document.getElementById("btn-save-settings")!;
 
     this.populateFromSettings();
@@ -426,6 +461,9 @@ export class SettingsUI {
     this.renderThemeCards();
     this.updateColorPickers();
     this.updateImagePreviews();
+
+    // Screen saver
+    this.populateScreenSaver();
   }
 
   private populateModelDropdown(provider: string, selectedModel: string) {
@@ -510,6 +548,7 @@ export class SettingsUI {
   }
 
   private async digestSha256Base64(data: Uint8Array): Promise<string> {
+    //@ts-ignore
     const hash = await crypto.subtle.digest("SHA-256", data);
     return this.base64Encode(new Uint8Array(hash));
   }
@@ -804,11 +843,64 @@ export class SettingsUI {
         colorOverrides: {},
         customThemes: this.settings.appearance.customThemes,
         backgroundImage: { editorUrl: "", editorOpacity: 0.3, editorBlur: 0, workspaceUrl: "", workspaceOpacity: 0.2, workspaceBlur: 0 },
+        screenSaver: { ...DEFAULT_SCREEN_SAVER_SETTINGS },
       };
       this.renderThemeCards();
       this.updateColorPickers();
       this.updateImagePreviews();
+      this.populateScreenSaver();
       applyTheme(this.settings.appearance);
+    });
+
+    // ── Screen Saver Bindings ──
+    this.ssEnabledEl.addEventListener("change", () => {
+      this.settings.appearance.screenSaver.enabled = this.ssEnabledEl.checked;
+      this.updateScreenSaverVisibility();
+    });
+
+    this.ssTimeoutEl.addEventListener("input", () => {
+      const val = parseInt(this.ssTimeoutEl.value) || 5;
+      this.settings.appearance.screenSaver.timeoutMinutes = val;
+      this.ssTimeoutValEl.textContent = `${val} min`;
+    });
+
+    this.ssModeAnimEl.addEventListener("change", () => {
+      this.settings.appearance.screenSaver.mode = "animation";
+      this.updateScreenSaverVisibility();
+    });
+
+    this.ssModeImageEl.addEventListener("change", () => {
+      this.settings.appearance.screenSaver.mode = "image";
+      this.updateScreenSaverVisibility();
+    });
+
+    this.ssAnimationEl.addEventListener("change", () => {
+      this.settings.appearance.screenSaver.animation = this.ssAnimationEl.value as ScreenSaverAnimation;
+      this.renderAnimationCards();
+    });
+
+    this.ssImageBtn.addEventListener("click", async () => {
+      const path = await open({ filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }] });
+      if (typeof path === "string") {
+        const dataUrl = await pathToDataUrl(path);
+        if (dataUrl) {
+          this.settings.appearance.screenSaver.imageUrl = dataUrl;
+          this.updateScreenSaverImagePreview();
+        }
+      }
+    });
+
+    this.ssImageClearBtn.addEventListener("click", () => {
+      this.settings.appearance.screenSaver.imageUrl = "";
+      this.updateScreenSaverImagePreview();
+    });
+
+    // Screen saver preview
+    const ssPreviewBtn = document.getElementById("ss-preview-btn");
+    ssPreviewBtn?.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent("athva:screensaver-preview", {
+        detail: { ...this.settings.appearance.screenSaver },
+      }));
     });
 
     // Save button
@@ -969,6 +1061,85 @@ export class SettingsUI {
     if (blEl) blEl.textContent = `${this.appearanceEditorBlur.value}px`;
     if (wopEl) wopEl.textContent = `${this.appearanceWorkspaceOpacity.value}%`;
     if (wblEl) wblEl.textContent = `${this.appearanceWorkspaceBlur.value}px`;
+  }
+
+  // ── Screen Saver UI Helpers ──
+
+  private populateScreenSaver() {
+    const ss = this.settings.appearance.screenSaver;
+    this.ssEnabledEl.checked = ss.enabled;
+    this.ssTimeoutEl.value = String(ss.timeoutMinutes);
+    this.ssTimeoutValEl.textContent = `${ss.timeoutMinutes} min`;
+    this.ssModeAnimEl.checked = ss.mode === "animation";
+    this.ssModeImageEl.checked = ss.mode === "image";
+
+    // Populate animation dropdown
+    this.ssAnimationEl.innerHTML = ANIMATION_OPTIONS
+      .map((a) => `<option value="${a.id}"${a.id === ss.animation ? " selected" : ""}>${a.label}</option>`)
+      .join("");
+
+    this.renderAnimationCards();
+    this.updateScreenSaverImagePreview();
+    this.updateScreenSaverVisibility();
+  }
+
+  private updateScreenSaverVisibility() {
+    const ss = this.settings.appearance.screenSaver;
+    const detailsEl = document.getElementById("ss-details-group");
+    const animGroupEl = document.getElementById("ss-animation-group");
+    const imageGroupEl = document.getElementById("ss-image-group");
+    if (detailsEl) detailsEl.classList.toggle("hidden", !ss.enabled);
+    if (animGroupEl) animGroupEl.classList.toggle("hidden", ss.mode !== "animation");
+    if (imageGroupEl) imageGroupEl.classList.toggle("hidden", ss.mode !== "image");
+  }
+
+  private renderAnimationCards() {
+    if (!this.ssAnimationCardsEl) return;
+    
+    // Cleanup previous animations
+    this.ssAnimationCleanups.forEach(cleanup => cleanup());
+    this.ssAnimationCleanups = [];
+
+    const active = this.settings.appearance.screenSaver.animation;
+    this.ssAnimationCardsEl.innerHTML = ANIMATION_OPTIONS.map((a) => {
+      const isActive = a.id === active;
+      return `<button class="ss-animation-card${isActive ? " active" : ""}" data-anim-id="${a.id}" type="button">
+        <div class="ss-anim-preview-wrap">
+          <canvas class="ss-anim-preview-canvas" width="140" height="80"></canvas>
+        </div>
+        <div class="ss-anim-info">
+          <span class="ss-anim-name">${a.label}</span>
+          <span class="ss-anim-desc">${a.description}</span>
+        </div>
+      </button>`;
+    }).join("");
+
+    this.ssAnimationCardsEl.querySelectorAll<HTMLButtonElement>(".ss-animation-card").forEach((card) => {
+      const id = card.dataset.animId as ScreenSaverAnimation;
+      
+      const canvas = card.querySelector<HTMLCanvasElement>(".ss-anim-preview-canvas");
+      if (canvas) {
+        this.ssAnimationCleanups.push(runAnimationLoop(id, canvas, true));
+      }
+
+      card.addEventListener("click", () => {
+        this.settings.appearance.screenSaver.animation = id;
+        this.ssAnimationEl.value = id;
+        this.renderAnimationCards();
+      });
+    });
+  }
+
+  private updateScreenSaverImagePreview() {
+    const url = this.settings.appearance.screenSaver.imageUrl;
+    if (url) {
+      this.ssImagePreviewEl.style.backgroundImage = `url("${url}")`;
+      this.ssImagePreviewEl.classList.remove("empty");
+    } else {
+      this.ssImagePreviewEl.style.backgroundImage = "none";
+      this.ssImagePreviewEl.classList.add("empty");
+    }
+    this.ssImageClearBtn.disabled = !url;
   }
 
   private async promptThemeName(): Promise<string | null> {
