@@ -22,6 +22,7 @@ export interface ExtensionRuntimeOptions {
   workspaceFolders: string[];
   configuration?: Record<string, unknown>;
   onStatus?: (status: RuntimeStatus, message?: string) => void;
+  onHostError?: (message: string, stack?: string) => void;
   onViewRegistered?: (viewId: string, viewType: "tree" | "webview") => void;
   onTreeChanged?: (viewId: string) => void;
   onNotification?: (level: "info" | "warning" | "error", message: string) => void;
@@ -168,6 +169,7 @@ export class ExtensionRuntime {
 
       case "error":
         console.error(`[ExtHost:${this.opts.extensionId}]`, msg.message);
+        this.opts.onHostError?.(String(msg.message), typeof msg.stack === "string" ? msg.stack : undefined);
         if (this.status !== "active") this.setStatus("error", String(msg.message));
         break;
 

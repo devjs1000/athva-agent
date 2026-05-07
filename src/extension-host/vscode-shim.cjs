@@ -369,6 +369,18 @@ const env = {
   clipboard: { readText: () => Promise.resolve(""), writeText: () => Promise.resolve() },
 };
 
+// ── l10n ─────────────────────────────────────────────────────────────────────
+function formatL10n(message, args) {
+  if (typeof message !== "string") return "";
+  return message.replace(/\{(\d+)\}/g, (_m, idx) => String(args[Number(idx)] ?? ""));
+}
+
+const l10n = {
+  t(message, ...args) {
+    return formatL10n(message, args);
+  },
+};
+
 // ── extensions ────────────────────────────────────────────────────────────────
 
 const extensions = {
@@ -438,7 +450,7 @@ module.exports = {
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, env, extensions,
+  workspace, window, commands, languages, env, l10n, extensions,
   // internal
   _handleMessage: handleMessage,
   _initDefaults(defaults) { _schemaDefaults = defaults || {}; },

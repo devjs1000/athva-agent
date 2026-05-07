@@ -68,7 +68,7 @@ interface OpenTab {
   content: string;
   modified: boolean;
   pinned: boolean;
-  kind?: "file" | "web";
+  kind?: "file" | "web" | "html";
   url?: string;
   lockedView?: boolean;
   untitled?: boolean;
@@ -783,6 +783,20 @@ export class Editor {
     this.switchToTab(path);
   }
 
+  openHtmlTab(path: string, title: string, html: string) {
+    const existing = this.tabs.find((t) => t.path === path);
+    if (existing) {
+      existing.content = html;
+      existing.modified = false;
+      existing.kind = "html";
+      this.switchToTab(path);
+      return;
+    }
+    const tab: OpenTab = { path, name: title, content: html, modified: false, pinned: false, kind: "html", lockedView: true };
+    this.tabs.push(tab);
+    this.switchToTab(path);
+  }
+
   gotoLine(line: number) {
     this.gotoPosition(line, 1);
   }
@@ -1080,6 +1094,28 @@ export class Editor {
       return;
     }
 
+    if (tab.kind === "html") {
+      if (prevWebLabel) {
+        void invoke("hide_web_window", { label: prevWebLabel });
+        this.activeWebLabel = null;
+      }
+      this.mediaPreviewEl.classList.add("hidden");
+      this.mediaPreviewEl.innerHTML = "";
+      this.svgToggleBtn.classList.add("hidden");
+      this.svgPreviewActive = false;
+      this.currentPreviewType = null;
+      this.todoPanelEl.classList.add("hidden");
+      this.activeTodoPanel = null;
+      this.activeDocEditor = null;
+      this.activeContextsView = null;
+      this.protectedBannerEl.classList.add("hidden");
+      this.editorEl.style.display = "none";
+      this.svgPreviewEl.className = "svg-preview-container extension-page-mode";
+      this.svgPreviewEl.innerHTML = tab.content;
+      this.renderTabs();
+      return;
+    }
+
     if (prevWebLabel) {
       void invoke("hide_web_window", { label: prevWebLabel });
       this.activeWebLabel = null;
@@ -1091,6 +1127,7 @@ export class Editor {
     this.mediaPreviewEl.classList.add("hidden");
     this.mediaPreviewEl.innerHTML = "";
     this.svgPreviewEl.classList.add("hidden");
+    this.svgPreviewEl.classList.remove("extension-page-mode");
     this.svgPreviewEl.innerHTML = "";
     this.svgToggleBtn.classList.add("hidden");
     this.svgPreviewActive = false;
@@ -1243,7 +1280,7 @@ export class Editor {
   }
 
   private updateProtectedBanner(tab: OpenTab) {
-    const shouldShow = tab.kind !== "web" && !!tab.lockedView && tab.path === this.activeTab;
+    const shouldShow = tab.kind !== "web" && tab.kind !== "html" && !!tab.lockedView && tab.path === this.activeTab;
     this.protectedBannerEl.classList.toggle("hidden", !shouldShow);
   }
 

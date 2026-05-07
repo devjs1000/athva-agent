@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ExtensionSupportSnapshot } from "./vscode-extension-support";
+import type { ExtensionCompatibilityIssue, ExtensionSupportSnapshot } from "./vscode-extension-support";
 
 interface MarketplaceExtension {
   identifier: string;
@@ -34,9 +34,39 @@ interface ExtensionDetailState {
   identifier: string;
 }
 
+export interface ExtensionPreviewPayload {
+  identifier: string;
+  displayName: string;
+  description: string;
+  version: string;
+  publisher: string;
+  extensionName: string;
+  iconUrl?: string;
+  downloadUrl?: string;
+  installs?: number;
+  averageRating?: number;
+  ratingCount?: number;
+  readme?: string;
+  installed: boolean;
+  supportedFeatures: string[];
+  unsupportedFeatures: string[];
+  compatibilityIssues: ExtensionCompatibilityIssue[];
+}
+
+export interface ExtensionDiagnostic {
+  timestamp: number;
+  source: string;
+  title: string;
+  message: string;
+  stack?: string;
+}
+
 interface ExtensionsPanelOptions {
   openInEditor?: (identifier: string, displayName: string) => void;
+  openPreviewPage?: (payload: ExtensionPreviewPayload) => void;
+  onExtensionSelected?: () => void;
   getSupport?: (identifier: string) => ExtensionSupportSnapshot | null;
+  getDiagnostics?: (identifier: string) => ExtensionDiagnostic[];
   getSettingsState?: (identifier: string) => unknown;
   saveSettingsState?: (identifier: string, state: Record<string, unknown>) => Promise<void> | void;
   afterInstallChange?: () => Promise<void> | void;
@@ -70,7 +100,6 @@ export class ExtensionsPanel {
   private activeQuery = "";
   private activeTab: ExtensionsTab = "installed";
   private selectedDetail: ExtensionDetailState | null = null;
-  private isBusy = false;
   private refreshSeq = 0;
   private lastRefreshAt = 0;
   private readonly REFRESH_TTL_MS = 30_000;
@@ -142,6 +171,18 @@ export class ExtensionsPanel {
       } else if (action === "apply-file-icon-theme") {
         const themeId = target.dataset.themeId;
         if (themeId) void this.options.applyFileIconTheme?.(themeId);
+      } else if (action === "open-marketplace") {
+        const identifier = target.dataset.identifier;
+        const displayName = target.dataset.displayName;
+        if (identifier && displayName) {
+          this.options.openInEditor?.(identifier, displayName);
+        }
+      } else if (action === "copy-support-errors") {
+        const identifier = target.dataset.identifier;
+        if (identifier) void this.copySupportErrors(identifier);
+      } else if (action === "copy-diagnostics") {
+        const identifier = target.dataset.identifier;
+        if (identifier) void this.copyDiagnostics(identifier);
       }
     });
 
@@ -188,6 +229,12 @@ export class ExtensionsPanel {
 
   isOpen(): boolean {
     return !this.panelEl.classList.contains("hidden");
+  }
+
+  refreshDetail() {
+    if (!this.isOpen()) return;
+    this.renderAllLists();
+    this.renderDetail();
   }
 
   async refresh() {
@@ -331,7 +378,6 @@ export class ExtensionsPanel {
   }
 
   private setBusy(isBusy: boolean) {
-    this.isBusy = isBusy;
     this.searchInput.disabled = isBusy;
     this.searchBtn.disabled = isBusy;
     this.refreshBtn.disabled = isBusy;
@@ -461,9 +507,8 @@ export class ExtensionsPanel {
     selected: boolean;
     action: "select-installed" | "select-marketplace";
   }): string {
-    const expanded = this.selectedDetail?.identifier === input.identifier && this.selectedDetail.kind === input.kind;
     return `
-      <article class="extensions-list-card${input.selected ? " selected" : ""}${expanded ? " expanded" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}">
+      <article class="extensions-list-card${input.selected ? " selected" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}">
         <div class="extensions-result-head">
           ${input.iconUrl ? `<img class="extensions-icon" src="${escapeAttribute(input.iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-icon extensions-icon-placeholder"></div>`}
           <div class="extensions-result-copy">
@@ -475,67 +520,73 @@ export class ExtensionsPanel {
           </div>
         </div>
         <p class="extensions-copy">${escapeHtml(input.description || "No description provided.")}</p>
-        ${expanded ? this.renderExpandedCardDetail(input.identifier, input.kind) : ""}
       </article>
     `;
   }
 
   private renderDetail() {
-    this.detailEl.classList.add("hidden");
-    this.detailEl.innerHTML = "";
-  }
+    const detail = this.selectedDetail
+      ? (this.selectedDetail.kind === "installed"
+          ? this.findInstalled(this.selectedDetail.identifier) ?? this.findMarketplace(this.selectedDetail.identifier) ?? null
+          : this.findMarketplace(this.selectedDetail.identifier) ?? this.findInstalled(this.selectedDetail.identifier) ?? null)
+      : null;
 
-  private renderExpandedCardDetail(identifier: string, kind: "installed" | "marketplace"): string {
-    const detail = kind === "installed"
-      ? this.findInstalled(identifier) ?? this.findMarketplace(identifier) ?? null
-      : this.findMarketplace(identifier) ?? this.findInstalled(identifier) ?? null;
-    if (!detail) return "";
-
-    const marketplaceDetail = isMarketplaceExtension(detail) ? detail : null;
-    const installed = this.isInstalled(detail.identifier);
-    const installedInfo = this.findInstalled(detail.identifier);
-    const support = this.options.getSupport?.(detail.identifier) ?? null;
-    const stats = marketplaceDetail
-      ? `<div class="extensions-detail-stats">
-          <span>${formatInstalls(marketplaceDetail.installs)} installs</span>
-          <span>${formatRating(marketplaceDetail.average_rating, marketplaceDetail.rating_count)}</span>
-          <span>${escapeHtml(marketplaceDetail.publisher_display_name)}</span>
-        </div>`
-      : `<div class="extensions-detail-stats">
-          <span>Installed globally in Athva</span>
-          <span>${escapeHtml(detail.publisher)}</span>
-        </div>`;
-
-    return `
-      <div class="extensions-inline-detail">
-        ${stats}
-        <div class="extensions-detail-actions">
-          ${installed
-            ? `<button class="extensions-secondary-btn" data-extension-action="uninstall" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Uninstall</button>`
-            : marketplaceDetail
-              ? `<button class="extensions-install-btn" data-extension-action="install" data-identifier="${escapeHtml(detail.identifier)}" ${this.isBusy ? "disabled" : ""}>Install</button>`
-              : ""
-          }
+    if (!detail) {
+      this.detailEl.classList.remove("hidden");
+      this.detailEl.innerHTML = `
+        <div class="extensions-detail-empty">
+          <div class="extensions-empty-title">Select an extension</div>
+          <div class="extensions-empty-copy">Open an extension to inspect details, install it, or uninstall it.</div>
         </div>
-        <div class="extensions-detail-note">Opening this extension launches the marketplace page in the editor area.</div>
-        ${support?.supportedFeatures.length ? `<div class="extensions-detail-note">Athva support: ${escapeHtml(support.supportedFeatures.join(", "))}</div>` : ""}
-        ${support?.fileIconThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-file-icon-theme" data-theme-id="${escapeAttribute(theme.id)}">Set File Icons: ${escapeHtml(theme.label)}</button>`).join("") ?? ""}
-        ${support?.colorThemes.map((theme) => `<button class="extensions-secondary-btn" data-extension-action="apply-color-theme" data-theme-id="${escapeAttribute(theme.id)}">Set Theme: ${escapeHtml(theme.label)}</button>`).join("") ?? ""}
-        ${support?.snippetCount ? `<div class="extensions-detail-note">${support.snippetCount} snippet${support.snippetCount === 1 ? "" : "s"} are active in Athva.</div>` : ""}
-        ${support?.viewContainers.length ? `<div class="extensions-detail-note">Activity bar panels: ${escapeHtml(support.viewContainers.map((vc) => vc.title).join(", "))}</div>` : ""}
-        ${support?.views.length ? `<div class="extensions-detail-note">Views: ${escapeHtml(support.views.map((v) => v.name).join(", "))}</div>` : ""}
-        ${support?.languages.length ? `<div class="extensions-detail-note">Languages: ${escapeHtml(support.languages.map((l) => l.aliases[0] || l.id).join(", "))}</div>` : ""}
-        ${support?.commands.length ? renderCommandList(support.commands) : ""}
-        ${support?.unsupportedFeatures.length ? `<div class="extensions-detail-note">Not supported here: ${escapeHtml(support.unsupportedFeatures.join(", "))}</div>` : ""}
-        ${installed && !support?.supportedFeatures.length && support?.unsupportedFeatures.length
-          ? `<div class="extensions-detail-note">This extension is installed, but Athva cannot run it because it depends on the VS Code extension runtime.</div>`
-          : ""
-        }
-        ${installedInfo
-          ? `<div class="extensions-detail-note">Installed version: ${escapeHtml(installedInfo.version)}</div>`
-          : `<div class="extensions-detail-note">Not installed in Athva yet.</div>`
-        }
-      </div>
+      `;
+      return;
+    }
+
+    const support = this.options.getSupport?.(detail.identifier) ?? null;
+    const diagnostics = this.options.getDiagnostics?.(detail.identifier) ?? [];
+    const marketplace = this.findMarketplace(detail.identifier);
+    const installed = this.isInstalled(detail.identifier);
+    const iconUrl = marketplace?.icon_url || "";
+    const compatibleCount = support?.supportedFeatures.length ?? 0;
+    const issueCount = support?.compatibilityIssues.length ?? 0;
+    const primaryAction = installed
+      ? `<button class="extensions-run-btn extensions-run-btn-muted" data-extension-action="uninstall" data-identifier="${escapeAttribute(detail.identifier)}">Uninstall</button>`
+      : `<button class="extensions-run-btn" data-extension-action="install" data-identifier="${escapeAttribute(detail.identifier)}" ${marketplace?.download_url ? "" : "disabled"}>Install</button>`;
+    const supportHtml = support
+      ? renderCompatibilityBlock(detail.identifier, support.compatibilityIssues, support.supportedFeatures)
+      : `
+        <div class="extensions-support-card">
+          <div class="extensions-support-card-title">Compatibility Pending</div>
+          <p class="extensions-support-card-copy">Install this extension in Athva to inspect which VS Code features map cleanly and which ones do not.</p>
+        </div>
+      `;
+    const diagnosticsHtml = diagnostics.length ? renderDiagnosticsBlock(detail.identifier, diagnostics) : "";
+
+    this.detailEl.classList.remove("hidden");
+    this.detailEl.innerHTML = `
+      <article class="extensions-detail-card">
+        <div class="extensions-detail-head">
+          ${iconUrl
+            ? `<img class="extensions-detail-icon" src="${escapeAttribute(iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
+            : `<div class="extensions-detail-icon extensions-icon-placeholder"></div>`}
+          <div class="extensions-detail-copy">
+            <strong>${escapeHtml(detail.display_name)}</strong>
+            <div class="extensions-meta">${escapeHtml(detail.identifier)}</div>
+            <div class="extensions-detail-stats">
+              <span>${escapeHtml(detail.version)}</span>
+              <span>${installed ? "Installed in Athva" : "Marketplace package"}</span>
+              ${support ? `<span>${compatibleCount} supported</span><span>${issueCount} issue${issueCount === 1 ? "" : "s"}</span>` : ""}
+            </div>
+          </div>
+        </div>
+        <p class="extensions-copy">${escapeHtml(detail.description || "No description provided.")}</p>
+        <div class="extensions-detail-actions">
+          ${primaryAction}
+          <button class="extensions-run-btn extensions-run-btn-muted" data-extension-action="open-marketplace" data-identifier="${escapeAttribute(detail.identifier)}" data-display-name="${escapeAttribute(detail.display_name)}">Open Marketplace</button>
+        </div>
+        ${supportHtml}
+        ${diagnosticsHtml}
+      </article>
     `;
   }
 
@@ -543,20 +594,42 @@ export class ExtensionsPanel {
     this.selectedDetail = { kind: "installed", identifier };
     this.renderAllLists();
     this.renderDetail();
-    const extension = this.findInstalled(identifier);
-    if (extension) {
-      this.options.openInEditor?.(identifier, extension.display_name);
-    }
+    this.openPreviewPage(identifier, "installed");
   }
 
   private selectMarketplace(identifier: string) {
     this.selectedDetail = { kind: "marketplace", identifier };
     this.renderAllLists();
     this.renderDetail();
-    const extension = this.findMarketplace(identifier);
-    if (extension) {
-      this.options.openInEditor?.(identifier, extension.display_name);
-    }
+    this.openPreviewPage(identifier, "marketplace");
+  }
+
+  private openPreviewPage(identifier: string, kind: "installed" | "marketplace") {
+    const detail = kind === "installed"
+      ? this.findInstalled(identifier) ?? this.findMarketplace(identifier) ?? null
+      : this.findMarketplace(identifier) ?? this.findInstalled(identifier) ?? null;
+    if (!detail) return;
+    const support = this.options.getSupport?.(detail.identifier) ?? null;
+    const marketplace = this.findMarketplace(identifier);
+    this.options.openPreviewPage?.({
+      identifier: detail.identifier,
+      displayName: detail.display_name,
+      description: detail.description,
+      version: detail.version,
+      publisher: detail.publisher,
+      extensionName: detail.extension_name,
+      iconUrl: marketplace?.icon_url,
+      downloadUrl: marketplace?.download_url,
+      installs: marketplace?.installs,
+      averageRating: marketplace?.average_rating,
+      ratingCount: marketplace?.rating_count,
+      readme: support?.readme || "",
+      installed: this.isInstalled(detail.identifier),
+      supportedFeatures: support?.supportedFeatures ?? [],
+      unsupportedFeatures: support?.unsupportedFeatures ?? [],
+      compatibilityIssues: support?.compatibilityIssues ?? [],
+    });
+    this.options.onExtensionSelected?.();
   }
 
   private findMarketplace(identifier: string): MarketplaceExtension | undefined {
@@ -587,23 +660,32 @@ export class ExtensionsPanel {
     if (error instanceof Error) return error.message;
     return "Unknown error.";
   }
-}
 
-function renderCommandList(commands: Array<{ command: string; title: string; category?: string }>): string {
-  const MAX = 8;
-  const shown = commands.slice(0, MAX);
-  const extra = commands.length - shown.length;
-  const rows = shown.map((cmd) => {
-    const label = cmd.category ? `${escapeHtml(cmd.category)}: ${escapeHtml(cmd.title)}` : escapeHtml(cmd.title);
-    return `<div class="extensions-command-row"><span class="extensions-command-label">${label}</span><span class="extensions-command-id">${escapeHtml(cmd.command)}</span></div>`;
-  }).join("");
-  return `<div class="extensions-command-list">${rows}${extra ? `<div class="extensions-detail-note">…and ${extra} more command${extra === 1 ? "" : "s"}</div>` : ""}</div>`;
-}
+  private async copySupportErrors(identifier: string) {
+    const support = this.options.getSupport?.(identifier) ?? null;
+    if (!support?.compatibilityIssues.length) return;
+    try {
+      await navigator.clipboard.writeText(formatCompatibilityIssuesForClipboard(
+        support.displayName || identifier,
+        identifier,
+        support.compatibilityIssues
+      ));
+      this.renderStatus("success", "Copied", `Compatibility errors for ${support.displayName || identifier} were copied.`);
+    } catch {
+      this.renderStatus("error", "Copy failed", "Athva could not copy the compatibility errors to the clipboard.");
+    }
+  }
 
-function isMarketplaceExtension(
-  extension: InstalledExtension | MarketplaceExtension
-): extension is MarketplaceExtension {
-  return "installs" in extension;
+  private async copyDiagnostics(identifier: string) {
+    const diagnostics = this.options.getDiagnostics?.(identifier) ?? [];
+    if (!diagnostics.length) return;
+    try {
+      await navigator.clipboard.writeText(formatDiagnosticsForClipboard(identifier, diagnostics));
+      this.renderStatus("success", "Copied", `Diagnostics for ${identifier} were copied.`);
+    } catch {
+      this.renderStatus("error", "Copy failed", "Athva could not copy the diagnostics to the clipboard.");
+    }
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -644,4 +726,123 @@ function statusIcon(kind: StatusKind): string {
     default:
       return "•";
   }
+}
+
+function renderCompatibilityBlock(
+  identifier: string,
+  issues: ExtensionCompatibilityIssue[],
+  supportedFeatures: string[]
+): string {
+  const supportedHtml = supportedFeatures.length
+    ? `<ul class="extensions-support-list">${supportedFeatures.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : `<p class="extensions-support-card-copy">No Athva-supported contribution types were detected in the installed manifest.</p>`;
+
+  const issuesHtml = issues.length
+    ? issues.map((issue) => `
+      <article class="extensions-compat-issue">
+        <div class="extensions-compat-issue-head">
+          <strong>${escapeHtml(issue.title)}</strong>
+          <span class="extensions-compat-issue-code">${escapeHtml(issue.code)}</span>
+        </div>
+        <p>${escapeHtml(issue.summary)}</p>
+        <ul class="extensions-support-list">${issue.details.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      </article>
+    `).join("")
+    : `<p class="extensions-support-card-copy">No known compatibility blockers were detected for this extension package.</p>`;
+
+  return `
+    <div class="extensions-detail-support">
+      <section class="extensions-support-card">
+        <div class="extensions-support-card-title">Athva Support</div>
+        ${supportedHtml}
+      </section>
+      <section class="extensions-support-card extensions-support-card-errors">
+        <div class="extensions-support-card-head">
+          <div>
+            <div class="extensions-support-card-title">Unsupported VS Code Features</div>
+            <p class="extensions-support-card-copy">These extension capabilities will not work correctly in Athva.</p>
+          </div>
+          ${issues.length
+            ? `<button class="extensions-copy-btn" data-extension-action="copy-support-errors" data-identifier="${escapeAttribute(identifier)}">Copy</button>`
+            : ""}
+        </div>
+        ${issuesHtml}
+      </section>
+    </div>
+  `;
+}
+
+function formatCompatibilityIssuesForClipboard(
+  displayName: string,
+  identifier: string,
+  issues: ExtensionCompatibilityIssue[]
+): string {
+  const lines = [
+    `Extension: ${displayName}`,
+    `Identifier: ${identifier}`,
+    "",
+    "Unsupported VS Code features in Athva:",
+  ];
+  for (const issue of issues) {
+    lines.push(`- ${issue.title} [${issue.code}]`);
+    lines.push(`  ${issue.summary}`);
+    for (const detail of issue.details) {
+      lines.push(`  • ${detail}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+function renderDiagnosticsBlock(identifier: string, diagnostics: ExtensionDiagnostic[]): string {
+  const items = diagnostics
+    .slice()
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 12);
+  const listHtml = items.map((d) => `
+    <article class="extensions-compat-issue">
+      <div class="extensions-compat-issue-head">
+        <strong>${escapeHtml(d.title)}</strong>
+        <span class="extensions-compat-issue-code">${escapeHtml(d.source)}</span>
+      </div>
+      <p>${escapeHtml(d.message)}</p>
+      ${d.stack ? `<pre class="extensions-diagnostic-stack">${escapeHtml(d.stack)}</pre>` : ""}
+    </article>
+  `).join("");
+
+  return `
+    <section class="extensions-support-card extensions-support-card-errors">
+      <div class="extensions-support-card-head">
+        <div>
+          <div class="extensions-support-card-title">Diagnostics</div>
+          <p class="extensions-support-card-copy">Recent errors and unsupported-view notices captured while using this extension.</p>
+        </div>
+        <button class="extensions-copy-btn" data-extension-action="copy-diagnostics" data-identifier="${escapeAttribute(identifier)}">Copy</button>
+      </div>
+      ${listHtml}
+    </section>
+  `;
+}
+
+function formatDiagnosticsForClipboard(identifier: string, diagnostics: ExtensionDiagnostic[]): string {
+  const items = diagnostics
+    .slice()
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 50);
+  const lines = [
+    `Identifier: ${identifier}`,
+    "",
+    "Diagnostics:",
+  ];
+  for (const d of items) {
+    const ts = new Date(d.timestamp).toISOString();
+    lines.push(`- ${d.title} (${d.source}, ${ts})`);
+    lines.push(`  ${d.message}`);
+    if (d.stack) {
+      lines.push("  Stack:");
+      for (const line of d.stack.split("\n")) lines.push(`    ${line}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
 }

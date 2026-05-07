@@ -24,7 +24,7 @@ import { ScriptRunner } from "./modules/script-runner";
 import { SidebarTimeWidget } from "./modules/sidebar-time-widget";
 import { CodeReviewPanel } from "./modules/code-review-panel";
 import { QualityPanel } from "./modules/quality-panel";
-import { ExtensionsPanel } from "./modules/extensions-panel";
+import { ExtensionsPanel, type ExtensionDiagnostic, type ExtensionPreviewPayload } from "./modules/extensions-panel";
 import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
@@ -33,13 +33,14 @@ import { ExportsTracker } from "./modules/exports-tracker";
 import { applyTheme, registerMonacoThemeDefiner, registerMonacoThemeSetter, registerRuntimeThemes, registerTerminalThemeSetter } from "./modules/theme-engine";
 import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./modules/file-icons";
 import { setExtensionSnippets } from "./modules/snippet-store";
-import { loadInstalledExtensionSupport, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
+import { loadInstalledExtensionSupport, type ExtensionCompatibilityIssue, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
 import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modules/extension-runtime";
 import { ProjectSwitcher } from "./modules/project-switcher";
 import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
 import { ScreenSaver } from "./modules/screen-saver";
+import { renderMarkdown } from "./modules/markdown-renderer";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -69,6 +70,22 @@ let lastSecuritySignature = "";
 let actionMenuEl: HTMLElement | null = null;
 let extensionSupportByIdentifier = new Map<string, ExtensionSupportSnapshot>();
 let installedExtensionRecords: InstalledExtensionRecord[] = [];
+const extensionPreviewPayloads = new Map<string, ExtensionPreviewPayload>();
+const extensionDiagnosticsByIdentifier = new Map<string, ExtensionDiagnostic[]>();
+
+function recordExtensionDiagnostic(identifier: string, diag: Omit<ExtensionDiagnostic, "timestamp">) {
+  const list = extensionDiagnosticsByIdentifier.get(identifier) ?? [];
+  const next: ExtensionDiagnostic = { ...diag, timestamp: Date.now() };
+  const key = `${next.source}:${next.title}:${next.message}`;
+  const deduped = list.filter((d) => `${d.source}:${d.title}:${d.message}` !== key);
+  deduped.unshift(next);
+  extensionDiagnosticsByIdentifier.set(identifier, deduped.slice(0, 80));
+  extensionsPanel?.refreshDetail?.();
+}
+
+function getExtensionDiagnostics(identifier: string): ExtensionDiagnostic[] {
+  return extensionDiagnosticsByIdentifier.get(identifier) ?? [];
+}
 
 const ACTION_PLACEMENT_LABELS: Record<WorkspaceActionPlacement, string> = {
   "top-left": "Top Left",
@@ -654,6 +671,50 @@ function isChatOpen(): boolean {
   return !$("chat-panel").classList.contains("hidden");
 }
 
+function closeExtensionViewPanel() {
+  document.getElementById("ext-view-panel")?.classList.add("hidden");
+  document.getElementById("ext-view-panel-resize")?.classList.add("hidden");
+  document.querySelectorAll(".ext-view-container-btn").forEach((b) => b.classList.remove("active"));
+  activeVcId = null;
+}
+
+function panelSide(panelId: string): "left" | "right" {
+  return document.getElementById(panelId)?.parentElement?.id === "left-panel-stack" ? "left" : "right";
+}
+
+function closePanelsOnSameSide(panelId: string) {
+  const side = panelSide(panelId);
+  const sameSide = (candidateId: string) => candidateId !== panelId && panelSide(candidateId) === side;
+
+  if (side === "left") {
+    $("sidebar").classList.add("hidden");
+    $("sidebar-resize").classList.add("hidden");
+  }
+  if (sameSide("snippets-panel") && snippetsPanel?.isVisible?.()) {
+    snippetsPanel.hide();
+    document.getElementById("snippets-resize")?.classList.add("hidden");
+  }
+  if (sameSide("source-control-panel") && sourceControl?.isOpen?.()) sourceControl.toggle();
+  if (sameSide("review-panel") && codeReviewPanel?.isOpen?.()) codeReviewPanel.close();
+  if (sameSide("quality-panel") && qualityPanel?.isOpen?.()) qualityPanel.close();
+  if (sameSide("extensions-panel") && extensionsPanel?.isOpen?.()) extensionsPanel.close();
+  if (sameSide("ext-view-panel")) closeExtensionViewPanel();
+  if (sameSide("chat-panel") && isChatOpen()) toggleChat();
+}
+
+function showExplorerSidebarOnly() {
+  toggleSidebar(true);
+  if (panelSide("snippets-panel") === "left" && snippetsPanel?.isVisible?.()) {
+    snippetsPanel.hide();
+    document.getElementById("snippets-resize")?.classList.add("hidden");
+  }
+  if (panelSide("source-control-panel") === "left" && sourceControl?.isOpen?.()) sourceControl.toggle();
+  if (panelSide("review-panel") === "left" && codeReviewPanel?.isOpen?.()) codeReviewPanel.close();
+  if (panelSide("quality-panel") === "left" && qualityPanel?.isOpen?.()) qualityPanel.close();
+  if (panelSide("extensions-panel") === "left" && extensionsPanel?.isOpen?.()) extensionsPanel.close();
+  if (panelSide("ext-view-panel") === "left") closeExtensionViewPanel();
+}
+
 function syncTopBarActionStates() {
   document.getElementById("btn-toggle-chat")?.classList.toggle("active", isChatOpen());
   document.getElementById("btn-toggle-terminal")?.classList.toggle("active", terminal?.getIsVisible?.() ?? false);
@@ -1044,6 +1105,7 @@ function openExtensionViewPanel(vc: ExtensionViewContainer) {
   }
 
   activeVcId = vc.id;
+  closePanelsOnSameSide("ext-view-panel");
   document.querySelectorAll(".ext-view-container-btn").forEach((b) => {
     b.classList.toggle("active", (b as HTMLElement).dataset.vcId === vc.id);
   });
@@ -1060,6 +1122,22 @@ function openExtensionViewPanel(vc: ExtensionViewContainer) {
 async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLElement) {
   const snapshot = extensionSupportByIdentifier.get(vc.extensionIdentifier);
   const views = snapshot?.views.filter((v) => v.containerId === vc.id) ?? [];
+  const hasNotebookRuntime = !!snapshot?.unsupportedFeatures.some((feature) =>
+    feature.toLowerCase().includes("notebook")
+  );
+
+  if (hasNotebookRuntime) {
+    recordExtensionDiagnostic(vc.extensionIdentifier, {
+      source: "extension-view",
+      title: "Notebook/Jupyter APIs unsupported",
+      message: "Notebook/Jupyter runtime APIs are not implemented in Athva yet. Use Open Marketplace to manage this extension.",
+    });
+    bodyEl.innerHTML = renderExtViewError(
+      snapshot?.displayName ?? vc.extensionIdentifier,
+      "Notebook/Jupyter runtime APIs are not implemented in Athva yet. Use Open Marketplace to manage this extension."
+    );
+    return;
+  }
 
   if (!snapshot?.hasRuntime) {
     bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, false, snapshot?.displayName ?? vc.extensionIdentifier, vc.extensionIdentifier);
@@ -1086,12 +1164,34 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
       const el = document.getElementById("ext-view-panel-body");
       if (!el) return;
       if (status === "error") {
+        recordExtensionDiagnostic(vc.extensionIdentifier, {
+          source: "extension-host",
+          title: "Runtime error",
+          message: msg ?? "Unknown error",
+        });
         el.innerHTML = renderExtViewError(snapshot.displayName, msg ?? "Unknown error");
       }
+    },
+    onHostError: (message, stack) => {
+      recordExtensionDiagnostic(vc.extensionIdentifier, {
+        source: "extension-host",
+        title: "Host error",
+        message,
+        stack,
+      });
+      if (activeVcId !== vc.id) return;
+      const el = document.getElementById("ext-view-panel-body");
+      if (!el) return;
+      el.innerHTML = renderExtViewError(snapshot.displayName, message, stack);
     },
     onViewRegistered: (viewId, viewType) => {
       if (activeVcId !== vc.id) return;
       if (viewType === "webview") {
+        recordExtensionDiagnostic(vc.extensionIdentifier, {
+          source: "extension-view",
+          title: "Webview view unsupported",
+          message: "This extension uses a webview UI that cannot be embedded in Athva's sidebar.",
+        });
         bodyEl.innerHTML = renderWebviewPlaceholder(snapshot.displayName, vc.extensionIdentifier);
         return;
       }
@@ -1108,6 +1208,11 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     try {
       await runtime.start();
     } catch {
+      recordExtensionDiagnostic(vc.extensionIdentifier, {
+        source: "extension-host",
+        title: "Failed to start extension host",
+        message: "Failed to start extension host. Is Node.js installed?",
+      });
       bodyEl.innerHTML = renderExtViewError(snapshot.displayName, "Failed to start extension host. Is Node.js installed?");
       return;
     }
@@ -1239,13 +1344,17 @@ function renderTreeNode(node: TreeNode, depth: number): string {
 
 function renderWebviewPlaceholder(displayName: string, identifier: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const message = "This extension uses a webview UI that cannot be embedded in Athva's sidebar.";
   return `<div class="ext-view-runtime-state" style="padding:12px">
     <div class="ext-view-runtime-icon-row">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11z"/></svg>
       <span>${esc(displayName)}</span>
     </div>
-    <p class="ext-view-runtime-desc">This extension uses a webview UI that cannot be embedded in Athva's sidebar.</p>
-    <a class="ext-view-marketplace-link" href="#" data-ext-marketplace="${esc(identifier)}" data-ext-name="${esc(displayName)}">Open on Marketplace ↗</a>
+    <p class="ext-view-runtime-desc">${esc(message)}</p>
+    <div class="ext-view-runtime-actions">
+      <button class="extensions-copy-btn" data-ext-view-action="copy-diagnostic" data-ext-name="${esc(displayName)}" data-ext-message="${esc(message)}">Copy</button>
+      <a class="ext-view-marketplace-link" href="#" data-ext-marketplace="${esc(identifier)}" data-ext-name="${esc(displayName)}">Open on Marketplace ↗</a>
+    </div>
   </div>`;
 }
 
@@ -1257,14 +1366,19 @@ function renderExtViewLoading(title: string): string {
   </div>`;
 }
 
-function renderExtViewError(name: string, message: string): string {
+function renderExtViewError(name: string, message: string, stack?: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safeStack = typeof stack === "string" && stack.trim() ? stack.trim() : "";
   return `<div class="ext-view-runtime-state" style="padding:12px">
     <div class="ext-view-runtime-icon-row">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="ext-view-runtime-svg"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zM7 11.5v-1h2v1H7zm0-2v-5h2v5H7z"/></svg>
       <span>Error starting ${esc(name)}</span>
     </div>
     <p class="ext-view-runtime-desc">${esc(message)}</p>
+    ${safeStack ? `<pre class="extensions-diagnostic-stack">${esc(safeStack)}</pre>` : ""}
+    <div class="ext-view-runtime-actions">
+      <button class="extensions-copy-btn" data-ext-view-action="copy-diagnostic" data-ext-name="${esc(name)}" data-ext-message="${esc(message)}" data-ext-stack="${esc(safeStack)}">Copy</button>
+    </div>
   </div>`;
 }
 
@@ -1312,7 +1426,190 @@ function renderExtensionViewPanelBody(
 }
 
 function openExtensionMarketplacePage(identifier: string, displayName: string) {
-  editor.openWebTab(`https://marketplace.visualstudio.com/items?itemName=${encodeURIComponent(identifier)}`, `Extension: ${displayName}`);
+  const openVsxPath = identifier.split(".").map(encodeURIComponent).join("/");
+  editor.openWebTab(`https://open-vsx.org/extension/${openVsxPath}`, `Extension: ${displayName}`);
+}
+
+function openExtensionPreviewPage(payload: ExtensionPreviewPayload) {
+  extensionPreviewPayloads.set(payload.identifier, payload);
+  const rating = payload.averageRating && payload.ratingCount
+    ? `${payload.averageRating.toFixed(1)}★ (${payload.ratingCount})`
+    : "No ratings";
+  const installs = typeof payload.installs === "number" ? payload.installs.toLocaleString() : "Unknown";
+  const supported = payload.supportedFeatures.length ? payload.supportedFeatures.join(", ") : "None";
+  const unsupported = payload.unsupportedFeatures.length ? payload.unsupportedFeatures.join(", ") : "None";
+  const readme = payload.readme?.trim()
+    ? renderMarkdown(payload.readme)
+    : `<p class="extension-page-empty">No README preview available.</p>`;
+  const icon = payload.iconUrl
+    ? `<img class="extension-page-icon" src="${escapeHtml(payload.iconUrl)}" alt="" />`
+    : `<div class="extension-page-icon extension-page-icon-placeholder">${escapeHtml(payload.displayName.slice(0, 1).toUpperCase())}</div>`;
+  const installedLabel = payload.installed ? "Installed" : "Not Installed";
+  const installedClass = payload.installed ? "installed" : "not-installed";
+  const primaryAction = payload.installed
+    ? `<button class="extension-page-primary muted" data-extension-preview-action="uninstall" data-identifier="${escapeHtml(payload.identifier)}">Uninstall</button>`
+    : `<button class="extension-page-primary" data-extension-preview-action="install" data-identifier="${escapeHtml(payload.identifier)}" ${payload.downloadUrl ? "" : "disabled"}>Install</button>`;
+  const compatibilityHtml = renderExtensionCompatibilityIssues(payload.identifier, payload.compatibilityIssues);
+  const featuresHtml = `
+    <div class="extension-page-feature-grid">
+      <section>
+        <h2>Athva Supported Features</h2>
+        <ul>${payload.supportedFeatures.length ? payload.supportedFeatures.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>None detected</li>"}</ul>
+      </section>
+      <section>
+        <h2>Not Supported Yet</h2>
+        <ul>${payload.unsupportedFeatures.length ? payload.unsupportedFeatures.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>None detected</li>"}</ul>
+      </section>
+    </div>
+    ${compatibilityHtml}
+  `;
+  const html = `
+    <article class="extension-page">
+      <header class="extension-page-hero">
+        ${icon}
+        <div class="extension-page-title-block">
+          <h1>${escapeHtml(payload.displayName)}</h1>
+          <div class="extension-page-publisher">${escapeHtml(payload.publisher)} <span>${escapeHtml(payload.identifier)}</span></div>
+          <p>${escapeHtml(payload.description || "No description provided.")}</p>
+          <div class="extension-page-actions">
+            ${primaryAction}
+            <span class="extension-page-state ${installedClass}">${installedLabel}</span>
+            <button data-extension-preview-action="marketplace" data-identifier="${escapeHtml(payload.identifier)}">Open Marketplace</button>
+          </div>
+        </div>
+      </header>
+      <nav class="extension-page-tabs">
+        <button class="active" data-extension-page-tab="details">Details</button>
+        <button data-extension-page-tab="features">Features</button>
+        <button data-extension-page-tab="changelog">Changelog</button>
+      </nav>
+      <div class="extension-page-content">
+        <main class="extension-page-readme">
+          <section class="extension-page-tab-panel md-preview-body" data-extension-page-panel="details">${readme}</section>
+          <section class="extension-page-tab-panel hidden" data-extension-page-panel="features">${featuresHtml}</section>
+          <section class="extension-page-tab-panel hidden" data-extension-page-panel="changelog">
+            <h2>Changelog</h2>
+            <p class="extension-page-empty">No changelog is available from the installed package metadata.</p>
+          </section>
+        </main>
+        <aside class="extension-page-rail">
+          <section>
+            <h2>Installation</h2>
+            <dl>
+              <dt>Identifier</dt><dd>${escapeHtml(payload.identifier)}</dd>
+              <dt>Version</dt><dd>${escapeHtml(payload.version)}</dd>
+              <dt>Installed</dt><dd>${installedLabel}</dd>
+            </dl>
+          </section>
+          <section>
+            <h2>Marketplace</h2>
+            <dl>
+              <dt>Installs</dt><dd>${escapeHtml(installs)}</dd>
+              <dt>Rating</dt><dd>${escapeHtml(rating)}</dd>
+            </dl>
+          </section>
+          <section>
+            <h2>Athva Support</h2>
+            <dl>
+              <dt>Supported</dt><dd>${escapeHtml(supported)}</dd>
+              <dt>Unsupported</dt><dd>${escapeHtml(unsupported)}</dd>
+            </dl>
+          </section>
+        </aside>
+      </div>
+    </article>
+  `;
+  const safeId = payload.identifier.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const path = `athva://extensions/${safeId}`;
+  editor.openHtmlTab(path, `Extension: ${payload.displayName}`, html);
+}
+
+function renderExtensionCompatibilityIssues(
+  identifier: string,
+  issues: ExtensionCompatibilityIssue[]
+): string {
+  if (!issues.length) {
+    return `
+      <section class="extension-page-compat">
+        <div class="extension-page-compat-head">
+          <div>
+            <h2>Compatibility Diagnostics</h2>
+            <p class="extension-page-empty">No known Athva compatibility blockers were detected for this package.</p>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="extension-page-compat">
+      <div class="extension-page-compat-head">
+        <div>
+          <h2>Compatibility Diagnostics</h2>
+          <p class="extension-page-empty">These VS Code extension capabilities are not currently supported in Athva.</p>
+        </div>
+        <button class="extensions-copy-btn" data-extension-preview-action="copy-errors" data-identifier="${escapeHtml(identifier)}">Copy</button>
+      </div>
+      <div class="extension-page-compat-list">
+        ${issues.map((issue) => `
+          <article class="extensions-compat-issue">
+            <div class="extensions-compat-issue-head">
+              <strong>${escapeHtml(issue.title)}</strong>
+              <span class="extensions-compat-issue-code">${escapeHtml(issue.code)}</span>
+            </div>
+            <p>${escapeHtml(issue.summary)}</p>
+            <ul class="extensions-support-list">${issue.details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function formatExtensionCompatibilityIssuesForClipboard(
+  displayName: string,
+  identifier: string,
+  issues: ExtensionCompatibilityIssue[]
+): string {
+  const lines = [
+    `Extension: ${displayName}`,
+    `Identifier: ${identifier}`,
+    "",
+    "Unsupported VS Code features in Athva:",
+  ];
+  for (const issue of issues) {
+    lines.push(`- ${issue.title} [${issue.code}]`);
+    lines.push(`  ${issue.summary}`);
+    for (const detail of issue.details) {
+      lines.push(`  • ${detail}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+async function installExtensionFromPreview(identifier: string) {
+  const payload = extensionPreviewPayloads.get(identifier);
+  if (!payload || !currentProjectPath || payload.installed || !payload.downloadUrl) return;
+  await invoke("install_vscode_extension", {
+    projectPath: currentProjectPath,
+    publisher: payload.publisher,
+    extensionName: payload.extensionName,
+    version: payload.version,
+    downloadUrl: payload.downloadUrl,
+  });
+  await reloadInstalledExtensionSupport();
+  await extensionsPanel.refresh();
+  openExtensionPreviewPage({ ...payload, installed: true });
+}
+
+async function uninstallExtensionFromPreview(identifier: string) {
+  const payload = extensionPreviewPayloads.get(identifier);
+  if (!payload || !payload.installed) return;
+  await invoke("uninstall_vscode_extension", { identifier });
+  await reloadInstalledExtensionSupport();
+  await extensionsPanel.refresh();
+  openExtensionPreviewPage({ ...payload, installed: false });
 }
 
 async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
@@ -1570,7 +1867,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     () => currentProjectPath,
     {
       openInEditor: openExtensionMarketplacePage,
+      openPreviewPage: openExtensionPreviewPage,
       getSupport: getExtensionSupport,
+      getDiagnostics: getExtensionDiagnostics,
       getSettingsState: getExtensionSettingsState,
       saveSettingsState: saveExtensionSettingsState,
       afterInstallChange: async () => {
@@ -1632,10 +1931,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Extension view panel close button
   document.getElementById("btn-close-ext-view-panel")?.addEventListener("click", () => {
-    document.getElementById("ext-view-panel")?.classList.add("hidden");
-    document.getElementById("ext-view-panel-resize")?.classList.add("hidden");
-    document.querySelectorAll(".ext-view-container-btn").forEach((b) => b.classList.remove("active"));
-    activeVcId = null;
+    closeExtensionViewPanel();
     editor.resize();
   });
 
@@ -1704,15 +2000,24 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-format").addEventListener("click", () => editor.formatDocument());
   $("btn-ai-review").addEventListener("click", () => {
     if (codeReviewPanel.isOpen()) codeReviewPanel.close();
-    else codeReviewPanel.open();
+    else {
+      closePanelsOnSameSide("review-panel");
+      codeReviewPanel.open();
+    }
   });
   $("btn-quality-panel").addEventListener("click", () => {
     if (qualityPanel.isOpen()) qualityPanel.close();
-    else void qualityPanel.open();
+    else {
+      closePanelsOnSameSide("quality-panel");
+      void qualityPanel.open();
+    }
   });
   $("btn-extensions-panel").addEventListener("click", () => {
     if (extensionsPanel.isOpen()) extensionsPanel.close();
-    else void extensionsPanel.open();
+    else {
+      closePanelsOnSameSide("extensions-panel");
+      void extensionsPanel.open();
+    }
   });
   $("btn-toggle-terminal").addEventListener("click", () => {
     terminal.toggle();
@@ -1734,6 +2039,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   $("sidebar-tab-explorer").addEventListener("click", () => {
+    showExplorerSidebarOnly();
     globalSearch.close();
     setActiveTab("explorer");
   });
@@ -1746,21 +2052,94 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   $("btn-toggle-snippets").addEventListener("click", () => {
+    if (!snippetsPanel.isVisible()) closePanelsOnSameSide("snippets-panel");
     snippetsPanel.toggle();
     $("snippets-resize").classList.toggle("hidden", !snippetsPanel.isVisible());
     syncTopBarActionStates();
   });
   $("btn-toggle-scm").addEventListener("click", () => {
+    if (!sourceControl.isOpen()) closePanelsOnSameSide("source-control-panel");
     sourceControl.toggle();
     syncTopBarActionStates();
   });
   $("btn-toggle-chat").addEventListener("click", () => {
+    if (!isChatOpen()) closePanelsOnSameSide("chat-panel");
     toggleChat();
     syncTopBarActionStates();
   });
   $("btn-close-chat").addEventListener("click", () => {
     toggleChat();
     syncTopBarActionStates();
+  });
+  document.addEventListener("click", (event) => {
+    const previewTab = (event.target as HTMLElement).closest("[data-extension-page-tab]") as HTMLElement | null;
+    if (previewTab) {
+      event.preventDefault();
+      const root = previewTab.closest(".extension-page");
+      const tab = previewTab.dataset.extensionPageTab;
+      root?.querySelectorAll<HTMLElement>("[data-extension-page-tab]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.extensionPageTab === tab);
+      });
+      root?.querySelectorAll<HTMLElement>("[data-extension-page-panel]").forEach((panel) => {
+        panel.classList.toggle("hidden", panel.dataset.extensionPagePanel !== tab);
+      });
+      return;
+    }
+
+    const previewAction = (event.target as HTMLElement).closest("[data-extension-preview-action]") as HTMLElement | null;
+    if (previewAction) {
+      event.preventDefault();
+      const identifier = previewAction.dataset.identifier;
+      if (!identifier) return;
+      const payload = extensionPreviewPayloads.get(identifier);
+      const action = previewAction.dataset.extensionPreviewAction;
+      if (action === "install") {
+        void installExtensionFromPreview(identifier);
+      } else if (action === "uninstall") {
+        void uninstallExtensionFromPreview(identifier);
+      } else if (action === "marketplace" && payload) {
+        openExtensionMarketplacePage(identifier, payload.displayName);
+      } else if (action === "copy-errors" && payload?.compatibilityIssues.length) {
+        void navigator.clipboard.writeText(
+          formatExtensionCompatibilityIssuesForClipboard(payload.displayName, payload.identifier, payload.compatibilityIssues)
+        ).then(() => {
+          showToast(`Copied compatibility errors for ${payload.displayName}.`, 3000);
+        }).catch(() => {
+          showToast("Failed to copy compatibility errors.", 4000);
+        });
+      }
+      return;
+    }
+
+    const extViewAction = (event.target as HTMLElement).closest("[data-ext-view-action]") as HTMLElement | null;
+    if (extViewAction) {
+      event.preventDefault();
+      const action = extViewAction.dataset.extViewAction;
+      if (action === "copy-diagnostic") {
+        const name = extViewAction.dataset.extName || "Extension";
+        const message = extViewAction.dataset.extMessage || "";
+        const stack = extViewAction.dataset.extStack || "";
+        const text = [
+          name,
+          message ? `\n${message}` : "",
+          stack ? `\n\nStack:\n${stack}` : "",
+        ].join("").trim();
+        void navigator.clipboard.writeText(text).then(() => {
+          showToast("Copied extension diagnostic.", 2500);
+        }).catch(() => {
+          showToast("Failed to copy extension diagnostic.", 4000);
+        });
+      }
+      return;
+    }
+
+    const target = (event.target as HTMLElement).closest("[data-ext-marketplace]") as HTMLElement | null;
+    if (!target) return;
+    event.preventDefault();
+    const identifier = target.dataset.extMarketplace;
+    const displayName = target.dataset.extName || identifier;
+    if (!identifier) return;
+    openExtensionMarketplacePage(identifier, displayName || identifier);
   });
   $("btn-edit-context").addEventListener("click", () => {
     if (!currentProjectPath) return;

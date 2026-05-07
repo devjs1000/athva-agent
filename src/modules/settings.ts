@@ -895,13 +895,8 @@ export class SettingsUI {
       this.updateScreenSaverImagePreview();
     });
 
-    // Screen saver preview
-    const ssPreviewBtn = document.getElementById("ss-preview-btn");
-    ssPreviewBtn?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("athva:screensaver-preview", {
-        detail: { ...this.settings.appearance.screenSaver },
-      }));
-    });
+    // Screen saver preview - removed button, using double-click on card instead
+    // (Preview triggered by double-click on animation cards)
 
     // Save button
     this.saveBtnEl.addEventListener("click", async () => {
@@ -1103,7 +1098,7 @@ export class SettingsUI {
     const active = this.settings.appearance.screenSaver.animation;
     this.ssAnimationCardsEl.innerHTML = ANIMATION_OPTIONS.map((a) => {
       const isActive = a.id === active;
-      return `<button class="ss-animation-card${isActive ? " active" : ""}" data-anim-id="${a.id}" type="button">
+      return `<button class="ss-animation-card${isActive ? " active" : ""}" data-anim-id="${a.id}" type="button" title="Double-click to preview">
         <div class="ss-anim-preview-wrap">
           <canvas class="ss-anim-preview-canvas" width="140" height="80"></canvas>
         </div>
@@ -1126,6 +1121,13 @@ export class SettingsUI {
         this.settings.appearance.screenSaver.animation = id;
         this.ssAnimationEl.value = id;
         this.renderAnimationCards();
+      });
+
+      // Double-click to preview
+      card.addEventListener("dblclick", () => {
+        document.dispatchEvent(new CustomEvent("athva:screensaver-preview", {
+          detail: { ...this.settings.appearance.screenSaver },
+        }));
       });
     });
   }

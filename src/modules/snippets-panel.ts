@@ -77,6 +77,7 @@ export class SnippetsPanel {
 
   hide() {
     this.panelEl.classList.add("hidden");
+    document.getElementById("snippets-resize")?.classList.add("hidden");
     document.getElementById("btn-toggle-snippets")?.classList.remove("active");
     this.closeComposer();
   }

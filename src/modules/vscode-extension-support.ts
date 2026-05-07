@@ -52,6 +52,13 @@ export interface ExtensionLanguage {
   extensions: string[];
 }
 
+export interface ExtensionCompatibilityIssue {
+  code: string;
+  title: string;
+  summary: string;
+  details: string[];
+}
+
 export interface ExtensionSupportSnapshot {
   identifier: string;
   displayName: string;
@@ -63,6 +70,7 @@ export interface ExtensionSupportSnapshot {
   snippetCount: number;
   supportedFeatures: string[];
   unsupportedFeatures: string[];
+  compatibilityIssues: ExtensionCompatibilityIssue[];
   commands: ExtensionCommand[];
   viewContainers: ExtensionViewContainer[];
   views: ExtensionView[];
@@ -140,6 +148,15 @@ export async function loadInstalledExtensionSupport(
         snippetCount: 0,
         supportedFeatures: [],
         unsupportedFeatures: ["Manifest unreadable"],
+        compatibilityIssues: [{
+          code: "manifest.unreadable",
+          title: "Manifest could not be read",
+          summary: "Athva could not inspect this extension package, so compatibility could not be determined.",
+          details: [
+            "The extension manifest package.json could not be loaded from the installed VSIX.",
+            "Reinstall the extension if the package looks incomplete or corrupted.",
+          ],
+        }],
         commands: [],
         viewContainers: [],
         views: [],
@@ -170,7 +187,8 @@ export async function loadInstalledExtensionSupport(
     allLanguages.push(...languages);
 
     const supportedFeatures: string[] = [];
-    const unsupportedFeatures = collectUnsupportedFeatures(manifest);
+    const compatibilityIssues = collectCompatibilityIssues(manifest);
+    const unsupportedFeatures = compatibilityIssues.map((issue) => issue.title);
 
     if (colorThemes.length) supportedFeatures.push(`${colorThemes.length} color theme${colorThemes.length === 1 ? "" : "s"}`);
     if (iconThemes.length) supportedFeatures.push(`${iconThemes.length} file icon theme${iconThemes.length === 1 ? "" : "s"}`);
@@ -190,6 +208,7 @@ export async function loadInstalledExtensionSupport(
       snippetCount: extensionSnippets.length,
       supportedFeatures,
       unsupportedFeatures,
+      compatibilityIssues,
       commands,
       viewContainers,
       views,
@@ -450,30 +469,109 @@ function parseLanguages(manifest: any): ExtensionLanguage[] {
     }));
 }
 
-function collectUnsupportedFeatures(manifest: any): string[] {
-  const unsupported = new Set<string>();
+function collectCompatibilityIssues(manifest: any): ExtensionCompatibilityIssue[] {
+  const issues = new Map<string, ExtensionCompatibilityIssue>();
   const contributes = manifest?.contributes ?? {};
 
   if (manifest?.main || manifest?.browser) {
-    unsupported.add("Executable extension runtime");
+    const mainValue = typeof manifest?.main === "string" ? manifest.main : "";
+    const browserValue = typeof manifest?.browser === "string" ? manifest.browser : "";
+    const evidence: string[] = [];
+    if (mainValue) evidence.push(`package.json: main=${mainValue}`);
+    if (browserValue) evidence.push(`package.json: browser=${browserValue}`);
+    issues.set("runtime.executable", {
+      code: "runtime.executable",
+      title: "Extension runtime is not supported",
+      summary: "This extension expects VS Code activation APIs and background execution that Athva does not host yet.",
+      details: [
+        ...evidence,
+        "Entries in the extension main/browser runtime were detected.",
+        "Commands, views, or workflows that depend on activate() will not run inside Athva.",
+      ],
+    });
   }
   if (Array.isArray(contributes.grammars) && contributes.grammars.length) {
-    unsupported.add("TextMate grammar tokenization");
+    const grammarCount = contributes.grammars.length;
+    issues.set("grammar.textmate", {
+      code: "grammar.textmate",
+      title: "TextMate grammars are not loaded",
+      summary: "Athva does not import VS Code TextMate grammar tokenization from extensions yet.",
+      details: [
+        `package.json: contributes.grammars count=${grammarCount}`,
+        "Custom syntax highlighting rules from contributes.grammars will be ignored.",
+        "Language metadata may still load, but token colors can differ from VS Code.",
+      ],
+    });
   }
   if (Array.isArray(contributes.debuggers) || Array.isArray(contributes.taskDefinitions)) {
-    unsupported.add("Debugger and task integrations");
+    const debugCount = Array.isArray(contributes.debuggers) ? contributes.debuggers.length : 0;
+    const taskCount = Array.isArray(contributes.taskDefinitions) ? contributes.taskDefinitions.length : 0;
+    issues.set("workbench.debug-task", {
+      code: "workbench.debug-task",
+      title: "Debugger and task integrations are unavailable",
+      summary: "VS Code debugger adapters and contributed task definitions are not wired into Athva.",
+      details: [
+        ...(debugCount ? [`package.json: contributes.debuggers count=${debugCount}`] : []),
+        ...(taskCount ? [`package.json: contributes.taskDefinitions count=${taskCount}`] : []),
+        "Launch configurations and task providers from this extension will not execute.",
+        "Use Athva's native run flows instead of extension-provided debug/task actions.",
+      ],
+    });
   }
   if (Array.isArray(contributes.configurationDefaults) || Array.isArray(contributes.configuration)) {
-    unsupported.add("VS Code settings/configuration APIs");
+    const configurationCount = Array.isArray(contributes.configuration) ? contributes.configuration.length : 0;
+    const defaultsCount = Array.isArray(contributes.configurationDefaults) ? contributes.configurationDefaults.length : 0;
+    const propertyKeys = new Set<string>();
+    if (Array.isArray(contributes.configuration)) {
+      for (const entry of contributes.configuration) {
+        const props = entry?.properties;
+        if (props && typeof props === "object") {
+          for (const key of Object.keys(props)) propertyKeys.add(key);
+        }
+      }
+    }
+    const propertySample = Array.from(propertyKeys).slice(0, 10);
+    issues.set("config.vscode-api", {
+      code: "config.vscode-api",
+      title: "VS Code configuration APIs are incomplete",
+      summary: "The extension contributes settings that Athva does not fully surface or apply.",
+      details: [
+        ...(configurationCount ? [`package.json: contributes.configuration count=${configurationCount}`] : []),
+        ...(defaultsCount ? [`package.json: contributes.configurationDefaults count=${defaultsCount}`] : []),
+        ...(propertySample.length ? [`settings keys (sample): ${propertySample.join(", ")}`] : []),
+        "contributes.configuration and configurationDefaults entries were detected.",
+        "Extension-specific settings UI and config-driven behaviors may be missing.",
+      ],
+    });
   }
   if (Array.isArray(contributes.notebooks)) {
-    unsupported.add("Notebook document model (Jupyter-style)");
+    const notebookCount = contributes.notebooks.length;
+    issues.set("notebook.document-model", {
+      code: "notebook.document-model",
+      title: "Notebook APIs are not implemented",
+      summary: "Athva does not provide the VS Code notebook document model used by Jupyter-style extensions.",
+      details: [
+        `package.json: contributes.notebooks count=${notebookCount}`,
+        "Notebook serializers, controllers, or cell document flows from this extension will not load.",
+        "Use Marketplace/open-in-VS-Code workflows for notebook-heavy extensions.",
+      ],
+    });
   }
   if (Array.isArray(contributes.notebookRenderer)) {
-    unsupported.add("Notebook output renderers");
+    const rendererCount = contributes.notebookRenderer.length;
+    issues.set("notebook.renderer", {
+      code: "notebook.renderer",
+      title: "Notebook renderers are not implemented",
+      summary: "Custom notebook output rendering from this extension cannot be embedded in Athva.",
+      details: [
+        `package.json: contributes.notebookRenderer count=${rendererCount}`,
+        "Notebook renderer contributions were detected.",
+        "Rich outputs tied to VS Code notebook rendering will not display here.",
+      ],
+    });
   }
 
-  return Array.from(unsupported);
+  return Array.from(issues.values());
 }
 
 function deriveWorkbenchColors(colors: Record<string, string>, uiTheme: string): ThemeColors {
