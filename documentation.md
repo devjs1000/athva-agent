@@ -200,9 +200,11 @@ pnpm quality:analyze <project-path> --config /path/to/quality-config.json --outp
 - The terminal uses spawned shell commands, not a true PTY session.
 - AI provider requests originate in the frontend, so API keys are present in renderer-managed settings.
 - Quick-open relies on recursive search from the backend and excludes common heavy directories such as `node_modules`, `dist`, `target`, `.git`, `build`, and `__pycache__`.
-- Downloaded VS Code extensions are stored in Athva's global app data directory, but Athva does not host or execute VS Code extensions at runtime.
-- Athva now consumes a limited subset of installed VSIX assets directly: color themes, SVG-based file icon themes, and snippet contributions. These apply through Athva's native theme, explorer icon, and snippet systems rather than a VS Code extension host.
-- Extensions that depend on executable activation, VS Code APIs, language servers, TextMate grammar injection, debugger hooks, or custom views still do not run inside Athva.
+- Downloaded VS Code extensions are stored in Athva's global app data directory.
+- Athva consumes a limited subset of installed VSIX assets directly: color themes, SVG-based file icon themes, snippets, command metadata, and view metadata. These apply through Athva's native systems rather than full VS Code workbench parity.
+- Athva can start a limited Node-based extension runtime for some tree-view-oriented extensions through a minimal `vscode` shim, but it does not provide full VS Code extension host parity.
+- Extensions that rely on the broader VS Code API surface, language servers, TextMate grammar injection, debugger hooks, notebooks, or embedded webviews still do not run fully inside Athva.
+- See `extension-compatibility-checklist.md` for the current capability matrix and backlog-style compatibility targets.
 - Workspace action placement is configured in-app via per-button move menus and persisted in settings rather than project files, and placements attach to real IDE chrome regions instead of floating overlays.
 - The terminal toggle is available from the toolbar and keyboard shortcuts, and the explorer can now be collapsed independently without changing workspace action placement.
 - A folder named `DOCS` activates a page-navigation sidebar with internal link resolution, but editing still uses the existing editor surfaces.

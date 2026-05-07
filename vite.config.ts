@@ -26,4 +26,21 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  build: {
+    // Reduce peak memory during production builds by splitting the biggest deps
+    // and keeping transform/minify in esbuild where possible.
+    target: "es2020",
+    sourcemap: false,
+    minify: "esbuild",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ["monaco-editor"],
+          mermaid: ["mermaid"],
+          xlsx: ["xlsx"],
+        },
+      },
+    },
+  },
 }));

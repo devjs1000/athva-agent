@@ -9,6 +9,12 @@
       "status": "completed",
       "updated_at": "2026-04-18T09:30:22Z",
       "summary": "Added a static quality analysis engine, workspace quality panel, and CLI JSON report entry point."
+    },
+    {
+      "id": "extension-compatibility-checklist",
+      "status": "completed",
+      "updated_at": "2026-05-07T00:00:00Z",
+      "summary": "Added a conservative extension compatibility checklist and linked it from the architecture documentation."
     }
   ]
 }

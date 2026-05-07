@@ -156,7 +156,11 @@ async function main() {
     send({ type: "activated", extensionId: extId });
   } catch (e) {
     flushQueue();
-    send({ type: "error", message: e.message, stack: e.stack?.split("\n").slice(0, 5).join("\n") });
+    const msg = e && typeof e.message === "string" ? e.message : String(e);
+    const stack = e && typeof e.stack === "string"
+      ? e.stack.split("\n").slice(0, 25).join("\n")
+      : "";
+    send({ type: "error", message: msg, stack });
   }
 }
 

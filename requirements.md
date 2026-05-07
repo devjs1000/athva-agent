@@ -55,3 +55,31 @@ Use this template for future entries:
 - files_to_modify_or_create:
 - verification:
 ```
+
+### REQ-2026-05-07-001
+
+- title: Add a current-state extension compatibility checklist for Athva
+- author: anand pandit
+- created_at: 2026-05-07T00:00:00Z
+- updated_at: 2026-05-07T00:00:00Z
+- status: completed
+- requested_by: user
+- scope:
+  - Capture the current extension and IDE compatibility baseline in a dedicated checklist document
+  - Link the checklist from the main architecture documentation
+  - Avoid changing application behavior or in-flight extension implementation code
+- constraints:
+  - Keep claims conservative and grounded in the current repository
+  - Do not overstate unsupported VS Code runtime, LSP, DAP, or webview capabilities
+- reusable_components:
+  - Existing extension architecture in `src/modules/extensions-panel.ts`, `src/modules/vscode-extension-support.ts`, `src/modules/extension-runtime.ts`
+  - Existing architecture summary in `documentation.md`
+- files_to_modify_or_create:
+  - `extension-compatibility-checklist.md`
+  - `documentation.md`
+  - `requirements.md`
+  - `todo.json`
+- verification:
+  - Checklist created with explicit implemented, partial, and unsupported markers
+  - Main documentation linked to the new checklist
+  - No application source files modified for this task

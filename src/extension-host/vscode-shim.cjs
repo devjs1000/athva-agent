@@ -104,6 +104,16 @@ class MarkdownString {
   appendText(v) { this.value += v.replace(/[\\`*_{}[\]()#+\-.!]/g, "\\$&"); return this; }
 }
 
+// ── Notebook value shims ─────────────────────────────────────────────────────
+
+const NOTEBOOK_ERROR_MIME = "application/vnd.code.notebook.error";
+
+class NotebookCellOutputItem {
+  static error(_err) {
+    return { mime: NOTEBOOK_ERROR_MIME, data: "" };
+  }
+}
+
 // ── Registered tree data providers ───────────────────────────────────────────
 // viewId → { provider, onDidChangeTreeDataSub }
 const treeProviders = new Map();
@@ -114,6 +124,8 @@ let _workspaceFolders = [];
 let _configuration = {};
 // Schema-defined defaults keyed as "section.key" (e.g. "todo-tree.general.tagGroups")
 let _schemaDefaults = {};
+// scheme -> FileSystemProvider
+const _fsProviders = new Map();
 
 const workspaceFoldersEmitter = new EventEmitter();
 
@@ -160,7 +172,9 @@ const workspace = {
         if (prop in target) return target[prop];
         // Direct property access: look up the value the same way .get() does
         const val = _getConfigValue(section, prop);
-        return val !== undefined ? val : undefined;
+        // Return an empty object for missing keys to avoid common crashes like
+        // Object.keys(config.someObject) when defaults are not available.
+        return val !== undefined ? val : {};
       },
     });
   },
@@ -200,23 +214,70 @@ const workspace = {
     return new Disposable(() => {});
   },
 
+  registerFileSystemProvider(scheme, provider, _options) {
+    if (typeof scheme !== "string" || !scheme) return new Disposable(() => {});
+    _fsProviders.set(scheme, provider);
+    return new Disposable(() => _fsProviders.delete(scheme));
+  },
+
   fs: {
-    readFile: (uri) => Promise.resolve(require("fs").readFileSync(uri.fsPath)),
-    writeFile: (uri, content) => { require("fs").writeFileSync(uri.fsPath, content); return Promise.resolve(); },
+    readFile: (uri) => {
+      if (uri?.scheme && uri.scheme !== "file") {
+        const provider = _fsProviders.get(uri.scheme);
+        if (provider && typeof provider.readFile === "function") return Promise.resolve(provider.readFile(uri));
+        return Promise.reject(new Error(`No FileSystemProvider for scheme: ${uri.scheme}`));
+      }
+      return Promise.resolve(require("fs").readFileSync(uri.fsPath));
+    },
+    writeFile: (uri, content) => {
+      if (uri?.scheme && uri.scheme !== "file") {
+        const provider = _fsProviders.get(uri.scheme);
+        if (provider && typeof provider.writeFile === "function") return Promise.resolve(provider.writeFile(uri, content, { create: true, overwrite: true }));
+        return Promise.reject(new Error(`No FileSystemProvider for scheme: ${uri.scheme}`));
+      }
+      require("fs").writeFileSync(uri.fsPath, content);
+      return Promise.resolve();
+    },
     readDirectory: (uri) => {
+      if (uri?.scheme && uri.scheme !== "file") {
+        const provider = _fsProviders.get(uri.scheme);
+        if (provider && typeof provider.readDirectory === "function") return Promise.resolve(provider.readDirectory(uri));
+        return Promise.resolve([]);
+      }
       try {
         return Promise.resolve(require("fs").readdirSync(uri.fsPath, { withFileTypes: true })
           .map(e => [e.name, e.isDirectory() ? FileType.Directory : FileType.File]));
       } catch { return Promise.resolve([]); }
     },
     stat: (uri) => {
+      if (uri?.scheme && uri.scheme !== "file") {
+        const provider = _fsProviders.get(uri.scheme);
+        if (provider && typeof provider.stat === "function") return Promise.resolve(provider.stat(uri));
+        return Promise.reject(new Error(`No FileSystemProvider for scheme: ${uri.scheme}`));
+      }
       try {
         const s = require("fs").statSync(uri.fsPath);
         return Promise.resolve({ type: s.isDirectory() ? FileType.Directory : FileType.File, size: s.size, ctime: s.ctimeMs, mtime: s.mtimeMs });
       } catch { return Promise.reject(); }
     },
-    createDirectory: (uri) => { require("fs").mkdirSync(uri.fsPath, { recursive: true }); return Promise.resolve(); },
-    delete: (uri) => { try { require("fs").unlinkSync(uri.fsPath); } catch {} return Promise.resolve(); },
+    createDirectory: (uri) => {
+      if (uri?.scheme && uri.scheme !== "file") {
+        const provider = _fsProviders.get(uri.scheme);
+        if (provider && typeof provider.createDirectory === "function") return Promise.resolve(provider.createDirectory(uri));
+        return Promise.resolve();
+      }
+      require("fs").mkdirSync(uri.fsPath, { recursive: true });
+      return Promise.resolve();
+    },
+    delete: (uri) => {
+      if (uri?.scheme && uri.scheme !== "file") {
+        const provider = _fsProviders.get(uri.scheme);
+        if (provider && typeof provider.delete === "function") return Promise.resolve(provider.delete(uri, { recursive: true, useTrash: false }));
+        return Promise.resolve();
+      }
+      try { require("fs").unlinkSync(uri.fsPath); } catch {}
+      return Promise.resolve();
+    },
   },
 };
 
@@ -267,7 +328,24 @@ const window = {
   showErrorMessage(msg) { send({ type: "notification", level: "error", message: msg }); return Promise.resolve(undefined); },
 
   createOutputChannel(name) {
-    return { name, append() {}, appendLine() {}, clear() {}, show() {}, hide() {}, dispose() {} };
+    const lines = [];
+    function append(text) { lines.push(String(text ?? "")); }
+    function appendLine(text) { lines.push(String(text ?? "") + "\n"); }
+    function log(level, text) { appendLine(`[${level}] ${String(text ?? "")}`); }
+    return {
+      name,
+      append,
+      appendLine,
+      clear() { lines.length = 0; },
+      show() {},
+      hide() {},
+      dispose() { lines.length = 0; },
+      // LogOutputChannel-style helpers (used by some extensions)
+      debug(text) { log("debug", text); },
+      info(text) { log("info", text); },
+      warn(text) { log("warn", text); },
+      error(text) { log("error", text); },
+    };
   },
 
   createWebviewPanel(viewType, title, column, options) {
@@ -278,6 +356,14 @@ const window = {
       onDidDispose: new EventEmitter().event,
       reveal() {}, dispose() {},
     };
+  },
+
+  registerWebviewPanelSerializer(_viewType, _serializer) {
+    return new Disposable(() => {});
+  },
+
+  registerUriHandler(_handler) {
+    return new Disposable(() => {});
   },
 
   createTextEditorDecorationType() { return { dispose() {} }; },
@@ -369,6 +455,9 @@ const env = {
   clipboard: { readText: () => Promise.resolve(""), writeText: () => Promise.resolve() },
 };
 
+// Report a VS Code-like version so extensions can gate behavior.
+const version = "1.106.0";
+
 // ── l10n ─────────────────────────────────────────────────────────────────────
 function formatL10n(message, args) {
   if (typeof message !== "string") return "";
@@ -445,12 +534,13 @@ async function handleMessage(msg) {
 
 module.exports = {
   // value types
-  Uri, Range, Position, ThemeIcon, ThemeColor, TreeItem,
+  Uri, Range, Position, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   EventEmitter, Disposable, MarkdownString,
   // namespaces
   workspace, window, commands, languages, env, l10n, extensions,
+  version,
   // internal
   _handleMessage: handleMessage,
   _initDefaults(defaults) { _schemaDefaults = defaults || {}; },

@@ -58,7 +58,21 @@ export class ExtensionRuntime {
 
     try {
       const hostScript = await getHostScript();
-      const cmd = Command.create("node", [
+      // GUI apps on macOS get a minimal PATH that excludes user-installed Node.js.
+      // Spawn via sh with augmented PATH covering Homebrew (Intel+ARM), Volta, NVM,
+      // and the pkg installer location so node is found regardless of install method.
+      const nodeLookupPath = [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/opt/node/bin",
+        "${HOME}/.volta/bin",
+        "${HOME}/.nvm/versions/node/$(ls \"${HOME}/.nvm/versions/node/\" 2>/dev/null | sort -rV | head -1)/bin",
+        "${PATH}",
+      ].join(":");
+      const cmd = Command.create("sh", [
+        "-c",
+        `PATH="${nodeLookupPath}" exec node "$@"`,
+        "--",
         hostScript,
         this.opts.mainPath,
         this.opts.extensionId,
@@ -168,9 +182,17 @@ export class ExtensionRuntime {
         break;
 
       case "error":
-        console.error(`[ExtHost:${this.opts.extensionId}]`, msg.message);
-        this.opts.onHostError?.(String(msg.message), typeof msg.stack === "string" ? msg.stack : undefined);
-        if (this.status !== "active") this.setStatus("error", String(msg.message));
+        {
+          const message = typeof msg.message === "string" ? msg.message : String(msg.message ?? "Unknown error");
+          const stack = typeof msg.stack === "string" && msg.stack.trim() ? msg.stack : undefined;
+          if (stack) {
+            console.error(`[ExtHost:${this.opts.extensionId}]`, message, "\n" + stack);
+          } else {
+            console.error(`[ExtHost:${this.opts.extensionId}]`, message);
+          }
+          this.opts.onHostError?.(message, stack);
+          if (this.status !== "active") this.setStatus("error", message);
+        }
         break;
 
       case "viewRegistered": {
