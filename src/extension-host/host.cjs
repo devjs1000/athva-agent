@@ -60,6 +60,32 @@ function makeUri(fsPath) {
   };
 }
 
+// Resolve system binaries that extensions may need (ripgrep, etc.)
+function resolveSystemBinaries() {
+  const rg = process.platform === "win32" ? "rg.exe" : "rg";
+
+  // Bundled binary lives next to host.cjs (works in both dev and production)
+  const bundled = path.join(__dirname, rg);
+  if (fs.existsSync(bundled)) return { "todo-tree.ripgrep.ripgrep": bundled };
+
+  // Try to find via shell with augmented PATH
+  try {
+    const { execSync } = require("child_process");
+    const augPath = "/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/opt/ripgrep/bin";
+    const found = execSync(
+      `PATH="${augPath}:$PATH" command -v ${rg} 2>/dev/null`,
+      { encoding: "utf8", timeout: 2000, shell: "/bin/sh" }
+    ).trim();
+    if (found && fs.existsSync(found)) return { "todo-tree.ripgrep.ripgrep": found };
+  } catch {}
+
+  // Static fallbacks
+  for (const p of [`/opt/homebrew/bin/${rg}`, `/usr/local/bin/${rg}`, `/usr/bin/${rg}`]) {
+    if (fs.existsSync(p)) return { "todo-tree.ripgrep.ripgrep": p };
+  }
+  return {};
+}
+
 // Extract default values from contributes.configuration schema
 function extractConfigDefaults(packageJSON) {
   const defaults = {};
@@ -89,7 +115,9 @@ async function main() {
 
     // Seed the shim with schema-defined config defaults so extensions get
     // correct zero-values (e.g. {} for tagGroups) rather than undefined.
-    const configDefaults = extractConfigDefaults(packageJSON);
+    // System binaries (e.g. ripgrep) are resolved and merged in so extensions
+    // that require them work without manual user configuration.
+    const configDefaults = { ...extractConfigDefaults(packageJSON), ...resolveSystemBinaries() };
     vscode._initDefaults(configDefaults);
 
     const ext = require(path.resolve(extMain));
@@ -98,9 +126,10 @@ async function main() {
       return;
     }
 
-    const storagePath = path.join(os.tmpdir(), "athva-ext-" + extId.replace(/[^a-z0-9]/gi, "_"));
-    const globalStoragePath = path.join(os.tmpdir(), "athva-ext-global-" + extId.replace(/[^a-z0-9]/gi, "_"));
-    const logPath = path.join(os.tmpdir(), "athva-ext-log-" + extId.replace(/[^a-z0-9]/gi, "_"));
+    const safeId = extId.replace(/[^a-z0-9]/gi, "_");
+    const storagePath = path.join(os.tmpdir(), `athva-ext-${safeId}`);
+    const globalStoragePath = path.join(os.tmpdir(), `athva-ext-global-${safeId}`);
+    const logPath = path.join(os.tmpdir(), `athva-ext-log-${safeId}`);
 
     // Ensure storage dirs exist — some extensions mkdir on their own, others assume it exists
     for (const dir of [storagePath, globalStoragePath, logPath]) {

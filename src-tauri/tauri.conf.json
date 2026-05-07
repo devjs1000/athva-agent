@@ -28,7 +28,8 @@
     "resources": {
       "../src/extension-host/host.cjs": "extension-host/host.cjs",
       "../src/extension-host/ipc.cjs": "extension-host/ipc.cjs",
-      "../src/extension-host/vscode-shim.cjs": "extension-host/vscode-shim.cjs"
+      "../src/extension-host/vscode-shim.cjs": "extension-host/vscode-shim.cjs",
+      "../src/extension-host/rg": "extension-host/rg"
     },
     "icon": [
       "icons/32x32.png",
