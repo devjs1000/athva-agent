@@ -68,6 +68,8 @@ let currentProjectPath: string = "";
 let appUnlocked = false;
 let lastSecuritySignature = "";
 let actionMenuEl: HTMLElement | null = null;
+let actionMenuContextActionId: WorkspaceActionId = "extensions-panel";
+const maximizedPanels = new Set<string>();
 let extensionSupportByIdentifier = new Map<string, ExtensionSupportSnapshot>();
 let installedExtensionRecords: InstalledExtensionRecord[] = [];
 const extensionPreviewPayloads = new Map<string, ExtensionPreviewPayload>();
@@ -134,6 +136,20 @@ const ACTION_ITEM_ORDER: WorkspaceActionId[] = [
   "terminal",
   "chat",
 ];
+
+const ACTION_LABELS: Record<WorkspaceActionId, string> = {
+  explorer: "Explorer",
+  settings: "Settings",
+  "run-script": "Run Script",
+  format: "Format",
+  "ai-review": "AI Review",
+  "quality-panel": "Quality Panel",
+  "extensions-panel": "Extensions",
+  snippets: "Snippets",
+  "source-control": "Source Control",
+  terminal: "Terminal",
+  chat: "Chat",
+};
 
 function isEnvFileName(name: string): boolean {
   return /^\.env(\..+)?$/i.test(name.trim());
@@ -690,6 +706,168 @@ function closeExtensionViewPanel() {
   activeVcId = null;
 }
 
+interface PanelWindowConfig {
+  panelId: string;
+  resizeId?: string;
+  actionsSelector: string;
+  maximizeBtnId: string;
+  minimizeBtnId: string;
+  axis: "width" | "height";
+  close: () => void;
+}
+
+function applyPanelMaximizedState(config: PanelWindowConfig, isMaximized: boolean) {
+  const panel = document.getElementById(config.panelId);
+  const resize = config.resizeId ? document.getElementById(config.resizeId) : null;
+  const maximizeBtn = document.getElementById(config.maximizeBtnId);
+  if (!panel) return;
+
+  panel.classList.toggle("panel-maximized", isMaximized);
+  panel.classList.toggle("panel-maximized-height", isMaximized && config.axis === "height");
+  if (resize) resize.classList.toggle("hidden", isMaximized || panel.classList.contains("hidden"));
+  if (maximizeBtn) maximizeBtn.setAttribute("title", isMaximized ? "Restore Panel" : "Maximize Panel");
+  if (isMaximized) maximizedPanels.add(config.panelId);
+  else maximizedPanels.delete(config.panelId);
+  editor.resize();
+}
+
+function togglePanelMaximized(config: PanelWindowConfig) {
+  const panel = document.getElementById(config.panelId);
+  if (!panel || panel.classList.contains("hidden")) return;
+  applyPanelMaximizedState(config, !maximizedPanels.has(config.panelId));
+}
+
+function setupPanelWindowControls() {
+  const configs: PanelWindowConfig[] = [
+    {
+      panelId: "terminal-panel",
+      resizeId: "terminal-resize",
+      actionsSelector: ".terminal-header-actions",
+      maximizeBtnId: "btn-maximize-terminal",
+      minimizeBtnId: "btn-minimize-terminal",
+      axis: "height",
+      close: () => terminal.toggle(),
+    },
+    {
+      panelId: "snippets-panel",
+      resizeId: "snippets-resize",
+      actionsSelector: ".snippets-header-actions",
+      maximizeBtnId: "btn-maximize-snippets",
+      minimizeBtnId: "btn-minimize-snippets",
+      axis: "width",
+      close: () => {
+        snippetsPanel.hide();
+        document.getElementById("snippets-resize")?.classList.add("hidden");
+        syncTopBarActionStates();
+      },
+    },
+    {
+      panelId: "source-control-panel",
+      resizeId: "source-control-resize",
+      actionsSelector: ".scm-header-actions",
+      maximizeBtnId: "btn-maximize-scm",
+      minimizeBtnId: "btn-minimize-scm",
+      axis: "width",
+      close: () => {
+        if (sourceControl.isOpen()) sourceControl.toggle();
+        syncTopBarActionStates();
+      },
+    },
+    {
+      panelId: "review-panel",
+      resizeId: "review-resize",
+      actionsSelector: ".review-header-actions",
+      maximizeBtnId: "btn-maximize-review",
+      minimizeBtnId: "btn-minimize-review",
+      axis: "width",
+      close: () => codeReviewPanel.close(),
+    },
+    {
+      panelId: "quality-panel",
+      resizeId: "quality-resize",
+      actionsSelector: ".quality-header-actions",
+      maximizeBtnId: "btn-maximize-quality",
+      minimizeBtnId: "btn-minimize-quality",
+      axis: "width",
+      close: () => qualityPanel.close(),
+    },
+    {
+      panelId: "extensions-panel",
+      resizeId: "extensions-resize",
+      actionsSelector: ".extensions-header-actions",
+      maximizeBtnId: "btn-maximize-extensions",
+      minimizeBtnId: "btn-minimize-extensions",
+      axis: "width",
+      close: () => extensionsPanel.close(),
+    },
+    {
+      panelId: "ext-view-panel",
+      resizeId: "ext-view-panel-resize",
+      actionsSelector: "#ext-view-panel .extensions-header-actions",
+      maximizeBtnId: "btn-maximize-ext-view-panel",
+      minimizeBtnId: "btn-minimize-ext-view-panel",
+      axis: "width",
+      close: () => closeExtensionViewPanel(),
+    },
+    {
+      panelId: "chat-panel",
+      resizeId: "chat-resize",
+      actionsSelector: ".chat-header-actions",
+      maximizeBtnId: "btn-maximize-chat",
+      minimizeBtnId: "btn-minimize-chat",
+      axis: "width",
+      close: () => {
+        if (isChatOpen()) toggleChat();
+        syncTopBarActionStates();
+      },
+    },
+  ];
+
+  const maximizeIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 2A1.75 1.75 0 0 0 1 3.75v8.5C1 13.216 1.784 14 2.75 14h10.5A1.75 1.75 0 0 0 15 12.25v-8.5A1.75 1.75 0 0 0 13.25 2H2.75zm0 1h10.5c.414 0 .75.336.75.75v8.5a.75.75 0 0 1-.75.75H2.75a.75.75 0 0 1-.75-.75v-8.5c0-.414.336-.75.75-.75z"/></svg>`;
+  const minimizeIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 8.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5z"/></svg>`;
+
+  configs.forEach((config) => {
+    const panel = document.getElementById(config.panelId);
+    const actions = document.querySelector(config.actionsSelector) as HTMLElement | null;
+    if (!panel || !actions) return;
+
+    if (!document.getElementById(config.maximizeBtnId)) {
+      const maximizeBtn = document.createElement("button");
+      maximizeBtn.id = config.maximizeBtnId;
+      maximizeBtn.className = "btn-icon btn-icon-sm";
+      maximizeBtn.title = "Maximize Panel";
+      maximizeBtn.innerHTML = maximizeIcon;
+      maximizeBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePanelMaximized(config);
+      });
+      actions.insertBefore(maximizeBtn, actions.lastElementChild);
+    }
+
+    if (!document.getElementById(config.minimizeBtnId)) {
+      const minimizeBtn = document.createElement("button");
+      minimizeBtn.id = config.minimizeBtnId;
+      minimizeBtn.className = "btn-icon btn-icon-sm";
+      minimizeBtn.title = "Minimize Panel";
+      minimizeBtn.innerHTML = minimizeIcon;
+      minimizeBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        applyPanelMaximizedState(config, false);
+        config.close();
+      });
+      actions.insertBefore(minimizeBtn, actions.lastElementChild);
+    }
+
+    const observer = new MutationObserver(() => {
+      if (panel.classList.contains("hidden")) applyPanelMaximizedState(config, false);
+      else if (maximizedPanels.has(config.panelId)) applyPanelMaximizedState(config, true);
+    });
+    observer.observe(panel, { attributes: true, attributeFilter: ["class"] });
+  });
+}
+
 function panelSide(panelId: string): "left" | "right" {
   return document.getElementById(panelId)?.parentElement?.id === "left-panel-stack" ? "left" : "right";
 }
@@ -770,8 +948,12 @@ function renderWorkspaceActionPlacements() {
     if (!zone) return;
     const items = ACTION_ITEM_ORDER
       .map((actionId) => {
-        if (placements[actionId] !== placement) return null;
-        return document.querySelector<HTMLElement>(`.workspace-action-item[data-action-id="${actionId}"]`);
+        const item = document.querySelector<HTMLElement>(`.workspace-action-item[data-action-id="${actionId}"]`);
+        if (!item) return null;
+        const visible = appSettings.workspaceActions.visibility[actionId] !== false;
+        item.classList.toggle("hidden", !visible);
+        if (!visible || placements[actionId] !== placement) return null;
+        return item;
       })
       .filter((item): item is HTMLElement => !!item);
 
@@ -793,6 +975,7 @@ async function persistWorkspaceActionPlacement(actionId: WorkspaceActionId, plac
   appSettings = {
     ...appSettings,
     workspaceActions: {
+      ...appSettings.workspaceActions,
       placements: {
         ...appSettings.workspaceActions.placements,
         [actionId]: placement,
@@ -804,21 +987,75 @@ async function persistWorkspaceActionPlacement(actionId: WorkspaceActionId, plac
   await saveSettings(appSettings);
 }
 
+function closeActionSurface(actionId: WorkspaceActionId) {
+  if (actionId === "explorer" && !$("sidebar").classList.contains("hidden")) toggleSidebar(false);
+  if (actionId === "snippets" && snippetsPanel?.isVisible?.()) {
+    snippetsPanel.hide();
+    document.getElementById("snippets-resize")?.classList.add("hidden");
+  }
+  if (actionId === "source-control" && sourceControl?.isOpen?.()) sourceControl.toggle();
+  if (actionId === "ai-review" && codeReviewPanel?.isOpen?.()) codeReviewPanel.close();
+  if (actionId === "quality-panel" && qualityPanel?.isOpen?.()) qualityPanel.close();
+  if (actionId === "extensions-panel") {
+    if (extensionsPanel?.isOpen?.()) extensionsPanel.close();
+    closeExtensionViewPanel();
+  }
+  if (actionId === "chat" && isChatOpen()) toggleChat();
+  if (actionId === "terminal" && terminal?.getIsVisible?.()) terminal.toggle();
+}
+
+async function persistWorkspaceActionVisibility(actionId: WorkspaceActionId, visible: boolean) {
+  if (appSettings.workspaceActions.visibility[actionId] === visible) return;
+  appSettings = {
+    ...appSettings,
+    workspaceActions: {
+      ...appSettings.workspaceActions,
+      visibility: {
+        ...appSettings.workspaceActions.visibility,
+        [actionId]: visible,
+      },
+    },
+  };
+  if (!visible) closeActionSurface(actionId);
+  settingsUI.updateSettings(appSettings);
+  renderWorkspaceActionPlacements();
+  syncTopBarActionStates();
+  await saveSettings(appSettings);
+}
+
 function closeWorkspaceActionMenu() {
   if (!actionMenuEl) return;
   actionMenuEl.classList.add("hidden");
 }
 
-function openWorkspaceActionMenu(actionId: WorkspaceActionId, anchorRect: DOMRect) {
+function openWorkspaceActionMenu(actionId: WorkspaceActionId | undefined, anchorRect: DOMRect) {
   if (!actionMenuEl) return;
-  const activePlacement = appSettings.workspaceActions.placements[actionId];
+  const effectiveActionId = actionId ?? actionMenuContextActionId;
+  actionMenuContextActionId = effectiveActionId;
+  const activePlacement = appSettings.workspaceActions.placements[effectiveActionId];
   actionMenuEl.innerHTML = `
-    <div class="workspace-action-menu-title">Move Control</div>
+    <div class="workspace-action-menu-title">Customize Navbar</div>
+    ${ACTION_ITEM_ORDER.map((id) => {
+      const active = appSettings.workspaceActions.visibility[id] !== false;
+      return `
+        <button
+          class="workspace-action-menu-option${id === effectiveActionId ? " active" : ""}"
+          data-kind="toggle"
+          data-action-id="${id}"
+          type="button"
+        >
+          <span>${ACTION_LABELS[id]}</span>
+          <span class="workspace-action-check">${active ? "✓" : ""}</span>
+        </button>
+      `;
+    }).join("")}
+    <div class="workspace-action-menu-title">Move ${ACTION_LABELS[effectiveActionId]}</div>
     ${ACTION_PLACEMENT_ORDER.map(
       (placement) => `
         <button
           class="workspace-action-menu-option${placement === activePlacement ? " active" : ""}"
-          data-action-id="${actionId}"
+          data-kind="placement"
+          data-action-id="${effectiveActionId}"
           data-placement="${placement}"
           type="button"
         >
@@ -863,6 +1100,22 @@ function setupWorkspaceActionCustomization() {
       event.stopPropagation();
       openWorkspaceActionMenu(actionId, item.getBoundingClientRect());
     });
+    if (actionId === "extensions-panel") {
+      item.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openWorkspaceActionMenu(actionId, item.getBoundingClientRect());
+      });
+    }
+  });
+  document.querySelectorAll<HTMLElement>(".workspace-action-zone, .workspace-action-rail").forEach((zone) => {
+    zone.addEventListener("contextmenu", (event) => {
+      if ((event.target as HTMLElement).closest(".workspace-action-item")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const pointRect = new DOMRect(event.clientX, event.clientY, 1, 1);
+      openWorkspaceActionMenu(undefined, pointRect);
+    });
   });
 
   document.addEventListener("click", async (event) => {
@@ -873,7 +1126,15 @@ function setupWorkspaceActionCustomization() {
       }
       return;
     }
+    const kind = option.dataset.kind || "placement";
     const actionId = option.dataset.actionId as WorkspaceActionId;
+    if (kind === "toggle") {
+      const nextVisible = appSettings.workspaceActions.visibility[actionId] === false;
+      actionMenuContextActionId = actionId;
+      await persistWorkspaceActionVisibility(actionId, nextVisible);
+      openWorkspaceActionMenu(actionId, option.getBoundingClientRect());
+      return;
+    }
     const placement = option.dataset.placement as WorkspaceActionPlacement;
     closeWorkspaceActionMenu();
     await persistWorkspaceActionPlacement(actionId, placement);
@@ -2295,6 +2556,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupResizeHandle("extensions-resize", $("extensions-panel"));
   setupResizeHandle("ext-view-panel-resize", $("ext-view-panel"));
   setupResizeHandle("chat-resize", $("chat-panel"));
+  setupPanelWindowControls();
 
   // ── Welcome page buttons ──
   $("btn-open-folder").addEventListener("click", handleOpenFolder);

@@ -103,6 +103,7 @@ export type WorkspaceActionId =
 
 export interface WorkspaceActionSettings {
   placements: Record<WorkspaceActionId, WorkspaceActionPlacement>;
+  visibility: Record<WorkspaceActionId, boolean>;
 }
 
 export interface AppSettings {
@@ -185,6 +186,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
       terminal: "top-right",
       chat: "top-right",
     },
+    visibility: {
+      explorer: true,
+      settings: true,
+      "run-script": true,
+      format: true,
+      "ai-review": true,
+      "quality-panel": true,
+      "extensions-panel": true,
+      snippets: true,
+      "source-control": true,
+      terminal: true,
+      chat: true,
+    },
   },
 };
 
@@ -202,6 +216,10 @@ export async function loadSettings(): Promise<AppSettings> {
         placements: {
           ...DEFAULT_SETTINGS.workspaceActions.placements,
           ...parsed.workspaceActions?.placements,
+        },
+        visibility: {
+          ...DEFAULT_SETTINGS.workspaceActions.visibility,
+          ...parsed.workspaceActions?.visibility,
         },
       },
       appearance: {
