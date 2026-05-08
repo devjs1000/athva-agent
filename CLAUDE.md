@@ -31,7 +31,7 @@ All operations MUST follow: **Plan → Batch → Compress → Execute → Output
 | Data Size | Strategy |
 |-----------|----------|
 | < 10KB | Batch read all at once |
-| 10–50KB | Chunk into groups |
+| 10-50KB | Chunk into groups |
 | > 50KB | Partial read — relevant sections only |
 
 - Batch: reads, tool calls, updates
@@ -126,10 +126,3 @@ Rules:
 - Unnecessary tool calls
 - Exploratory/speculative access
 - Reading files already in context
-
-## 14. References
-
-- [instructions.md](instructions.md) — Coding standards + modification policy
-- [mindset.md](mindset.md) — Operating lessons
-- [memory.md](memory.md) — Reusable logic registry
-- [documentation.md](documentation.md) — Architecture docs
