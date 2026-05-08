@@ -31,6 +31,7 @@ export interface AppearanceSettings {
   theme: string;
   fileIconTheme: string;
   translucentMode: boolean;
+  zenMode: boolean;
   colorOverrides: Partial<ThemeColors>;
   customThemes: CustomTheme[];
   backgroundImage: {
@@ -120,6 +121,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   theme: "dark",
   fileIconTheme: "",
   translucentMode: false,
+  zenMode: false,
   colorOverrides: {},
   customThemes: [],
   backgroundImage: {
@@ -317,6 +319,7 @@ export class SettingsUI {
   // Appearance elements
   private appearanceThemeCardsEl: HTMLElement;
   private appearanceTranslucentEl: HTMLInputElement;
+  private appearanceZenModeEl: HTMLInputElement;
   private appearanceColorRows: Record<keyof ThemeColors, { picker: HTMLInputElement; resetBtn: HTMLButtonElement }>;
   private appearanceSaveThemeBtn: HTMLButtonElement;
   private appearanceEditorImageBtn: HTMLButtonElement;
@@ -393,6 +396,7 @@ export class SettingsUI {
     // Appearance
     this.appearanceThemeCardsEl = document.getElementById("appearance-theme-cards")!;
     this.appearanceTranslucentEl = document.getElementById("appearance-translucent-mode") as HTMLInputElement;
+    this.appearanceZenModeEl = document.getElementById("appearance-zen-mode") as HTMLInputElement;
     this.appearanceColorRows = {
       topBar: { picker: document.getElementById("appearance-color-top-bar") as HTMLInputElement, resetBtn: document.getElementById("appearance-reset-top-bar") as HTMLButtonElement },
       bottomBar: { picker: document.getElementById("appearance-color-bottom-bar") as HTMLInputElement, resetBtn: document.getElementById("appearance-reset-bottom-bar") as HTMLButtonElement },
@@ -481,6 +485,7 @@ export class SettingsUI {
 
     // Appearance
     this.appearanceTranslucentEl.checked = !!this.settings.appearance.translucentMode;
+    this.appearanceZenModeEl.checked = !!this.settings.appearance.zenMode;
     this.renderThemeCards();
     this.updateColorPickers();
     this.updateImagePreviews();
@@ -767,6 +772,10 @@ export class SettingsUI {
       this.settings.appearance.translucentMode = this.appearanceTranslucentEl.checked;
       applyTheme(this.settings.appearance);
     });
+    this.appearanceZenModeEl.addEventListener("change", () => {
+      this.settings.appearance.zenMode = this.appearanceZenModeEl.checked;
+      this.onApply({ ...this.settings });
+    });
 
     const colorKeys = Object.keys(this.appearanceColorRows) as Array<keyof ThemeColors>;
     colorKeys.forEach((key) => {
@@ -869,6 +878,7 @@ export class SettingsUI {
         theme: "dark",
         fileIconTheme: "",
         translucentMode: false,
+        zenMode: false,
         colorOverrides: {},
         customThemes: this.settings.appearance.customThemes,
         backgroundImage: { editorUrl: "", editorOpacity: 0.3, editorBlur: 0, workspaceUrl: "", workspaceOpacity: 0.2, workspaceBlur: 0 },

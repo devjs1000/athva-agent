@@ -10991,3 +10991,30 @@ body.translucent-mode #workspace-main {
 .ss-animation-card.active .ss-anim-desc {
   color: rgba(126, 200, 255, 0.6);
 }
+
+/* Zen mode: focus the editor by hiding side chrome and utility panels */
+body.zen-mode .workspace-titlebar .titlebar-brand,
+body.zen-mode #status-bar,
+body.zen-mode #sidebar,
+body.zen-mode #sidebar-resize,
+body.zen-mode #left-panel-stack,
+body.zen-mode #workspace-action-zone-left-sidebar-strip,
+body.zen-mode #workspace-action-zone-right-sidebar-strip,
+body.zen-mode #terminal-panel,
+body.zen-mode #terminal-resize,
+body.zen-mode #source-control-panel,
+body.zen-mode #source-control-resize,
+body.zen-mode #review-panel,
+body.zen-mode #review-resize,
+body.zen-mode #quality-panel,
+body.zen-mode #quality-resize,
+body.zen-mode #extensions-panel,
+body.zen-mode #extensions-resize,
+body.zen-mode #ext-view-panel,
+body.zen-mode #ext-view-panel-resize,
+body.zen-mode #snippets-panel,
+body.zen-mode #snippets-resize,
+body.zen-mode #chat-panel,
+body.zen-mode #chat-resize {
+  display: none !important;
+}

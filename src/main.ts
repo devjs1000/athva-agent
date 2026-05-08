@@ -1186,6 +1186,7 @@ function onSettingsChange(settings: AppSettings) {
   refreshSecuritySession(settings);
   setActiveRuntimeFileIconTheme(settings.appearance.fileIconTheme || "");
   applyTheme(settings.appearance);
+  applyZenMode(!!settings.appearance.zenMode);
   void syncNativeTranslucentMode(!!settings.appearance.translucentMode);
   renderWorkspaceActionPlacements();
   screenSaver?.updateSettings(settings.appearance.screenSaver);
@@ -2259,6 +2260,12 @@ function syncChatAutoApproveToggle() {
   toggle.checked = appSettings.agentAccess.autoApprove;
 }
 
+function applyZenMode(enabled: boolean) {
+  document.body.classList.toggle("zen-mode", enabled);
+  syncTopBarActionStates();
+  setTimeout(() => editor?.resize?.(), 0);
+}
+
 // ── Init ──
 window.addEventListener("DOMContentLoaded", async () => {
   // Load settings
@@ -2275,6 +2282,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Apply theme after registering the Ace setter so the editor theme is set correctly
   applyTheme(appSettings.appearance);
+  applyZenMode(!!appSettings.appearance.zenMode);
 
   // Init snippets panel
   snippetsPanel = new SnippetsPanel("snippets-panel");
