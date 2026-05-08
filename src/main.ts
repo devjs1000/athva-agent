@@ -77,6 +77,14 @@ const webviewBridgeRuntimeById = new Map<string, ExtensionRuntime>();
 const webviewBridgeViewIdById = new Map<string, string>();
 const webviewBridgeIframeSelectorById = new Map<string, string>();
 
+async function syncNativeTranslucentMode(enabled: boolean): Promise<void> {
+  try {
+    await invoke("set_window_translucent_mode", { enabled });
+  } catch {
+    // Ignore on unsupported platforms or older builds.
+  }
+}
+
 function recordExtensionDiagnostic(identifier: string, diag: Omit<ExtensionDiagnostic, "timestamp">) {
   const list = extensionDiagnosticsByIdentifier.get(identifier) ?? [];
   const next: ExtensionDiagnostic = { ...diag, timestamp: Date.now() };
@@ -917,6 +925,7 @@ function onSettingsChange(settings: AppSettings) {
   refreshSecuritySession(settings);
   setActiveRuntimeFileIconTheme(settings.appearance.fileIconTheme || "");
   applyTheme(settings.appearance);
+  void syncNativeTranslucentMode(!!settings.appearance.translucentMode);
   renderWorkspaceActionPlacements();
   screenSaver?.updateSettings(settings.appearance.screenSaver);
   if (currentProjectPath) {
@@ -2010,6 +2019,7 @@ function syncChatAutoApproveToggle() {
 window.addEventListener("DOMContentLoaded", async () => {
   // Load settings
   appSettings = await loadSettings();
+  void syncNativeTranslucentMode(!!appSettings.appearance.translucentMode);
   refreshSecuritySession(appSettings);
 
   // Init editor

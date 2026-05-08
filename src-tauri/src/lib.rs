@@ -873,6 +873,31 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
     fs::write(&path, settings).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn set_window_translucent_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        let window = app.get_window("main").ok_or("main window not found")?;
+        if enabled {
+            apply_vibrancy(
+                &window,
+                NSVisualEffectMaterial::UnderWindowBackground,
+                Some(NSVisualEffectState::Active),
+                Some(16.0),
+            )
+            .map_err(|e| e.to_string())?;
+        } else {
+            clear_vibrancy(&window).map_err(|e| e.to_string())?;
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, enabled);
+    }
+    Ok(())
+}
+
 // ── VS Code marketplace / extension install support ──
 
 #[derive(Debug, Serialize, Clone)]
@@ -2101,6 +2126,7 @@ pub fn run() {
             git_diff_file,
             load_settings,
             save_settings,
+            set_window_translucent_mode,
             search_vscode_extensions,
             list_installed_vscode_extensions,
             install_vscode_extension,

@@ -44,6 +44,7 @@ commands.allow = [
   "git_diff_file",
   "load_settings",
   "save_settings",
+  "set_window_translucent_mode",
   "search_vscode_extensions",
   "list_installed_vscode_extensions",
   "install_vscode_extension",

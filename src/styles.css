@@ -10058,6 +10058,55 @@ thead .md-td {
   cursor: default;
 }
 
+/* ── Translucent Mode ── */
+body.translucent-mode .workspace-titlebar,
+body.translucent-mode .sidebar,
+body.translucent-mode .chat-panel,
+body.translucent-mode .review-panel,
+body.translucent-mode .scm-panel,
+body.translucent-mode .quality-panel,
+body.translucent-mode .extensions-panel,
+body.translucent-mode .status-bar,
+body.translucent-mode .settings-container {
+  backdrop-filter: blur(22px) saturate(1.28);
+  -webkit-backdrop-filter: blur(22px) saturate(1.28);
+}
+
+body.translucent-mode .workspace-titlebar {
+  background: rgba(24, 29, 37, 0.62) !important;
+}
+
+body.translucent-mode .sidebar {
+  background: rgba(22, 27, 34, 0.60) !important;
+}
+
+body.translucent-mode .chat-panel,
+body.translucent-mode .review-panel,
+body.translucent-mode .scm-panel,
+body.translucent-mode .quality-panel,
+body.translucent-mode .extensions-panel,
+body.translucent-mode .settings-container {
+  background: rgba(26, 31, 39, 0.58) !important;
+}
+
+body.translucent-mode .status-bar {
+  background: rgba(16, 92, 150, 0.58) !important;
+}
+
+body.translucent-mode .sidebar-header,
+body.translucent-mode .review-header,
+body.translucent-mode .scm-header,
+body.translucent-mode .extensions-header {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+body.translucent-mode #workspace-main {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(120, 180, 255, 0.14), transparent 56%),
+    radial-gradient(1000px 540px at 85% 0%, rgba(140, 120, 255, 0.10), transparent 58%),
+    linear-gradient(180deg, rgba(9, 12, 18, 0.92), rgba(10, 13, 20, 0.95));
+}
+
 .appearance-bg-group {
   display: flex;
   flex-direction: column;

@@ -15,7 +15,9 @@
       {
         "title": "Athva",
         "width": 900,
-        "height": 650
+        "height": 650,
+        "maximized": true,
+        "transparent": true
       }
     ],
     "security": {

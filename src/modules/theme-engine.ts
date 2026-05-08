@@ -159,6 +159,7 @@ function lighten(hex: string, amount: number): string {
 export function applyTheme(appearance: AppearanceSettings): void {
   const colors = getThemeColors(appearance);
   const root = document.documentElement;
+  const body = document.body;
 
   root.style.setProperty("--top-bar-bg", colors.topBar);
   root.style.setProperty("--bottom-bar-bg", colors.bottomBar);
@@ -216,6 +217,10 @@ export function applyTheme(appearance: AppearanceSettings): void {
   // Pass theme to Terminal if available
   if (_setTerminalTheme) {
     _setTerminalTheme(colors, brightness > 128);
+  }
+
+  if (body) {
+    body.classList.toggle("translucent-mode", !!appearance.translucentMode);
   }
 
   // Apply workspace background image
