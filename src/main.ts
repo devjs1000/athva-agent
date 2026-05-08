@@ -72,6 +72,7 @@ let actionMenuContextActionId: WorkspaceActionId = "extensions-panel";
 const maximizedPanels = new Set<string>();
 let extensionSupportByIdentifier = new Map<string, ExtensionSupportSnapshot>();
 let installedExtensionRecords: InstalledExtensionRecord[] = [];
+let currentBatteryLevel: number | null = null;
 const extensionPreviewPayloads = new Map<string, ExtensionPreviewPayload>();
 const extensionDiagnosticsByIdentifier = new Map<string, ExtensionDiagnostic[]>();
 let inlineWebviewAssetBridgeReady = false;
@@ -1186,6 +1187,7 @@ function onSettingsChange(settings: AppSettings) {
   refreshSecuritySession(settings);
   setActiveRuntimeFileIconTheme(settings.appearance.fileIconTheme || "");
   applyTheme(settings.appearance);
+  applyBatteryAdaptiveAccent();
   applyZenMode(!!settings.appearance.zenMode);
   void syncNativeTranslucentMode(!!settings.appearance.translucentMode);
   renderWorkspaceActionPlacements();
@@ -1236,6 +1238,7 @@ async function reloadInstalledExtensionSupport() {
 
   setActiveRuntimeFileIconTheme(appSettings.appearance.fileIconTheme || "");
   applyTheme(appSettings.appearance);
+  applyBatteryAdaptiveAccent();
 
   if (currentProjectPath) {
     await snippetsPanel.setProjectPath(currentProjectPath);
@@ -1294,6 +1297,7 @@ async function saveExtensionSettingsState(
   settingsUI.updateSettings(appSettings);
   setActiveRuntimeFileIconTheme(appSettings.appearance.fileIconTheme || "");
   applyTheme(appSettings.appearance);
+  applyBatteryAdaptiveAccent();
   if (currentProjectPath) {
     await fileExplorer.loadRoot(currentProjectPath);
   }
@@ -1310,6 +1314,7 @@ async function applyExtensionColorTheme(themeId: string) {
   };
   settingsUI.updateSettings(appSettings);
   applyTheme(appSettings.appearance);
+  applyBatteryAdaptiveAccent();
   await saveSettings(appSettings);
 }
 
@@ -2266,6 +2271,38 @@ function applyZenMode(enabled: boolean) {
   setTimeout(() => editor?.resize?.(), 0);
 }
 
+function getBatteryAccentColor(level: number): string {
+  const shadeScale = [
+    "#d10000",
+    "#de2a00",
+    "#e65000",
+    "#eb7300",
+    "#f09400",
+    "#c9a800",
+    "#94b600",
+    "#63bf00",
+    "#32bf32",
+    "#16a34a",
+  ];
+  const clamped = Math.max(0, Math.min(100, Math.round(level)));
+  const index = Math.min(9, Math.floor(clamped / 10));
+  if (clamped > 80) return shadeScale[Math.max(index, 8)];
+  if (clamped < 10) return shadeScale[0];
+  return shadeScale[index];
+}
+
+function applyBatteryAdaptiveAccent() {
+  const root = document.documentElement;
+  if (!appSettings?.appearance?.batteryAdaptiveAccent || currentBatteryLevel === null) {
+    root.style.removeProperty("--accent");
+    root.style.removeProperty("--accent-hover");
+    return;
+  }
+  const accent = getBatteryAccentColor(currentBatteryLevel);
+  root.style.setProperty("--accent", accent);
+  root.style.setProperty("--accent-hover", accent);
+}
+
 // ── Init ──
 window.addEventListener("DOMContentLoaded", async () => {
   // Load settings
@@ -2282,6 +2319,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Apply theme after registering the Ace setter so the editor theme is set correctly
   applyTheme(appSettings.appearance);
+  applyBatteryAdaptiveAccent();
   applyZenMode(!!appSettings.appearance.zenMode);
 
   // Init snippets panel
@@ -2976,6 +3014,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       const el = $("battery-status");
       const level = Math.round(bat.level * 100);
       const charging: boolean = bat.charging;
+      currentBatteryLevel = level;
       el.classList.remove("hidden");
       el.classList.toggle("battery-low", !charging && level < 20);
       el.classList.toggle("battery-charging", charging);
@@ -2986,6 +3025,7 @@ window.addEventListener("DOMContentLoaded", async () => {
           : `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 6h10v4H2V6zm0-1a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H2zm12 1.5h.5a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5H14v-3z"/></svg>`;
       el.innerHTML = `${icon}<span>${level}%</span>`;
       el.title = charging ? `Battery: ${level}% (charging)` : `Battery: ${level}%`;
+      applyBatteryAdaptiveAccent();
     }
     updateBattery(battery);
     battery.addEventListener("levelchange", () => updateBattery(battery));
