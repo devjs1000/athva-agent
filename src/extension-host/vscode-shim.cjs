@@ -64,6 +64,20 @@ class Position {
   constructor(line, character) { this.line = line; this.character = character; }
 }
 
+class Selection extends Range {
+  constructor(anchorLineOrPosition, anchorCharacterOrPosition, activeLine, activeCharacter) {
+    const anchor = anchorLineOrPosition instanceof Position
+      ? anchorLineOrPosition
+      : new Position(anchorLineOrPosition, anchorCharacterOrPosition);
+    const active = anchorCharacterOrPosition instanceof Position
+      ? anchorCharacterOrPosition
+      : new Position(activeLine, activeCharacter);
+    super(anchor.line, anchor.character, active.line, active.character);
+    this.anchor = anchor;
+    this.active = active;
+  }
+}
+
 class ThemeIcon {
   constructor(id, color) { this.id = id; this.color = color; }
   static File = new ThemeIcon("file");
@@ -84,7 +98,7 @@ class TreeItem {
 const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
 const StatusBarAlignment = { Left: 1, Right: 2 };
 const ViewColumn = { One: 1, Two: 2, Three: 3, Active: -1, Beside: -2 };
-const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Info: 2, Hint: 3 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
@@ -102,6 +116,7 @@ class EventEmitter {
   fire(data) { this._listeners.forEach(l => { try { l(data); } catch {} }); }
   dispose() { this._listeners = []; }
 }
+const Event = { None: () => new Disposable(() => {}) };
 
 class Disposable {
   constructor(callOnDispose) { this._fn = callOnDispose; }
@@ -119,6 +134,16 @@ class MarkdownString {
   appendText(v) { this.value += v.replace(/[\\`*_{}[\]()#+\-.!]/g, "\\$&"); return this; }
 }
 
+class Diagnostic {
+  constructor(range, message, severity = DiagnosticSeverity.Error) {
+    this.range = range;
+    this.message = String(message ?? "");
+    this.severity = severity;
+    this.source = undefined;
+    this.code = undefined;
+  }
+}
+
 class CancellationTokenSource {
   constructor() {
     this.token = { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event };
@@ -126,6 +151,7 @@ class CancellationTokenSource {
   cancel() { this.token.isCancellationRequested = true; }
   dispose() { this.cancel(); }
 }
+const CancellationToken = { None: { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event } };
 
 class SnippetString {
   constructor(value = "") { this.value = String(value); }
@@ -140,6 +166,17 @@ class CompletionItem {
   constructor(label, kind) {
     this.label = label;
     this.kind = kind;
+  }
+}
+
+class CodeAction {
+  constructor(title, kind) {
+    this.title = String(title ?? "");
+    this.kind = kind;
+    this.edit = undefined;
+    this.command = undefined;
+    this.diagnostics = undefined;
+    this.isPreferred = undefined;
   }
 }
 
@@ -180,13 +217,96 @@ class DocumentLink {
 function makeTextEditor(document) {
   return {
     document,
-    selection: undefined,
+    selection: new Selection(0, 0, 0, 0),
     selections: [],
     revealRange() {},
     setDecorations() {},
-    edit() { return Promise.resolve(false); },
+    edit(callback) {
+      const edits = [];
+      const builder = {
+        replace(range, value) { edits.push(TextEdit.replace(range, value)); },
+        insert(position, value) { edits.push(TextEdit.insert(position, value)); },
+        delete(range) { edits.push(TextEdit.delete(range)); },
+      };
+      try { if (typeof callback === "function") callback(builder); } catch {}
+      return Promise.resolve(edits.length > 0);
+    },
     insertSnippet() { return Promise.resolve(false); },
   };
+}
+
+class TextDocument {
+  constructor(uri, content = "", languageId = "plaintext", version = 1) {
+    this.uri = uri;
+    this.fileName = uri?.fsPath || uri?.path || "";
+    this.languageId = languageId;
+    this.version = version;
+    this.isDirty = false;
+    this.isClosed = false;
+    this.eol = 1;
+    this.lineCount = String(content).split("\n").length;
+    this._content = String(content);
+  }
+  getText(range) {
+    if (!range) return this._content;
+    const lines = this._content.split("\n");
+    const startLine = Math.max(0, range.start.line);
+    const endLine = Math.max(startLine, range.end.line);
+    const selected = lines.slice(startLine, endLine + 1);
+    if (!selected.length) return "";
+    selected[0] = selected[0].slice(range.start.character);
+    selected[selected.length - 1] = selected[selected.length - 1].slice(0, range.end.character);
+    return selected.join("\n");
+  }
+  lineAt(line) {
+    const lines = this._content.split("\n");
+    const text = lines[Math.max(0, line)] ?? "";
+    return {
+      lineNumber: line,
+      text,
+      range: new Range(line, 0, line, text.length),
+      rangeIncludingLineBreak: new Range(line, 0, line, text.length + 1),
+      firstNonWhitespaceCharacterIndex: text.search(/\S|$/),
+      isEmptyOrWhitespace: !/\S/.test(text),
+    };
+  }
+  offsetAt(position) {
+    const lines = this._content.split("\n");
+    const prefix = lines.slice(0, Math.max(0, position.line)).join("\n");
+    return prefix.length + (position.line > 0 ? 1 : 0) + Math.max(0, position.character);
+  }
+  positionAt(offset) {
+    const text = this._content;
+    const safeOffset = Math.max(0, Math.min(text.length, offset));
+    const prefix = text.slice(0, safeOffset);
+    const line = (prefix.match(/\n/g) || []).length;
+    const lastBreak = prefix.lastIndexOf("\n");
+    const character = lastBreak === -1 ? prefix.length : prefix.length - lastBreak - 1;
+    return new Position(line, character);
+  }
+}
+
+class TextEditor {
+  constructor(document) {
+    this.document = document;
+    this.selection = new Selection(0, 0, 0, 0);
+    this.selections = [];
+    this.options = {};
+    this.viewColumn = ViewColumn.One;
+  }
+  revealRange() {}
+  setDecorations() {}
+  edit(callback) {
+    const edits = [];
+    const builder = {
+      replace(range, value) { edits.push(TextEdit.replace(range, value)); },
+      insert(position, value) { edits.push(TextEdit.insert(position, value)); },
+      delete(range) { edits.push(TextEdit.delete(range)); },
+    };
+    try { if (typeof callback === "function") callback(builder); } catch {}
+    return Promise.resolve(edits.length > 0);
+  }
+  insertSnippet() { return Promise.resolve(false); }
 }
 
 // ── Notebook value shims ─────────────────────────────────────────────────────
@@ -194,15 +314,67 @@ function makeTextEditor(document) {
 const NOTEBOOK_ERROR_MIME = "application/vnd.code.notebook.error";
 
 class NotebookCellOutputItem {
+  static text(value, mime = "text/plain") {
+    return { mime, data: String(value ?? "") };
+  }
+  static json(value, mime = "application/json") {
+    return { mime, data: JSON.stringify(value ?? null) };
+  }
+  static stdout(value) {
+    return { mime: "application/vnd.code.notebook.stdout", data: String(value ?? "") };
+  }
+  static stderr(value) {
+    return { mime: "application/vnd.code.notebook.stderr", data: String(value ?? "") };
+  }
   static error(_err) {
     return { mime: NOTEBOOK_ERROR_MIME, data: "" };
   }
 }
 
+class NotebookCellOutput {
+  constructor(items = [], metadata = {}) {
+    this.items = items;
+    this.metadata = metadata;
+  }
+}
+
+class NotebookCellData {
+  constructor(kind, value, languageId) {
+    this.kind = kind;
+    this.value = value ?? "";
+    this.languageId = languageId ?? "plaintext";
+    this.outputs = [];
+    this.metadata = {};
+  }
+}
+
+class NotebookData {
+  constructor(cells = []) {
+    this.cells = cells;
+    this.metadata = {};
+  }
+}
+
+class NotebookRange {
+  constructor(start, end) {
+    this.start = start;
+    this.end = end;
+  }
+}
+
+const NotebookCellKind = { Markup: 1, Code: 2 };
+
 // ── Registered tree data providers ───────────────────────────────────────────
 // viewId → { provider, onDidChangeTreeDataSub }
 const treeProviders = new Map();
 const webviewChannels = new Map();
+const notebookSerializers = new Map();
+const notebookDocuments = [];
+const notebookControllers = new Map();
+const notebookOpenEmitter = new EventEmitter();
+const notebookCloseEmitter = new EventEmitter();
+const notebookChangeEmitter = new EventEmitter();
+const activeNotebookEditorEmitter = new EventEmitter();
 const gitRepositoryEmitter = new EventEmitter();
 const gitApi = {
   repositories: [],
@@ -361,6 +533,9 @@ const onDidSaveTextDocumentEmitter = new EventEmitter();
 const onDidOpenTextDocumentEmitter = new EventEmitter();
 const onDidCloseTextDocumentEmitter = new EventEmitter();
 const onDidChangeTextDocumentEmitter = new EventEmitter();
+const onDidOpenNotebookDocumentEmitter = new EventEmitter();
+const onDidCloseNotebookDocumentEmitter = new EventEmitter();
+const onDidChangeNotebookDocumentEmitter = new EventEmitter();
 
 function _getConfigValue(section, key) {
   // Check explicit config first, then schema defaults
@@ -379,6 +554,9 @@ const workspace = {
   onDidOpenTextDocument: onDidOpenTextDocumentEmitter.event,
   onDidCloseTextDocument: onDidCloseTextDocumentEmitter.event,
   onDidChangeTextDocument: onDidChangeTextDocumentEmitter.event,
+  onDidOpenNotebookDocument: onDidOpenNotebookDocumentEmitter.event,
+  onDidCloseNotebookDocument: onDidCloseNotebookDocumentEmitter.event,
+  onDidChangeNotebookDocument: onDidChangeNotebookDocumentEmitter.event,
 
   getConfiguration(section) {
     const sectionData = section ? (_configuration[section] || {}) : _configuration;
@@ -430,16 +608,56 @@ const workspace = {
     const fspath = typeof pathOrUri === "string" ? pathOrUri : pathOrUri?.fsPath ?? "";
     try {
       const content = require("fs").readFileSync(fspath, "utf8");
-      return Promise.resolve({
-        uri: Uri.file(fspath),
-        getText: () => content,
-        lineCount: content.split("\n").length,
-        languageId: "plaintext",
-        fileName: fspath,
-      });
+      return Promise.resolve(new TextDocument(Uri.file(fspath), content));
     } catch {
       return Promise.reject(new Error(`Cannot open ${fspath}`));
     }
+  },
+  openNotebookDocument(viewTypeOrUri, maybeUri) {
+    const viewType = typeof viewTypeOrUri === "string" && maybeUri ? viewTypeOrUri : "jupyter-notebook";
+    const uriInput = maybeUri || viewTypeOrUri;
+    const uri = typeof uriInput === "string" ? Uri.parse(uriInput) : (uriInput || Uri.file(""));
+    const doc = {
+      uri,
+      notebookType: viewType,
+      version: 1,
+      isDirty: false,
+      isClosed: false,
+      metadata: {},
+      cellCount: 0,
+      getCells: () => [],
+      save: () => Promise.resolve(true),
+    };
+    notebookDocuments.push(doc);
+    onDidOpenNotebookDocumentEmitter.fire(doc);
+    notebookOpenEmitter.fire(doc);
+    return Promise.resolve(doc);
+  },
+  registerNotebookSerializer(viewType, serializer, _options) {
+    notebookSerializers.set(String(viewType), serializer);
+    return new Disposable(() => notebookSerializers.delete(String(viewType)));
+  },
+  applyEdit(edit) {
+    const all = Array.isArray(edit?._edits) ? edit._edits : [];
+    for (const batch of all) {
+      const uri = batch?.uri;
+      if (!uri?.fsPath) continue;
+      let content = "";
+      try { content = fs.readFileSync(uri.fsPath, "utf8"); } catch { continue; }
+      const updates = Array.isArray(batch.edits) ? batch.edits : [];
+      const decorated = updates
+        .map((e) => {
+          const start = _offsetAt(content, e.range?.start || new Position(0, 0));
+          const end = _offsetAt(content, e.range?.end || new Position(0, 0));
+          return { start, end, newText: String(e.newText ?? "") };
+        })
+        .sort((a, b) => b.start - a.start);
+      for (const u of decorated) {
+        content = content.slice(0, u.start) + u.newText + content.slice(u.end);
+      }
+      try { fs.writeFileSync(uri.fsPath, content); } catch {}
+    }
+    return Promise.resolve(true);
   },
 
   createFileSystemWatcher(pattern) {
@@ -622,6 +840,19 @@ const window = {
   onDidChangeActiveTextEditor: new EventEmitter().event,
   onDidChangeVisibleTextEditors: new EventEmitter().event,
   onDidChangeTextEditorSelection: new EventEmitter().event,
+  activeNotebookEditor: undefined,
+  visibleNotebookEditors: [],
+  onDidChangeActiveNotebookEditor: activeNotebookEditorEmitter.event,
+  showNotebookDocument: async (notebookOrUri, _options) => {
+    const document = notebookOrUri?.notebookType
+      ? notebookOrUri
+      : await workspace.openNotebookDocument(notebookOrUri);
+    const editor = { notebook: document, selection: new NotebookRange(0, 0), selections: [], visibleRanges: [] };
+    window.activeNotebookEditor = editor;
+    window.visibleNotebookEditors = [editor];
+    activeNotebookEditorEmitter.fire(editor);
+    return editor;
+  },
   registerWebviewViewProvider(viewId, provider, _options) {
     // Notify renderer that this webview view is registered so the panel can show
     send({ type: "viewRegistered", viewId, viewType: "webview" });
@@ -672,15 +903,44 @@ const commands = {
 // ── languages ─────────────────────────────────────────────────────────────────
 
 const languages = {
+  _diagnostics: new Map(),
+  _completionProviders: new Set(),
+  _codeActionProviders: new Set(),
   createDiagnosticCollection(name) {
-    return { name, set() {}, delete() {}, clear() {}, dispose() {}, forEach() {}, get() { return []; }, has() { return false; } };
+    const key = String(name || "default");
+    const store = new Map();
+    languages._diagnostics.set(key, store);
+    return {
+      name: key,
+      set(uri, diagnostics) { store.set(uri?.toString?.() || String(uri), diagnostics || []); },
+      delete(uri) { store.delete(uri?.toString?.() || String(uri)); },
+      clear() { store.clear(); },
+      dispose() { store.clear(); languages._diagnostics.delete(key); },
+      forEach(cb) { store.forEach((value, uri) => cb(Uri.parse(uri), value, this)); },
+      get(uri) { return store.get(uri?.toString?.() || String(uri)) || []; },
+      has(uri) { return store.has(uri?.toString?.() || String(uri)); },
+    };
   },
-  getDiagnostics() { return []; },
+  getDiagnostics(uri) {
+    const rows = [];
+    for (const store of languages._diagnostics.values()) {
+      for (const [key, value] of store.entries()) {
+        if (!uri || key === (uri?.toString?.() || String(uri))) rows.push([Uri.parse(key), value || []]);
+      }
+    }
+    return uri ? (rows[0]?.[1] || []) : rows;
+  },
   registerHoverProvider: () => new Disposable(() => {}),
-  registerCompletionItemProvider: () => new Disposable(() => {}),
+  registerCompletionItemProvider(_selector, provider) {
+    languages._completionProviders.add(provider);
+    return new Disposable(() => languages._completionProviders.delete(provider));
+  },
   registerInlineCompletionItemProvider: () => new Disposable(() => {}),
   registerDefinitionProvider: () => new Disposable(() => {}),
-  registerCodeActionsProvider: () => new Disposable(() => {}),
+  registerCodeActionsProvider(_selector, provider) {
+    languages._codeActionProviders.add(provider);
+    return new Disposable(() => languages._codeActionProviders.delete(provider));
+  },
   registerCodeLensProvider: () => new Disposable(() => {}),
   registerReferenceProvider: () => new Disposable(() => {}),
   registerDocumentSymbolProvider: () => new Disposable(() => {}),
@@ -690,7 +950,44 @@ const languages = {
   registerDocumentSemanticTokensProvider: () => new Disposable(() => {}),
   registerColorProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
+  getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
+};
+
+const notebooks = {
+  createNotebookController(id, notebookType, label, handler) {
+    const execHandler = typeof handler === "function" ? handler : async () => {};
+    const ctl = {
+      id,
+      notebookType,
+      label,
+      supportedLanguages: [],
+      supportsExecutionOrder: false,
+      executeHandler: execHandler,
+      updateNotebookAffinity() {},
+      createNotebookCellExecution(cell) {
+        return {
+          token: CancellationToken.None,
+          executionOrder: undefined,
+          start() {},
+          clearOutput() { return Promise.resolve(); },
+          appendOutput(_outputs) { return Promise.resolve(); },
+          replaceOutput(_outputs) { return Promise.resolve(); },
+          end(_success, _endTime) {},
+        };
+      },
+      dispose() { notebookControllers.delete(String(id)); },
+    };
+    notebookControllers.set(String(id), ctl);
+    return ensureDisposable(ctl);
+  },
+  registerNotebookCellStatusBarItemProvider() {
+    return new Disposable(() => {});
+  },
+  get notebookDocuments() { return notebookDocuments; },
+  onDidOpenNotebookDocument: notebookOpenEmitter.event,
+  onDidCloseNotebookDocument: notebookCloseEmitter.event,
+  onDidChangeNotebookDocument: notebookChangeEmitter.event,
 };
 
 const authentication = {
@@ -814,15 +1111,24 @@ async function handleMessage(msg) {
 
 module.exports = {
   // value types
-  Uri, Range, Position, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem,
-  CancellationTokenSource, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeLens, DocumentLink,
+  Uri, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
+  CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
+  TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
-  EventEmitter, Disposable, MarkdownString,
+  Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, authentication, env, l10n, extensions,
+  workspace, window, commands, languages, notebooks, authentication, env, l10n, extensions,
   version,
   // internal
   _handleMessage: handleMessage,
   _initDefaults(defaults) { _schemaDefaults = defaults || {}; },
 };
+
+function _offsetAt(content, position) {
+  const lines = String(content).split("\n");
+  const targetLine = Math.max(0, Math.min(lines.length - 1, position.line || 0));
+  let offset = 0;
+  for (let i = 0; i < targetLine; i += 1) offset += lines[i].length + 1;
+  return offset + Math.max(0, Math.min(lines[targetLine].length, position.character || 0));
+}

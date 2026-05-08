@@ -544,32 +544,8 @@ function collectCompatibilityIssues(manifest: any): ExtensionCompatibilityIssue[
       ],
     });
   }
-  if (Array.isArray(contributes.notebooks)) {
-    const notebookCount = contributes.notebooks.length;
-    issues.set("notebook.document-model", {
-      code: "notebook.document-model",
-      title: "Notebook APIs are not implemented",
-      summary: "Athva does not provide the VS Code notebook document model used by Jupyter-style extensions.",
-      details: [
-        `package.json: contributes.notebooks count=${notebookCount}`,
-        "Notebook serializers, controllers, or cell document flows from this extension will not load.",
-        "Use Marketplace/open-in-VS-Code workflows for notebook-heavy extensions.",
-      ],
-    });
-  }
-  if (Array.isArray(contributes.notebookRenderer)) {
-    const rendererCount = contributes.notebookRenderer.length;
-    issues.set("notebook.renderer", {
-      code: "notebook.renderer",
-      title: "Notebook renderers are not implemented",
-      summary: "Custom notebook output rendering from this extension cannot be embedded in Athva.",
-      details: [
-        `package.json: contributes.notebookRenderer count=${rendererCount}`,
-        "Notebook renderer contributions were detected.",
-        "Rich outputs tied to VS Code notebook rendering will not display here.",
-      ],
-    });
-  }
+  // Notebook APIs are partially shimmed in the extension host; do not hard-block
+  // notebook-capable extensions at compatibility-scan time.
 
   return Array.from(issues.values());
 }

@@ -1135,23 +1135,6 @@ function openExtensionViewPanel(vc: ExtensionViewContainer) {
 async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLElement) {
   const snapshot = extensionSupportByIdentifier.get(vc.extensionIdentifier);
   const views = snapshot?.views.filter((v) => v.containerId === vc.id) ?? [];
-  const hasNotebookRuntime = !!snapshot?.unsupportedFeatures.some((feature) =>
-    feature.toLowerCase().includes("notebook")
-  );
-
-  if (hasNotebookRuntime) {
-    recordExtensionDiagnostic(vc.extensionIdentifier, {
-      source: "extension-view",
-      title: "Notebook/Jupyter APIs unsupported",
-      message: "Notebook/Jupyter runtime APIs are not implemented in Athva yet. Use Open Marketplace to manage this extension.",
-    });
-    bodyEl.innerHTML = renderExtViewError(
-      snapshot?.displayName ?? vc.extensionIdentifier,
-      "Notebook/Jupyter runtime APIs are not implemented in Athva yet. Use Open Marketplace to manage this extension."
-    );
-    return;
-  }
-
   if (!snapshot?.hasRuntime) {
     bodyEl.innerHTML = renderExtensionViewPanelBody(vc, views, false, snapshot?.displayName ?? vc.extensionIdentifier, vc.extensionIdentifier);
     return;

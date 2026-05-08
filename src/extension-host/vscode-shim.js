@@ -53,6 +53,20 @@ class Position {
   constructor(line, character) { this.line = line; this.character = character; }
 }
 
+class Selection extends Range {
+  constructor(anchorLineOrPosition, anchorCharacterOrPosition, activeLine, activeCharacter) {
+    const anchor = anchorLineOrPosition instanceof Position
+      ? anchorLineOrPosition
+      : new Position(anchorLineOrPosition, anchorCharacterOrPosition);
+    const active = anchorCharacterOrPosition instanceof Position
+      ? anchorCharacterOrPosition
+      : new Position(activeLine, activeCharacter);
+    super(anchor.line, anchor.character, active.line, active.character);
+    this.anchor = anchor;
+    this.active = active;
+  }
+}
+
 class ThemeIcon {
   constructor(id, color) { this.id = id; this.color = color; }
   static File = new ThemeIcon("file");
@@ -73,7 +87,7 @@ class TreeItem {
 const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
 const StatusBarAlignment = { Left: 1, Right: 2 };
 const ViewColumn = { One: 1, Two: 2, Three: 3, Active: -1, Beside: -2 };
-const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Info: 2, Hint: 3 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
@@ -89,6 +103,7 @@ class EventEmitter {
   fire(data) { this._listeners.forEach(l => { try { l(data); } catch {} }); }
   dispose() { this._listeners = []; }
 }
+const Event = { None: () => new Disposable(() => {}) };
 
 class Disposable {
   constructor(callOnDispose) { this._fn = callOnDispose; }
@@ -104,6 +119,102 @@ class MarkdownString {
   appendText(v) { this.value += v.replace(/[\\`*_{}[\]()#+\-.!]/g, "\\$&"); return this; }
 }
 
+class CompletionItem {
+  constructor(label, kind) {
+    this.label = label;
+    this.kind = kind;
+  }
+}
+
+const CompletionItemKind = {
+  Text: 0, Method: 1, Function: 2, Constructor: 3, Field: 4, Variable: 5, Class: 6, Interface: 7,
+  Module: 8, Property: 9, Unit: 10, Value: 11, Enum: 12, Keyword: 13, Snippet: 14, Color: 15,
+  File: 16, Reference: 17, Folder: 18, EnumMember: 19, Constant: 20, Struct: 21, Event: 22,
+  Operator: 23, TypeParameter: 24,
+};
+
+class TextEdit {
+  static replace(range, newText) { return { range, newText }; }
+  static insert(position, newText) { return { range: new Range(position.line, position.character, position.line, position.character), newText }; }
+  static delete(range) { return { range, newText: "" }; }
+}
+
+class WorkspaceEdit {
+  constructor() { this._edits = []; }
+  set(uri, edits) { this._edits.push({ uri, edits }); }
+  insert(uri, position, newText) { this._edits.push({ uri, edits: [TextEdit.insert(position, newText)] }); }
+  replace(uri, range, newText) { this._edits.push({ uri, edits: [TextEdit.replace(range, newText)] }); }
+  delete(uri, range) { this._edits.push({ uri, edits: [TextEdit.delete(range)] }); }
+}
+
+class CodeAction {
+  constructor(title, kind) {
+    this.title = String(title ?? "");
+    this.kind = kind;
+    this.edit = undefined;
+    this.command = undefined;
+    this.diagnostics = undefined;
+    this.isPreferred = undefined;
+  }
+}
+
+class Diagnostic {
+  constructor(range, message, severity = DiagnosticSeverity.Error) {
+    this.range = range;
+    this.message = String(message ?? "");
+    this.severity = severity;
+    this.source = undefined;
+    this.code = undefined;
+  }
+}
+
+class CancellationTokenSource {
+  constructor() {
+    this.token = { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event };
+  }
+  cancel() { this.token.isCancellationRequested = true; }
+  dispose() { this.cancel(); }
+}
+const CancellationToken = { None: { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event } };
+
+class TextDocument {
+  constructor(uri, content = "", languageId = "plaintext", version = 1) {
+    this.uri = uri;
+    this.fileName = uri?.fsPath || uri?.path || "";
+    this.languageId = languageId;
+    this.version = version;
+    this.isDirty = false;
+    this.isClosed = false;
+    this.eol = 1;
+    this.lineCount = String(content).split("\n").length;
+    this._content = String(content);
+  }
+  getText() { return this._content; }
+}
+
+class TextEditor {
+  constructor(document) {
+    this.document = document;
+    this.selection = new Selection(0, 0, 0, 0);
+    this.selections = [];
+    this.options = {};
+    this.viewColumn = ViewColumn.One;
+  }
+  revealRange() {}
+  setDecorations() {}
+  edit(callback) {
+    const edits = [];
+    const builder = {
+      replace(range, value) { edits.push(TextEdit.replace(range, value)); },
+      insert(position, value) { edits.push(TextEdit.insert(position, value)); },
+      delete(range) { edits.push(TextEdit.delete(range)); },
+    };
+    try { if (typeof callback === "function") callback(builder); } catch {}
+    return Promise.resolve(edits.length > 0);
+  }
+  insertSnippet() { return Promise.resolve(false); }
+}
+
 // ── Notebook value shims ─────────────────────────────────────────────────────
 
 // Minimal subset used by notebook-oriented extensions to construct error outputs.
@@ -111,14 +222,64 @@ class MarkdownString {
 const NOTEBOOK_ERROR_MIME = "application/vnd.code.notebook.error";
 
 class NotebookCellOutputItem {
+  static text(value, mime = "text/plain") {
+    return { mime, data: String(value ?? "") };
+  }
+  static json(value, mime = "application/json") {
+    return { mime, data: JSON.stringify(value ?? null) };
+  }
+  static stdout(value) {
+    return { mime: "application/vnd.code.notebook.stdout", data: String(value ?? "") };
+  }
+  static stderr(value) {
+    return { mime: "application/vnd.code.notebook.stderr", data: String(value ?? "") };
+  }
   static error(_err) {
     return { mime: NOTEBOOK_ERROR_MIME, data: "" };
   }
 }
 
+class NotebookCellOutput {
+  constructor(items = [], metadata = {}) {
+    this.items = items;
+    this.metadata = metadata;
+  }
+}
+
+class NotebookCellData {
+  constructor(kind, value, languageId) {
+    this.kind = kind;
+    this.value = value ?? "";
+    this.languageId = languageId ?? "plaintext";
+    this.outputs = [];
+    this.metadata = {};
+  }
+}
+
+class NotebookData {
+  constructor(cells = []) {
+    this.cells = cells;
+    this.metadata = {};
+  }
+}
+
+class NotebookRange {
+  constructor(start, end) {
+    this.start = start;
+    this.end = end;
+  }
+}
+
+const NotebookCellKind = { Markup: 1, Code: 2 };
+
 // ── Registered tree data providers ───────────────────────────────────────────
 // viewId → { provider, onDidChangeTreeDataSub }
 const treeProviders = new Map();
+const notebookDocuments = [];
+const notebookSerializers = new Map();
+const notebookOpenEmitter = new EventEmitter();
+const notebookCloseEmitter = new EventEmitter();
+const notebookChangeEmitter = new EventEmitter();
 
 // ── workspace ────────────────────────────────────────────────────────────────
 
@@ -181,16 +342,55 @@ const workspace = {
     const fspath = typeof pathOrUri === "string" ? pathOrUri : pathOrUri?.fsPath ?? "";
     try {
       const content = require("fs").readFileSync(fspath, "utf8");
-      return Promise.resolve({
-        uri: Uri.file(fspath),
-        getText: () => content,
-        lineCount: content.split("\n").length,
-        languageId: "plaintext",
-        fileName: fspath,
-      });
+      return Promise.resolve(new TextDocument(Uri.file(fspath), content));
     } catch {
       return Promise.reject(new Error(`Cannot open ${fspath}`));
     }
+  },
+  openNotebookDocument(viewTypeOrUri, maybeUri) {
+    const viewType = typeof viewTypeOrUri === "string" && maybeUri ? viewTypeOrUri : "jupyter-notebook";
+    const uriInput = maybeUri || viewTypeOrUri;
+    const uri = typeof uriInput === "string" ? Uri.parse(uriInput) : (uriInput || Uri.file(""));
+    const doc = {
+      uri,
+      notebookType: viewType,
+      version: 1,
+      isDirty: false,
+      isClosed: false,
+      metadata: {},
+      cellCount: 0,
+      getCells: () => [],
+      save: () => Promise.resolve(true),
+    };
+    notebookDocuments.push(doc);
+    notebookOpenEmitter.fire(doc);
+    return Promise.resolve(doc);
+  },
+  registerNotebookSerializer(viewType, serializer) {
+    notebookSerializers.set(String(viewType), serializer);
+    return new Disposable(() => notebookSerializers.delete(String(viewType)));
+  },
+  applyEdit(edit) {
+    const fs = require("fs");
+    const all = Array.isArray(edit?._edits) ? edit._edits : [];
+    for (const batch of all) {
+      const uri = batch?.uri;
+      if (!uri?.fsPath) continue;
+      let content = "";
+      try { content = fs.readFileSync(uri.fsPath, "utf8"); } catch { continue; }
+      const updates = (batch.edits || [])
+        .map((e) => {
+          const start = _offsetAt(content, e.range?.start || new Position(0, 0));
+          const end = _offsetAt(content, e.range?.end || new Position(0, 0));
+          return { start, end, newText: String(e.newText ?? "") };
+        })
+        .sort((a, b) => b.start - a.start);
+      for (const u of updates) {
+        content = content.slice(0, u.start) + u.newText + content.slice(u.end);
+      }
+      try { fs.writeFileSync(uri.fsPath, content); } catch {}
+    }
+    return Promise.resolve(true);
   },
 
   createFileSystemWatcher(pattern) {
@@ -357,11 +557,23 @@ const window = {
   withProgress(options, task) { return task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event }); },
   showQuickPick: () => Promise.resolve(undefined),
   showInputBox: () => Promise.resolve(undefined),
-  activeTextEditor: undefined,
+  activeTextEditor: new TextEditor(new TextDocument(Uri.file(""), "")),
   visibleTextEditors: [],
   onDidChangeActiveTextEditor: new EventEmitter().event,
   onDidChangeVisibleTextEditors: new EventEmitter().event,
   onDidChangeTextEditorSelection: new EventEmitter().event,
+  activeNotebookEditor: undefined,
+  visibleNotebookEditors: [],
+  onDidChangeActiveNotebookEditor: new EventEmitter().event,
+  showNotebookDocument: async (notebookOrUri) => {
+    const document = notebookOrUri?.notebookType
+      ? notebookOrUri
+      : await workspace.openNotebookDocument(notebookOrUri);
+    const editor = { notebook: document, selection: new NotebookRange(0, 0), selections: [], visibleRanges: [] };
+    window.activeNotebookEditor = editor;
+    window.visibleNotebookEditors = [editor];
+    return editor;
+  },
   registerWebviewViewProvider: () => new Disposable(() => {}),
   registerCustomEditorProvider: () => new Disposable(() => {}),
 };
@@ -387,16 +599,72 @@ const commands = {
 // ── languages ─────────────────────────────────────────────────────────────────
 
 const languages = {
+  _diagnostics: new Map(),
   createDiagnosticCollection(name) {
-    return { name, set() {}, delete() {}, clear() {}, dispose() {}, forEach() {}, get() { return []; }, has() { return false; } };
+    const key = String(name || "default");
+    const store = new Map();
+    languages._diagnostics.set(key, store);
+    return {
+      name: key,
+      set(uri, diagnostics) { store.set(uri?.toString?.() || String(uri), diagnostics || []); },
+      delete(uri) { store.delete(uri?.toString?.() || String(uri)); },
+      clear() { store.clear(); },
+      dispose() { store.clear(); languages._diagnostics.delete(key); },
+      forEach(cb) { store.forEach((value, uri) => cb(Uri.parse(uri), value, this)); },
+      get(uri) { return store.get(uri?.toString?.() || String(uri)) || []; },
+      has(uri) { return store.has(uri?.toString?.() || String(uri)); },
+    };
   },
-  getDiagnostics() { return []; },
+  getDiagnostics(uri) {
+    const rows = [];
+    for (const store of languages._diagnostics.values()) {
+      for (const [key, value] of store.entries()) {
+        if (!uri || key === (uri?.toString?.() || String(uri))) rows.push([Uri.parse(key), value || []]);
+      }
+    }
+    return uri ? (rows[0]?.[1] || []) : rows;
+  },
   registerHoverProvider: () => new Disposable(() => {}),
   registerCompletionItemProvider: () => new Disposable(() => {}),
   registerDefinitionProvider: () => new Disposable(() => {}),
   registerCodeActionsProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
+  getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
+};
+
+const notebooks = {
+  createNotebookController(id, notebookType, label, handler) {
+    const execHandler = typeof handler === "function" ? handler : async () => {};
+    return {
+      id,
+      notebookType,
+      label,
+      supportedLanguages: [],
+      supportsExecutionOrder: false,
+      executeHandler: execHandler,
+      updateNotebookAffinity() {},
+      createNotebookCellExecution() {
+        return {
+          token: CancellationToken.None,
+          executionOrder: undefined,
+          start() {},
+          clearOutput() { return Promise.resolve(); },
+          appendOutput() { return Promise.resolve(); },
+          replaceOutput() { return Promise.resolve(); },
+          end() {},
+        };
+      },
+      dispose() {},
+    };
+  },
+  registerNotebookCellStatusBarItemProvider() {
+    return new Disposable(() => {});
+  },
+  get notebookDocuments() { return notebookDocuments; },
+  onDidOpenNotebookDocument: notebookOpenEmitter.event,
+  onDidCloseNotebookDocument: notebookCloseEmitter.event,
+  onDidChangeNotebookDocument: notebookChangeEmitter.event,
 };
 
 // ── env ───────────────────────────────────────────────────────────────────────
@@ -493,13 +761,23 @@ async function handleMessage(msg) {
 
 module.exports = {
   // value types
-  Uri, Range, Position, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem,
+  Uri, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
+  CancellationTokenSource, CancellationToken, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, Diagnostic,
+  TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
-  EventEmitter, Disposable, MarkdownString,
+  Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, env, l10n, extensions,
+  workspace, window, commands, languages, notebooks, env, l10n, extensions,
   version,
   // internal
   _handleMessage: handleMessage,
 };
+
+function _offsetAt(content, position) {
+  const lines = String(content).split("\n");
+  const targetLine = Math.max(0, Math.min(lines.length - 1, position.line || 0));
+  let offset = 0;
+  for (let i = 0; i < targetLine; i += 1) offset += lines[i].length + 1;
+  return offset + Math.max(0, Math.min(lines[targetLine].length, position.character || 0));
+}
