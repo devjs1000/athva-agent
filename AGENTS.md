@@ -1,14 +1,20 @@
-Instructions
-- after user input connect the information and find gaps
-- ask those gaps as structured questions to the user
-- use the answers to fill in the gaps and create a complete plan
-- then critic your plan as a senior fullstack and give a detailed review of the plan
-- create plan again and again with different mindets until you are 85% confident that the plan is solid and executable
-- after the review of the critique make necessary adjustments to the plan
-- explain user in the flow chart how the plan will be executed and what tools will be used at each step
-- execute the plan step by step, providing updates to the user at each stage
-- for chart use arrows and what steps are connected to each other, and what tools are used at each step
-- after execution, review by type checking if the output meets the requirements and if not, identify what went wrong and how to fix it
-- give a short summary of every step and the overall process, highlighting key decisions and outcomes
-- tell user how to test the outcome
-- create a memory file and if the user is every angry or frustrated then understand their frustration and the reason to memory so that you will not repeat the same mistake again and make the user frustrated again
+## Instructions
+
+1. Understand the user's request, requirements, and expected outcome.
+2. Inspect the project to gather relevant context.
+3. Connect the available information, identify missing details, and ask structured questions for gaps.
+4. Use the answers to create a complete execution plan.
+5. Review the plan as a senior full-stack developer:
+   - Find risks, missing cases, weak assumptions, and better approaches.
+   - Revise the plan until it is at least 85% solid and executable.
+6. Explain the final plan using a clear flow chart:
+   - Use arrows to show connected steps.
+   - Mention the tools used at each step.
+7. Execute the plan step by step and give stage-wise updates.
+8. After execution, verify the output with type checks, requirement checks, and edge-case review.
+9. If the output fails any check, identify what went wrong and fix it.
+10. Provide:
+   - Short summary of each step
+   - Key decisions and outcomes
+   - Testing instructions for the user
+11. Maintain a memory file for recurring user preferences, mistakes, frustrations, and their causes, so the same issues are not repeated.

@@ -26,6 +26,8 @@ export interface ExtensionRuntimeOptions {
   onViewRegistered?: (viewId: string, viewType: "tree" | "webview") => void;
   onTreeChanged?: (viewId: string) => void;
   onNotification?: (level: "info" | "warning" | "error", message: string) => void;
+  onWebviewHtml?: (viewId: string, html: string) => void;
+  onWebviewPostMessage?: (viewId: string, message: unknown) => void;
 }
 
 let _hostScript: string | null = null;
@@ -43,6 +45,7 @@ export class ExtensionRuntime {
   private pendingChildren = new Map<string, (nodes: TreeNode[]) => void>();
   private registeredViews = new Set<string>();
   private webviewViews = new Set<string>();
+  private webviewHtml = new Map<string, string>();
 
   constructor(opts: ExtensionRuntimeOptions) {
     this.opts = opts;
@@ -51,6 +54,7 @@ export class ExtensionRuntime {
   getStatus(): RuntimeStatus { return this.status; }
   getRegisteredViews(): string[] { return [...this.registeredViews]; }
   isWebviewView(viewId: string): boolean { return this.webviewViews.has(viewId); }
+  getWebviewHtml(viewId: string): string { return this.webviewHtml.get(viewId) ?? ""; }
 
   async start(): Promise<void> {
     if (this.process) await this.stop();
@@ -116,6 +120,7 @@ export class ExtensionRuntime {
     }
     this.registeredViews.clear();
     this.webviewViews.clear();
+    this.webviewHtml.clear();
     this.pendingChildren.clear();
   }
 
@@ -155,6 +160,10 @@ export class ExtensionRuntime {
     if (this.process) {
       this.send({ type: "setWorkspace", folders, configuration: configuration ?? this.opts.configuration ?? {} });
     }
+  }
+
+  postWebviewMessage(viewId: string, message: unknown) {
+    this.send({ type: "webviewMessage", viewId, message });
   }
 
   private send(msg: unknown) {
@@ -234,6 +243,22 @@ export class ExtensionRuntime {
           String(msg.message)
         );
         break;
+
+      case "webviewHtml": {
+        const viewId = String(msg.viewId ?? "");
+        const html = String(msg.html ?? "");
+        if (!viewId) break;
+        this.webviewHtml.set(viewId, html);
+        this.opts.onWebviewHtml?.(viewId, html);
+        break;
+      }
+
+      case "webviewPostMessage": {
+        const viewId = String(msg.viewId ?? "");
+        if (!viewId) break;
+        this.opts.onWebviewPostMessage?.(viewId, msg.message);
+        break;
+      }
 
       case "openExternal":
         // Let main handle this

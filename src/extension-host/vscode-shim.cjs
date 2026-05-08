@@ -5,6 +5,17 @@
 // All calls that require VS Code's UI are bridged back to the renderer via IPC (send/recv on stdout/stdin).
 
 const { send } = require("./ipc.cjs");
+const fs = require("fs");
+const path = require("path");
+const DISPOSE_SYMBOL = Symbol.dispose || Symbol.for("Symbol.dispose");
+const ASYNC_DISPOSE_SYMBOL = Symbol.asyncDispose || Symbol.for("Symbol.asyncDispose");
+
+function ensureDisposable(target) {
+  if (!target || typeof target.dispose !== "function") return target;
+  if (!target[DISPOSE_SYMBOL]) target[DISPOSE_SYMBOL] = target.dispose.bind(target);
+  if (!target[ASYNC_DISPOSE_SYMBOL]) target[ASYNC_DISPOSE_SYMBOL] = async () => target.dispose();
+  return target;
+}
 
 // ── Core value types ──────────────────────────────────────────────────────────
 
@@ -83,7 +94,9 @@ class EventEmitter {
     this._listeners = [];
     this.event = (listener) => {
       this._listeners.push(listener);
-      return { dispose: () => { this._listeners = this._listeners.filter(l => l !== listener); } };
+      return ensureDisposable({
+        dispose: () => { this._listeners = this._listeners.filter(l => l !== listener); },
+      });
     };
   }
   fire(data) { this._listeners.forEach(l => { try { l(data); } catch {} }); }
@@ -93,6 +106,8 @@ class EventEmitter {
 class Disposable {
   constructor(callOnDispose) { this._fn = callOnDispose; }
   dispose() { if (this._fn) { this._fn(); this._fn = null; } }
+  [DISPOSE_SYMBOL]() { this.dispose(); }
+  async [ASYNC_DISPOSE_SYMBOL]() { this.dispose(); }
   static from(...disposables) {
     return new Disposable(() => disposables.forEach(d => { try { d.dispose(); } catch {} }));
   }
@@ -102,6 +117,76 @@ class MarkdownString {
   constructor(value, isTrusted) { this.value = value || ""; this.isTrusted = isTrusted || false; }
   appendMarkdown(v) { this.value += v; return this; }
   appendText(v) { this.value += v.replace(/[\\`*_{}[\]()#+\-.!]/g, "\\$&"); return this; }
+}
+
+class CancellationTokenSource {
+  constructor() {
+    this.token = { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event };
+  }
+  cancel() { this.token.isCancellationRequested = true; }
+  dispose() { this.cancel(); }
+}
+
+class SnippetString {
+  constructor(value = "") { this.value = String(value); }
+  appendText(text) { this.value += String(text ?? ""); return this; }
+  appendPlaceholder(value) { this.value += String(value ?? ""); return this; }
+  appendChoice(values = []) { this.value += values.join(","); return this; }
+  appendTabstop() { return this; }
+  appendVariable(name, defaultValue = "") { this.value += String(defaultValue ?? name ?? ""); return this; }
+}
+
+class CompletionItem {
+  constructor(label, kind) {
+    this.label = label;
+    this.kind = kind;
+  }
+}
+
+const CompletionItemKind = {
+  Text: 0, Method: 1, Function: 2, Constructor: 3, Field: 4, Variable: 5, Class: 6, Interface: 7,
+  Module: 8, Property: 9, Unit: 10, Value: 11, Enum: 12, Keyword: 13, Snippet: 14, Color: 15,
+  File: 16, Reference: 17, Folder: 18, EnumMember: 19, Constant: 20, Struct: 21, Event: 22,
+  Operator: 23, TypeParameter: 24,
+};
+
+class TextEdit {
+  static replace(range, newText) { return { range, newText }; }
+  static insert(position, newText) { return { range: new Range(position.line, position.character, position.line, position.character), newText }; }
+  static delete(range) { return { range, newText: "" }; }
+}
+
+class WorkspaceEdit {
+  constructor() { this._edits = []; }
+  set(uri, edits) { this._edits.push({ uri, edits }); }
+  insert(uri, position, newText) { this._edits.push({ uri, edits: [TextEdit.insert(position, newText)] }); }
+  replace(uri, range, newText) { this._edits.push({ uri, edits: [TextEdit.replace(range, newText)] }); }
+  delete(uri, range) { this._edits.push({ uri, edits: [TextEdit.delete(range)] }); }
+}
+
+class CodeLens {
+  constructor(range, command) { this.range = range; this.command = command; }
+}
+
+class DocumentLink {
+  constructor(range, target) {
+    this.range = range;
+    this.target = target;
+    this.tooltip = undefined;
+    this.data = undefined;
+  }
+}
+
+function makeTextEditor(document) {
+  return {
+    document,
+    selection: undefined,
+    selections: [],
+    revealRange() {},
+    setDecorations() {},
+    edit() { return Promise.resolve(false); },
+    insertSnippet() { return Promise.resolve(false); },
+  };
 }
 
 // ── Notebook value shims ─────────────────────────────────────────────────────
@@ -117,6 +202,150 @@ class NotebookCellOutputItem {
 // ── Registered tree data providers ───────────────────────────────────────────
 // viewId → { provider, onDidChangeTreeDataSub }
 const treeProviders = new Map();
+const webviewChannels = new Map();
+const gitRepositoryEmitter = new EventEmitter();
+const gitApi = {
+  repositories: [],
+  onDidOpenRepository: gitRepositoryEmitter.event,
+  onDidCloseRepository: new EventEmitter().event,
+  getRepository: () => undefined,
+};
+
+function makeWebviewBridge(viewId) {
+  let _html = "";
+  const inbound = new EventEmitter();
+  webviewChannels.set(viewId, inbound);
+  const webview = {
+    get html() { return _html; },
+    set html(value) {
+      _html = inlineFileAssetUris(String(value ?? ""));
+      send({ type: "webviewHtml", viewId, html: _html });
+    },
+    options: {},
+    cspSource: "",
+    onDidReceiveMessage: inbound.event,
+    postMessage: (message) => {
+      send({ type: "webviewPostMessage", viewId, message });
+      return Promise.resolve(true);
+    },
+    asWebviewUri: (uri) => {
+      const fsPath = uri && typeof uri === "object" ? (uri.fsPath || uri.path || "") : String(uri || "");
+      if (!fsPath) return uri;
+      const data = encodeDataUri(fsPath);
+      if (!data) return uri;
+      const dataUriObj = {
+        scheme: "data",
+        authority: "",
+        path: data,
+        query: "",
+        fragment: "",
+        fsPath: data,
+        toString: () => data,
+        with: () => dataUriObj,
+      };
+      return dataUriObj;
+    },
+  };
+  return { webview, dispose: () => webviewChannels.delete(viewId) };
+}
+
+function guessMime(filePath) {
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  switch (ext) {
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+      return "text/javascript";
+    case ".css":
+      return "text/css";
+    case ".html":
+    case ".htm":
+      return "text/html";
+    case ".json":
+      return "application/json";
+    case ".svg":
+      return "image/svg+xml";
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".woff":
+      return "font/woff";
+    case ".woff2":
+      return "font/woff2";
+    case ".ttf":
+      return "font/ttf";
+    case ".otf":
+      return "font/otf";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function encodeDataUri(filePath) {
+  try {
+    const bytes = fs.readFileSync(filePath);
+    const mime = guessMime(filePath);
+    return `data:${mime};base64,${bytes.toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
+
+function decodeFileUriToPath(uri) {
+  try {
+    if (!uri || typeof uri !== "string") return "";
+    if (!uri.startsWith("file://")) return "";
+    const raw = uri.replace(/^file:\/\//i, "");
+    const normalized = process.platform === "win32"
+      ? raw.replace(/^\//, "")
+      : raw;
+    return decodeURIComponent(normalized);
+  } catch {
+    return "";
+  }
+}
+
+function inlineFileAssetUris(html) {
+  const source = String(html ?? "");
+  const replaceAttr = (input, attrName) => {
+    const re = new RegExp(`${attrName}\\s*=\\s*["'](file:\\/\\/[^"']+)["']`, "gi");
+    return input.replace(re, (full, uri) => {
+      const fsPath = decodeFileUriToPath(uri);
+      if (!fsPath) return full;
+      const data = encodeDataUri(fsPath);
+      if (!data) return full;
+      return `${attrName}="${data}"`;
+    });
+  };
+  let out = source;
+  out = replaceAttr(out, "src");
+  out = replaceAttr(out, "href");
+  // Also rewrite file:// URLs that appear inside inline scripts/CSS/JSON strings
+  // (common in VS Code webviews that build link/script tags dynamically).
+  out = out.replace(/file:\/\/\/[^\s"'<>`\\)]+/gi, (uri) => {
+    const fsPath = decodeFileUriToPath(uri);
+    if (!fsPath) return uri;
+    const data = encodeDataUri(fsPath);
+    return data || uri;
+  });
+  // Rewrites escaped file URLs inside JS strings (e.g. "file:\\/\\/\\/...").
+  out = out.replace(/file:\\\/\\\/\\\/[^"'`\s<>)]+/gi, (escapedUri) => {
+    const asNormal = escapedUri.replace(/\\\//g, "/");
+    const fsPath = decodeFileUriToPath(asNormal);
+    if (!fsPath) return escapedUri;
+    const data = encodeDataUri(fsPath);
+    if (!data) return escapedUri;
+    // Keep slash-escaped form so surrounding JS string syntax remains valid.
+    return data.replace(/\//g, "\\/");
+  });
+  return out;
+}
 
 // ── workspace ────────────────────────────────────────────────────────────────
 
@@ -128,6 +357,10 @@ let _schemaDefaults = {};
 const _fsProviders = new Map();
 
 const workspaceFoldersEmitter = new EventEmitter();
+const onDidSaveTextDocumentEmitter = new EventEmitter();
+const onDidOpenTextDocumentEmitter = new EventEmitter();
+const onDidCloseTextDocumentEmitter = new EventEmitter();
+const onDidChangeTextDocumentEmitter = new EventEmitter();
 
 function _getConfigValue(section, key) {
   // Check explicit config first, then schema defaults
@@ -142,6 +375,10 @@ function _getConfigValue(section, key) {
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
+  onDidSaveTextDocument: onDidSaveTextDocumentEmitter.event,
+  onDidOpenTextDocument: onDidOpenTextDocumentEmitter.event,
+  onDidCloseTextDocument: onDidCloseTextDocumentEmitter.event,
+  onDidChangeTextDocument: onDidChangeTextDocumentEmitter.event,
 
   getConfiguration(section) {
     const sectionData = section ? (_configuration[section] || {}) : _configuration;
@@ -181,7 +418,7 @@ const workspace = {
 
   onDidChangeConfiguration(listener) {
     // fire once so extensions initialize; real config-change events not yet supported
-    return { dispose: () => {} };
+    return ensureDisposable({ dispose: () => {} });
   },
 
   findFiles(include, exclude, maxResults) {
@@ -207,7 +444,7 @@ const workspace = {
 
   createFileSystemWatcher(pattern) {
     const e = new EventEmitter();
-    return { onDidCreate: e.event, onDidChange: e.event, onDidDelete: e.event, dispose: () => {} };
+    return ensureDisposable({ onDidCreate: e.event, onDidChange: e.event, onDidDelete: e.event, dispose: () => {} });
   },
 
   registerTextDocumentContentProvider(scheme, provider) {
@@ -298,7 +535,7 @@ const window = {
     // Notify renderer that this view is now available
     send({ type: "viewRegistered", viewId });
 
-    return {
+    return ensureDisposable({
       viewId,
       visible: true,
       message: undefined,
@@ -312,15 +549,15 @@ const window = {
       onDidExpandElement: new EventEmitter().event,
       reveal: () => Promise.resolve(),
       dispose: () => { treeProviders.delete(viewId); },
-    };
+    });
   },
 
   createStatusBarItem(alignmentOrId, priority) {
-    return {
+    return ensureDisposable({
       text: "", tooltip: "", command: undefined, color: undefined, backgroundColor: undefined,
       alignment: StatusBarAlignment.Left, priority: 0,
       show() {}, hide() {}, dispose() {},
-    };
+    });
   },
 
   showInformationMessage(msg) { send({ type: "notification", level: "info", message: msg }); return Promise.resolve(undefined); },
@@ -332,7 +569,7 @@ const window = {
     function append(text) { lines.push(String(text ?? "")); }
     function appendLine(text) { lines.push(String(text ?? "") + "\n"); }
     function log(level, text) { appendLine(`[${level}] ${String(text ?? "")}`); }
-    return {
+    return ensureDisposable({
       name,
       append,
       appendLine,
@@ -345,17 +582,18 @@ const window = {
       info(text) { log("info", text); },
       warn(text) { log("warn", text); },
       error(text) { log("error", text); },
-    };
+    });
   },
 
   createWebviewPanel(viewType, title, column, options) {
-    return {
-      webview: { html: "", onDidReceiveMessage: new EventEmitter().event, postMessage: () => {}, options: {} },
+    const bridge = makeWebviewBridge(String(viewType || "panel"));
+    return ensureDisposable({
+      webview: bridge.webview,
       title, viewType, active: false, visible: false,
       onDidChangeViewState: new EventEmitter().event,
       onDidDispose: new EventEmitter().event,
-      reveal() {}, dispose() {},
-    };
+      reveal() {}, dispose() { bridge.dispose(); },
+    });
   },
 
   registerWebviewPanelSerializer(_viewType, _serializer) {
@@ -366,11 +604,20 @@ const window = {
     return new Disposable(() => {});
   },
 
-  createTextEditorDecorationType() { return { dispose() {} }; },
+  createTextEditorDecorationType() { return ensureDisposable({ dispose() {} }); },
   withProgress(options, task) { return task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event }); },
   showQuickPick: () => Promise.resolve(undefined),
   showInputBox: () => Promise.resolve(undefined),
-  activeTextEditor: undefined,
+  showTextDocument: async (documentOrUri, _columnOrOptions, _preserveFocus) => {
+    let doc = documentOrUri;
+    if (typeof documentOrUri === "string" || documentOrUri?.scheme || documentOrUri?.fsPath) {
+      try { doc = await workspace.openTextDocument(documentOrUri); } catch {}
+    }
+    const editor = makeTextEditor(doc || { uri: Uri.file(""), fileName: "", languageId: "plaintext", getText: () => "" });
+    window.activeTextEditor = editor;
+    return editor;
+  },
+  activeTextEditor: makeTextEditor({ uri: Uri.file(""), fileName: "", languageId: "plaintext", getText: () => "" }),
   visibleTextEditors: [],
   onDidChangeActiveTextEditor: new EventEmitter().event,
   onDidChangeVisibleTextEditors: new EventEmitter().event,
@@ -379,17 +626,10 @@ const window = {
     // Notify renderer that this webview view is registered so the panel can show
     send({ type: "viewRegistered", viewId, viewType: "webview" });
     // Give the provider a stub WebviewView so it can initialize
-    const webview = {
-      html: "",
-      options: {},
-      cspSource: "",
-      onDidReceiveMessage: new EventEmitter().event,
-      postMessage: () => Promise.resolve(false),
-      asWebviewUri: (uri) => uri,
-    };
+    const bridge = makeWebviewBridge(viewId);
     const webviewView = {
       viewType: viewId,
-      webview,
+      webview: bridge.webview,
       title: undefined,
       description: undefined,
       badge: undefined,
@@ -401,7 +641,9 @@ const window = {
     Promise.resolve().then(() => {
       try { provider.resolveWebviewView(webviewView, {}, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event }); } catch {}
     });
-    return new Disposable(() => {});
+    return new Disposable(() => {
+      bridge.dispose();
+    });
   },
   registerCustomEditorProvider: () => new Disposable(() => {}),
 };
@@ -418,6 +660,9 @@ const commands = {
   executeCommand(id, ...args) {
     const handler = registeredCommands.get(id);
     if (handler) return Promise.resolve(handler(...args));
+    if (id === "git.api.getAPI") return Promise.resolve(gitApi);
+    if (id === "git.repositories") return Promise.resolve([]);
+    if (id === "git.state") return Promise.resolve({ repositories: [] });
     return Promise.resolve(undefined);
   },
   getCommands() { return Promise.resolve([...registeredCommands.keys()]); },
@@ -433,10 +678,26 @@ const languages = {
   getDiagnostics() { return []; },
   registerHoverProvider: () => new Disposable(() => {}),
   registerCompletionItemProvider: () => new Disposable(() => {}),
+  registerInlineCompletionItemProvider: () => new Disposable(() => {}),
   registerDefinitionProvider: () => new Disposable(() => {}),
   registerCodeActionsProvider: () => new Disposable(() => {}),
+  registerCodeLensProvider: () => new Disposable(() => {}),
+  registerReferenceProvider: () => new Disposable(() => {}),
+  registerDocumentSymbolProvider: () => new Disposable(() => {}),
+  registerRenameProvider: () => new Disposable(() => {}),
+  registerSignatureHelpProvider: () => new Disposable(() => {}),
+  registerInlayHintsProvider: () => new Disposable(() => {}),
+  registerDocumentSemanticTokensProvider: () => new Disposable(() => {}),
+  registerColorProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
   match: () => 0,
+};
+
+const authentication = {
+  onDidChangeSessions: new EventEmitter().event,
+  getSession: () => Promise.resolve(undefined),
+  getAccounts: () => Promise.resolve([]),
+  registerAuthenticationProvider: () => new Disposable(() => {}),
 };
 
 // ── env ───────────────────────────────────────────────────────────────────────
@@ -474,7 +735,19 @@ const l10n = {
 
 const extensions = {
   all: [],
-  getExtension: () => undefined,
+  getExtension: (id) => {
+    if (id === "vscode.git") {
+      const exports = { getAPI: () => gitApi };
+      return {
+        id: "vscode.git",
+        isActive: true,
+        exports,
+        activate: () => Promise.resolve(exports),
+        packageJSON: { name: "git", publisher: "vscode", version: "1.0.0" },
+      };
+    }
+    return undefined;
+  },
   onDidChange: new EventEmitter().event,
 };
 
@@ -530,16 +803,24 @@ async function handleMessage(msg) {
       send({ type: "commandResult", id: msg.id, error: e.message });
     }
   }
+
+  if (msg.type === "webviewMessage") {
+    const channel = webviewChannels.get(msg.viewId);
+    if (channel) {
+      try { channel.fire(msg.message); } catch {}
+    }
+  }
 }
 
 module.exports = {
   // value types
   Uri, Range, Position, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem,
+  CancellationTokenSource, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeLens, DocumentLink,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, env, l10n, extensions,
+  workspace, window, commands, languages, authentication, env, l10n, extensions,
   version,
   // internal
   _handleMessage: handleMessage,

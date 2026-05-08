@@ -10,12 +10,78 @@ const os = require("os");
 const fs = require("fs");
 const { send, onMessage } = require("./ipc.cjs");
 
+// Claude/Copilot/other modern extensions may rely on explicit resource
+// management symbols even when running under older embedded Node runtimes.
+if (!Symbol.dispose) Symbol.dispose = Symbol.for("Symbol.dispose");
+if (!Symbol.asyncDispose) Symbol.asyncDispose = Symbol.for("Symbol.asyncDispose");
+if (!Object.prototype[Symbol.dispose]) {
+  Object.defineProperty(Object.prototype, Symbol.dispose, {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: function hostNoopDispose() {},
+  });
+}
+if (!Object.prototype[Symbol.asyncDispose]) {
+  Object.defineProperty(Object.prototype, Symbol.asyncDispose, {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: async function hostNoopAsyncDispose() {},
+  });
+}
+// Copilot chat and similar extensions expect Web Crypto on global scope.
+try {
+  const nodeCrypto = require("crypto");
+  const webCrypto = nodeCrypto?.webcrypto;
+  if (webCrypto) {
+    globalThis.crypto = webCrypto;
+    global.crypto = webCrypto;
+  }
+} catch {}
+
+try {
+  if (!globalThis.crypto) {
+    const nodeCrypto = require("crypto");
+    if (nodeCrypto?.webcrypto) globalThis.crypto = nodeCrypto.webcrypto;
+  }
+} catch {}
+
 const [,, extMain, extId, installPath] = process.argv;
 
 if (!extMain) {
   send({ type: "error", message: "host.cjs requires <extensionMainPath> as first arg" });
   process.exit(1);
 }
+
+// Some VSIX bundles ship a Linux-only native Claude binary. On macOS this throws
+// spawn "Unknown system error -8" (exec format). Reroute to user's installed
+// `claude` CLI when we detect that specific bundled path.
+function patchChildProcessForClaudeBinaryCompatibility() {
+  if (process.platform !== "darwin") return;
+  const cp = require("child_process");
+  const targetSuffix = `${path.sep}resources${path.sep}native-binary${path.sep}claude`;
+  const isBundledClaudePath = (cmd) =>
+    typeof cmd === "string" && cmd.includes("anthropic.claude-code") && cmd.endsWith(targetSuffix);
+
+  const mapCommand = (cmd) => (isBundledClaudePath(cmd) ? "claude" : cmd);
+
+  const origSpawn = cp.spawn;
+  cp.spawn = function patchedSpawn(command, args, options) {
+    return origSpawn.call(this, mapCommand(command), args, options);
+  };
+
+  const origSpawnSync = cp.spawnSync;
+  cp.spawnSync = function patchedSpawnSync(command, args, options) {
+    return origSpawnSync.call(this, mapCommand(command), args, options);
+  };
+
+  const origExecFile = cp.execFile;
+  cp.execFile = function patchedExecFile(file, args, options, callback) {
+    return origExecFile.call(this, mapCommand(file), args, options, callback);
+  };
+}
+patchChildProcessForClaudeBinaryCompatibility();
 
 // Override require('vscode') before loading the extension
 const Module = require("module");
@@ -25,6 +91,24 @@ const vscode = require(shimPath);
 
 Module._load = function (req, parent, isMain) {
   if (req === "vscode") return vscode;
+  if (req === "node:sqlite" || req === "sqlite" || req === "node:sqlite3") {
+    // Node < 22 has no built-in node:sqlite. Return a no-op compatibility stub.
+    class DatabaseSync {
+      constructor() {}
+      prepare() {
+        return {
+          run() { return { changes: 0, lastInsertRowid: 0 }; },
+          get() { return undefined; },
+          all() { return []; },
+          iterate() { return [][Symbol.iterator](); },
+        };
+      }
+      exec() {}
+      close() {}
+      transaction(fn) { return (...args) => fn(...args); }
+    }
+    return { DatabaseSync, default: { DatabaseSync } };
+  }
   return origLoad.call(this, req, parent, isMain);
 };
 
@@ -103,11 +187,15 @@ function extractConfigDefaults(packageJSON) {
 // Load and activate the extension
 async function main() {
   try {
+    const extensionRoot = fs.existsSync(path.join(installPath, "extension", "package.json"))
+      ? path.join(installPath, "extension")
+      : installPath;
+
     // Read package.json for metadata and schema defaults
     let packageJSON = {};
     const pkgCandidates = [
+      path.join(extensionRoot, "package.json"),
       path.join(installPath, "package.json"),
-      path.join(installPath, "..", "package.json"),
     ];
     for (const p of pkgCandidates) {
       try { packageJSON = JSON.parse(fs.readFileSync(p, "utf8")); break; } catch {}
@@ -141,8 +229,8 @@ async function main() {
         _items: [],
         push(...items) { this._items.push(...items); },
       },
-      extensionPath: installPath,
-      extensionUri: makeUri(installPath),
+      extensionPath: extensionRoot,
+      extensionUri: makeUri(extensionRoot),
       storagePath,
       storageUri: makeUri(storagePath),
       globalStoragePath,
@@ -169,14 +257,14 @@ async function main() {
         delete: () => Promise.resolve(),
         onDidChange: { event: () => ({ dispose: () => {} }) },
       },
-      asAbsolutePath(relativePath) { return path.join(installPath, relativePath); },
+      asAbsolutePath(relativePath) { return path.join(extensionRoot, relativePath); },
       environmentVariableCollection: {
         persistent: false, description: undefined,
         replace() {}, append() {}, prepend() {}, get() { return undefined; },
         forEach() {}, delete() {}, clear() {},
         getScoped() { return this; }, [Symbol.iterator]() { return [][Symbol.iterator](); },
       },
-      extension: { id: extId, extensionPath: installPath, isActive: true, packageJSON },
+      extension: { id: extId, extensionPath: extensionRoot, isActive: true, packageJSON },
       languageModelAccessInformation: { canSendRequest: () => undefined, onDidChange: () => ({ dispose: () => {} }) },
     };
 

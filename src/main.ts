@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getProjects, addProject, removeProject } from "./store/projects";
 import { FileExplorer } from "./modules/file-explorer";
 import { Editor } from "./modules/editor";
@@ -72,6 +72,10 @@ let extensionSupportByIdentifier = new Map<string, ExtensionSupportSnapshot>();
 let installedExtensionRecords: InstalledExtensionRecord[] = [];
 const extensionPreviewPayloads = new Map<string, ExtensionPreviewPayload>();
 const extensionDiagnosticsByIdentifier = new Map<string, ExtensionDiagnostic[]>();
+let inlineWebviewAssetBridgeReady = false;
+const webviewBridgeRuntimeById = new Map<string, ExtensionRuntime>();
+const webviewBridgeViewIdById = new Map<string, string>();
+const webviewBridgeIframeSelectorById = new Map<string, string>();
 
 function recordExtensionDiagnostic(identifier: string, diag: Omit<ExtensionDiagnostic, "timestamp">) {
   const list = extensionDiagnosticsByIdentifier.get(identifier) ?? [];
@@ -1187,12 +1191,8 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     onViewRegistered: (viewId, viewType) => {
       if (activeVcId !== vc.id) return;
       if (viewType === "webview") {
-        recordExtensionDiagnostic(vc.extensionIdentifier, {
-          source: "extension-view",
-          title: "Webview view unsupported",
-          message: "This extension uses a webview UI that cannot be embedded in Athva's sidebar.",
-        });
-        bodyEl.innerHTML = renderWebviewPlaceholder(snapshot.displayName, vc.extensionIdentifier);
+        const viewName = snapshot.views.find((v) => v.id === viewId)?.name ?? viewId;
+        bodyEl.innerHTML = renderWebviewLoading(snapshot.displayName, viewName);
         return;
       }
       void renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
@@ -1202,6 +1202,24 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
       void renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
     },
     onNotification: (level, message) => showToast(message, level === "error" ? 5000 : 3000),
+    onWebviewHtml: (viewId, html) => {
+      if (!html.trim()) return;
+      const viewName = snapshot.views.find((v) => v.id === viewId)?.name ?? viewId;
+      if (activeVcId === vc.id) {
+        const bridgeId = `${vc.extensionIdentifier}:${viewId}`;
+        webviewBridgeRuntimeById.set(bridgeId, runtime);
+        webviewBridgeViewIdById.set(bridgeId, viewId);
+        bodyEl.innerHTML = renderWebviewInline(snapshot.displayName, viewName, rewriteFileUrlsToAssetUrls(String(html ?? "")), bridgeId);
+      }
+    },
+    onWebviewPostMessage: (viewId, message) => {
+      const bridgeId = `${vc.extensionIdentifier}:${viewId}`;
+      const selector = webviewBridgeIframeSelectorById.get(bridgeId);
+      if (!selector) return;
+      const iframe = document.querySelector<HTMLIFrameElement>(selector);
+      if (!iframe?.contentWindow) return;
+      iframe.contentWindow.postMessage({ __athvaWebviewFromHost: { bridgeId, message } }, "*");
+    },
   });
 
   if (runtime.getStatus() === "stopped" || runtime.getStatus() === "error") {
@@ -1220,7 +1238,17 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     for (const viewId of runtime.getRegisteredViews()) {
       if (!views.some((v) => v.id === viewId)) continue;
       if (runtime.isWebviewView(viewId)) {
-        bodyEl.innerHTML = renderWebviewPlaceholder(snapshot.displayName, vc.extensionIdentifier);
+        const html = runtime.getWebviewHtml(viewId);
+        if (html.trim()) {
+          const viewName = snapshot.views.find((v) => v.id === viewId)?.name ?? viewId;
+          const bridgeId = `${vc.extensionIdentifier}:${viewId}`;
+          webviewBridgeRuntimeById.set(bridgeId, runtime);
+          webviewBridgeViewIdById.set(bridgeId, viewId);
+          bodyEl.innerHTML = renderWebviewInline(snapshot.displayName, viewName, rewriteFileUrlsToAssetUrls(String(html ?? "")), bridgeId);
+        } else {
+          const viewName = snapshot.views.find((v) => v.id === viewId)?.name ?? viewId;
+          bodyEl.innerHTML = renderWebviewLoading(snapshot.displayName, viewName);
+        }
       } else {
         await renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
       }
@@ -1342,20 +1370,351 @@ function renderTreeNode(node: TreeNode, depth: number): string {
   </div>`;
 }
 
-function renderWebviewPlaceholder(displayName: string, identifier: string): string {
+function renderWebviewLoading(displayName: string, viewName: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const message = "This extension uses a webview UI that cannot be embedded in Athva's sidebar.";
+  const message = "Waiting for extension webview HTML…";
   return `<div class="ext-view-runtime-state" style="padding:12px">
     <div class="ext-view-runtime-icon-row">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11z"/></svg>
-      <span>${esc(displayName)}</span>
+      <span>${esc(displayName)} / ${esc(viewName)}</span>
     </div>
     <p class="ext-view-runtime-desc">${esc(message)}</p>
-    <div class="ext-view-runtime-actions">
-      <button class="extensions-copy-btn" data-ext-view-action="copy-diagnostic" data-ext-name="${esc(displayName)}" data-ext-message="${esc(message)}">Copy</button>
-      <a class="ext-view-marketplace-link" href="#" data-ext-marketplace="${esc(identifier)}" data-ext-name="${esc(displayName)}">Open on Marketplace ↗</a>
-    </div>
   </div>`;
+}
+
+function renderWebviewInline(displayName: string, viewName: string, html: string, bridgeId: string): string {
+  ensureInlineWebviewAssetBridge();
+  const srcdoc = prepareInlineWebviewHtml(html, bridgeId).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const iframeId = `ext-webview-${bridgeId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  webviewBridgeIframeSelectorById.set(bridgeId, `#${iframeId}`);
+  return `<div class="ext-webview-shell" title="${displayName} / ${viewName}">
+    <iframe
+      id="${iframeId}"
+      class="ext-webview-frame"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+      srcdoc="${srcdoc}"></iframe>
+  </div>`;
+}
+
+function decodeFileUrl(url: string): string {
+  try {
+    if (!url.startsWith("file://")) return "";
+    const raw = url.replace(/^file:\/\//i, "");
+    const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+    return decodeURIComponent(normalized);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeVsixAssetPath(path: string): string {
+  const input = String(path || "");
+  // Installed VSIX layout in Athva is: <installDir>/extension/<assets...>
+  // Some extensions still emit file URLs rooted at <installDir>/<assets...>.
+  if (input.includes("/extensions/") && !input.includes("/extensions/extension/")) {
+    const marker = "/webview/";
+    const idx = input.indexOf(marker);
+    if (idx > 0) {
+      const prefix = input.slice(0, idx);
+      const suffix = input.slice(idx);
+      // If not already in /extension/*, insert it before known asset roots.
+      if (!prefix.endsWith("/extension")) {
+        return `${prefix}/extension${suffix}`;
+      }
+    }
+  }
+  return input;
+}
+
+function ensureInlineWebviewAssetBridge() {
+  if (inlineWebviewAssetBridgeReady) return;
+  inlineWebviewAssetBridgeReady = true;
+  window.addEventListener("message", async (event) => {
+    const req = (event.data as any)?.__athvaAssetReq;
+    const webviewMsg = (event.data as any)?.__athvaWebviewMessage;
+    if (webviewMsg && typeof webviewMsg === "object") {
+      const bridgeId = String(webviewMsg.bridgeId ?? "");
+      if (bridgeId) {
+        const runtime = webviewBridgeRuntimeById.get(bridgeId);
+        const viewId = webviewBridgeViewIdById.get(bridgeId);
+        if (runtime && viewId) runtime.postWebviewMessage(viewId, webviewMsg.message);
+      }
+    }
+    if (!req || typeof req !== "object") return;
+    const id = String(req.id ?? "");
+    const url = String(req.url ?? "");
+    const target = event.source as Window | null;
+    if (!id || !url || !target) return;
+
+    const reply = (payload: { id: string; dataUrl?: string; error?: string }) => {
+      target.postMessage({ __athvaAssetRes: payload }, "*");
+    };
+
+    if (!url.startsWith("file://")) {
+      reply({ id, error: "unsupported-url" });
+      return;
+    }
+
+    try {
+      const path = normalizeVsixAssetPath(decodeFileUrl(url));
+      if (!path) {
+        reply({ id, error: "invalid-file-url" });
+        return;
+      }
+      const assetUrl = convertFileSrc(path);
+      reply({ id, dataUrl: assetUrl });
+    } catch (err) {
+      reply({ id, error: String(err) });
+    }
+  });
+}
+
+function rewriteFileUrlsToAssetUrls(html: string): string {
+  const source = String(html ?? "");
+  const re = /file:\/\/\/[^\s"'<>`\\)]+/gi;
+  const matches = Array.from(new Set(source.match(re) ?? []));
+  if (!matches.length) return source;
+
+  let out = source;
+  for (const fileUrl of matches) {
+    try {
+      const path = normalizeVsixAssetPath(decodeFileUrl(fileUrl));
+      if (!path) continue;
+      const assetUrl = convertFileSrc(path);
+      const escaped = fileUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp(escaped, "g"), assetUrl);
+      // Some bundles emit JSON-escaped variants (file:\\/\\/\\/)
+      out = out.replace(new RegExp(fileUrl.replace(/\//g, "\\/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), assetUrl.replace(/\//g, "\\/"));
+    } catch {
+      // Keep original URL if conversion fails.
+    }
+  }
+  return out;
+}
+
+function prepareInlineWebviewHtml(input: string, bridgeId: string): string {
+  const raw = String(input ?? "");
+  // Webview bundles often ship a restrictive CSP meta tailored for vscode-webview://
+  // origins. In srcdoc that CSP commonly blocks all scripts/styles and yields blank UI.
+  const withoutMetaCsp = raw.replace(
+    /<meta[^>]+http-equiv=["']Content-Security-Policy["'][^>]*>/gi,
+    ""
+  );
+  const bridge = `
+<style>
+  :root {
+    color-scheme: dark;
+    --vscode-editor-background: #1e1e1e;
+    --vscode-editor-foreground: #d4d4d4;
+    --vscode-foreground: #d4d4d4;
+    --vscode-input-background: #2d2d30;
+    --vscode-input-foreground: #d4d4d4;
+    --vscode-input-border: #3c3c3c;
+    --vscode-panel-background: #1e1e1e;
+    --vscode-sideBar-background: #252526;
+  }
+  html, body {
+    background: var(--vscode-editor-background) !important;
+    color: var(--vscode-editor-foreground) !important;
+    margin: 0;
+    min-height: 100%;
+  }
+</style>
+<script>
+  (function() {
+    try {
+      if (!Symbol.dispose) Symbol.dispose = Symbol.for("Symbol.dispose");
+      if (!Symbol.asyncDispose) Symbol.asyncDispose = Symbol.for("Symbol.asyncDispose");
+      if (!Object.prototype[Symbol.dispose]) {
+        Object.defineProperty(Object.prototype, Symbol.dispose, {
+          value: function() {},
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      }
+      if (!Object.prototype[Symbol.asyncDispose]) {
+        Object.defineProperty(Object.prototype, Symbol.asyncDispose, {
+          value: async function() {},
+          writable: true,
+          configurable: true,
+          enumerable: false
+        });
+      }
+    } catch (_) {}
+
+    // Install a durable Tauri internals shim before extension scripts run.
+    // Some extension webviews bundle @tauri-apps/api/core and call
+    // window.__TAURI_INTERNALS__.transformCallback/invoke directly.
+    var cbSeq = 1;
+    var cbMap = Object.create(null);
+    var tauriInternals = {
+      invoke: function() { return Promise.resolve(null); },
+      transformCallback: function(cb) {
+        var id = cbSeq++;
+        cbMap[id] = cb;
+        return id;
+      },
+      unregisterCallback: function(id) {
+        try { delete cbMap[id]; } catch (_) {}
+      },
+      convertFileSrc: function(path) {
+        return String(path || "");
+      }
+    };
+    try {
+      Object.defineProperty(window, "__TAURI_INTERNALS__", {
+        value: tauriInternals,
+        writable: false,
+        configurable: false,
+        enumerable: false
+      });
+    } catch (_) {
+      window.__TAURI_INTERNALS__ = tauriInternals;
+    }
+    try {
+      if (!window.__TAURI__) window.__TAURI__ = {};
+      if (!window.__TAURI__.core) {
+        window.__TAURI__.core = {
+          invoke: tauriInternals.invoke,
+          transformCallback: tauriInternals.transformCallback,
+          convertFileSrc: tauriInternals.convertFileSrc
+        };
+      }
+    } catch (_) {}
+
+    // Some webviews (Claude Code) call history.replaceState/pushState to add
+    // session query params. In sandboxed about:srcdoc this throws:
+    // "Paths and fragments must match for a sandboxed document."
+    // Keep state changes, but ignore URL mutation when browser rejects it.
+    try {
+      var _origReplaceState = history.replaceState ? history.replaceState.bind(history) : null;
+      var _origPushState = history.pushState ? history.pushState.bind(history) : null;
+      if (_origReplaceState) {
+        history.replaceState = function(state, title, url) {
+          try { return _origReplaceState(state, title, url); }
+          catch (_) { return _origReplaceState(state, title); }
+        };
+      }
+      if (_origPushState) {
+        history.pushState = function(state, title, url) {
+          try { return _origPushState(state, title, url); }
+          catch (_) { return _origPushState(state, title); }
+        };
+      }
+    } catch (_) {}
+
+    var state = {};
+    var pending = Object.create(null);
+    var reqSeq = 0;
+    function requestAsset(url) {
+      return new Promise(function(resolve, reject) {
+        var id = String(++reqSeq);
+        pending[id] = { resolve: resolve, reject: reject };
+        try {
+          window.parent && window.parent.postMessage({ __athvaAssetReq: { id: id, url: String(url || '') } }, '*');
+          setTimeout(function() {
+            if (!pending[id]) return;
+            delete pending[id];
+            reject(new Error('asset-timeout'));
+          }, 10000);
+        } catch (e) {
+          delete pending[id];
+          reject(e);
+        }
+      });
+    }
+    window.addEventListener('message', function(event) {
+      var res = event && event.data && event.data.__athvaAssetRes;
+      if (!res || !res.id || !pending[res.id]) return;
+      var p = pending[res.id];
+      delete pending[res.id];
+      if (res.dataUrl) p.resolve(String(res.dataUrl));
+      else p.reject(new Error(String(res.error || 'asset-error')));
+    });
+
+    window.acquireVsCodeApi = window.acquireVsCodeApi || function() {
+      return {
+        postMessage: function(msg) { try { window.parent && window.parent.postMessage({ __athvaWebviewMessage: { bridgeId: "${bridgeId}", message: msg } }, '*'); } catch (_) {} },
+        setState: function(next) { state = next || {}; },
+        getState: function() { return state; }
+      };
+    };
+    window.addEventListener('message', function(event) {
+      var payload = event && event.data && event.data.__athvaWebviewFromHost;
+      if (!payload || payload.bridgeId !== "${bridgeId}") return;
+      try {
+        var ev = new MessageEvent('message', { data: payload.message });
+        window.dispatchEvent(ev);
+      } catch (_) {}
+    });
+
+    function isFileUrl(v) { return typeof v === 'string' && v.toLowerCase().indexOf('file://') === 0; }
+    function patchAttr(el, attr) {
+      try {
+        var value = el.getAttribute && el.getAttribute(attr);
+        if (!isFileUrl(value)) return;
+        requestAsset(value).then(function(dataUrl) {
+          try { el.setAttribute(attr, dataUrl); } catch (_) {}
+        }).catch(function() {});
+      } catch (_) {}
+    }
+    function patchNode(el) {
+      if (!el || !el.tagName) return;
+      patchAttr(el, 'src');
+      patchAttr(el, 'href');
+      if (el.querySelectorAll) {
+        var nested = el.querySelectorAll('[src],[href]');
+        for (var i = 0; i < nested.length; i++) {
+          patchAttr(nested[i], 'src');
+          patchAttr(nested[i], 'href');
+        }
+      }
+    }
+    var _setAttribute = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+      _setAttribute.call(this, name, value);
+      if (name === 'src' || name === 'href') patchAttr(this, name);
+    };
+    var _appendChild = Node.prototype.appendChild;
+    Node.prototype.appendChild = function(node) {
+      var out = _appendChild.call(this, node);
+      patchNode(node);
+      return out;
+    };
+    var _insertBefore = Node.prototype.insertBefore;
+    Node.prototype.insertBefore = function(node, child) {
+      var out = _insertBefore.call(this, node, child);
+      patchNode(node);
+      return out;
+    };
+    var mo = new MutationObserver(function(muts) {
+      muts.forEach(function(m) {
+        if (m.type === 'attributes' && m.target) patchNode(m.target);
+        if (m.type === 'childList' && m.addedNodes) {
+          for (var i = 0; i < m.addedNodes.length; i++) patchNode(m.addedNodes[i]);
+        }
+      });
+    });
+    try {
+      mo.observe(document.documentElement || document, { childList: true, subtree: true, attributes: true, attributeFilter: ['src','href'] });
+      patchNode(document.documentElement || document.body);
+    } catch (_) {}
+
+    try {
+      document.documentElement.classList.add('vscode-dark');
+      if (document.body) document.body.classList.add('vscode-dark');
+      else document.addEventListener('DOMContentLoaded', function() {
+        try { document.body && document.body.classList.add('vscode-dark'); } catch (_) {}
+      }, { once: true });
+    } catch (_) {}
+  })();
+</script>`;
+
+  if (withoutMetaCsp.includes("</head>")) {
+    return withoutMetaCsp.replace("</head>", `${bridge}</head>`);
+  }
+  return `<!doctype html><html><head>${bridge}</head><body>${withoutMetaCsp}</body></html>`;
 }
 
 function renderExtViewLoading(title: string): string {
