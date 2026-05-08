@@ -214,6 +214,15 @@ export class Editor {
   private webTabPathsByLabel: Map<string, string> = new Map();
   private webTabMediaState: Map<string, boolean> = new Map();
   private activeWebLabel: string | null = null;
+  private bookmarks: { url: string; label: string }[] = [];
+  private splitEnabled = false;
+  private activePane: "left" | "right" = "left";
+  private tabPane: Map<string, "left" | "right"> = new Map();
+  private rightEditorEl: HTMLElement | null = null;
+  private rightMonacoEditor: monaco.editor.IStandaloneCodeEditor | null = null;
+  private splitDividerEl: HTMLElement = document.createElement("div");
+  private splitLeftWidth = 50;
+  private webPlaceholderEl: HTMLElement = document.createElement("div");
   private webResizeObserver: ResizeObserver | null = null;
   private mediaPreviewEl: HTMLElement = document.createElement("div");
   private svgPreviewEl: HTMLElement = document.createElement("div");
@@ -285,6 +294,7 @@ export class Editor {
       hover: { enabled: true, delay: 600 },
       links: false,
     });
+    this.monacoEditor.onDidFocusEditorText(() => { this.activePane = "left"; });
 
     // Register hover provider for all relevant languages
     this.registerHoverProviders();
@@ -376,6 +386,20 @@ export class Editor {
     this.todoPanelEl.className = "todo-panel-container hidden";
     editorContainer.appendChild(this.todoPanelEl);
 
+    // Secondary editor container (right split pane)
+    this.rightEditorEl = document.createElement("div");
+    this.rightEditorEl.className = "monaco-editor-container split-right hidden";
+    editorContainer.appendChild(this.rightEditorEl);
+
+    // Placeholder shown behind native webview when it's temporarily hidden (e.g. context menu)
+    this.webPlaceholderEl.className = "web-window-placeholder hidden";
+    editorContainer.appendChild(this.webPlaceholderEl);
+
+    // Draggable divider between left and right split panes
+    this.splitDividerEl.className = "split-pane-divider hidden";
+    editorContainer.appendChild(this.splitDividerEl);
+    this.setupSplitDivider();
+
     // Undo / Redo toolbar — injected into the tab bar's parent (editor-top)
     const editorTop = this.tabsContainer.parentElement;
     if (editorTop) {
@@ -402,12 +426,14 @@ export class Editor {
     this.tabPickerDropdown.className = "tab-picker hidden";
     this.tabPickerDropdown.innerHTML = this.buildTabPickerHTML();
     document.body.appendChild(this.tabPickerDropdown);
+    this.loadBookmarks();
     this.setupTabPickerListeners();
 
     document.addEventListener("click", () => {
       this.tabContextMenu.classList.add("hidden");
       this.editorContextMenu.classList.add("hidden");
       this.setTabPickerVisible(false);
+      this.restoreActiveWebWindow();
     });
     document.addEventListener("contextmenu", (e) => {
       if (!this.tabContextMenu.contains(e.target as Node)) {
@@ -738,6 +764,13 @@ export class Editor {
       lineNumbers: settings.showGutter ? "on" : "off",
       minimap: { enabled: settings.showMinimap },
     });
+    this.rightMonacoEditor?.updateOptions({
+      fontSize: settings.fontSize,
+      tabSize: settings.tabSize,
+      wordWrap: settings.wordWrap ? "on" : "off",
+      lineNumbers: settings.showGutter ? "on" : "off",
+      minimap: { enabled: settings.showMinimap },
+    });
     setAICompleterEnabled(settings.aiInlineSuggestions);
   }
 
@@ -882,6 +915,7 @@ export class Editor {
     }
 
     this.tabs.splice(idx, 1);
+    this.tabPane.delete(path);
 
     if (this.activeTab === path) {
       if (this.tabs.length > 0) {
@@ -909,6 +943,12 @@ export class Editor {
     }
 
     this.renderTabs();
+    if (!this.tabs.some((t) => this.getPaneForTab(t.path) === "right")) {
+      this.splitEnabled = false;
+      this.activePane = "left";
+      this.setSplitLayout(false);
+      this.renderTabs();
+    }
     return this.activeTab;
   }
 
@@ -1056,9 +1096,55 @@ export class Editor {
 
   private switchToTab(path: string) {
     const prevWebLabel = this.activeWebLabel;
+    if (!this.tabPane.has(path)) {
+      this.tabPane.set(path, this.activePane);
+    }
     this.activeTab = path;
+    this.activePane = this.getPaneForTab(path);
     const tab = this.tabs.find((t) => t.path === path);
     if (!tab) return;
+
+    if (this.splitEnabled && this.activePane === "right") {
+      this.setSplitLayout(true);
+      const ext = tab.name.split(".").pop()?.toLowerCase() || "";
+      if (tab.kind === "web") {
+        // Web tab in right pane — native webview renders on top of HTML, no need to hide Monaco
+        this.activeWebLabel = this.webTabLabels.get(path) ?? null;
+        if (prevWebLabel && prevWebLabel !== this.activeWebLabel) {
+          void invoke("hide_web_window", { label: prevWebLabel });
+        }
+        if (this.activeWebLabel) {
+          const bounds = this.getRightPaneBounds();
+          void invoke("open_web_window", { url: tab.url!, label: this.activeWebLabel, ...bounds });
+        }
+        this.renderTabs();
+        return;
+      } else if (tab.specialView || IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext) || ext === "txt") {
+        // Route other non-text/special tabs back to primary pane
+        this.tabPane.set(path, "left");
+        this.activePane = "left";
+      } else if (this.rightMonacoEditor) {
+        // Text file in right Monaco editor
+        if (this.rightEditorEl) this.rightEditorEl.style.display = "";
+        if (prevWebLabel) {
+          void invoke("hide_web_window", { label: prevWebLabel });
+          this.activeWebLabel = null;
+        }
+        const language = EXT_LANGUAGE_MAP[ext] || "plaintext";
+        const uri = this.getModelUri(tab);
+        let model = this.models.get(path) ?? monaco.editor.getModel(uri);
+        if (!model) {
+          model = monaco.editor.createModel(tab.content, language, uri);
+          this.models.set(path, model);
+        } else if (!this.models.has(path)) {
+          this.models.set(path, model);
+        }
+        this.rightMonacoEditor.setModel(model);
+        this.rightMonacoEditor.updateOptions({ readOnly: !!tab.lockedView, tabSize: this.currentSettings.tabSize });
+        this.renderTabs();
+        return;
+      }
+    }
 
     if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
 
@@ -1918,9 +2004,24 @@ export class Editor {
     return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
   }
 
+  private getRightPaneBounds(): { x: number; y: number; width: number; height: number } {
+    const container = document.getElementById("editor-container") ?? this.editorEl.parentElement!;
+    const rect = container.getBoundingClientRect();
+    const leftFrac = this.splitLeftWidth / 100;
+    return {
+      x: rect.left + rect.width * leftFrac,
+      y: rect.top,
+      width: rect.width * (1 - leftFrac),
+      height: rect.height,
+    };
+  }
+
   private syncActiveWebTabBounds() {
     if (!this.activeWebLabel) return;
-    const bounds = this.getEditorContainerBounds();
+    const pane = this.activeTab ? this.getPaneForTab(this.activeTab) : "left";
+    const bounds = (this.splitEnabled && pane === "right")
+      ? this.getRightPaneBounds()
+      : this.getEditorContainerBounds();
     void invoke("resize_web_window", {
       label: this.activeWebLabel,
       x: bounds.x,
@@ -1928,6 +2029,24 @@ export class Editor {
       width: bounds.width,
       height: bounds.height,
     });
+  }
+
+  private restoreActiveWebWindow() {
+    this.webPlaceholderEl.classList.add("hidden");
+    if (!this.activeWebLabel) return;
+    const tab = this.tabs.find((t) => t.path === this.activeTab);
+    if (!tab || tab.kind !== "web") return;
+    const pane = this.getPaneForTab(this.activeTab);
+    const bounds = (this.splitEnabled && pane === "right")
+      ? this.getRightPaneBounds()
+      : this.getEditorContainerBounds();
+    void invoke("open_web_window", { url: tab.url!, label: this.activeWebLabel, ...bounds });
+  }
+
+  private hideWebWindowForMenu() {
+    if (!this.activeWebLabel) return;
+    this.webPlaceholderEl.classList.remove("hidden");
+    void invoke("hide_web_window", { label: this.activeWebLabel });
   }
 
   private expandEmmetAtCursor(): boolean {
@@ -2121,9 +2240,7 @@ export class Editor {
     if (wasVisible === visible) return;
     this.tabPickerDropdown.classList.toggle("hidden", !visible);
     if (visible) {
-      if (this.activeWebLabel) {
-        void invoke("hide_web_window", { label: this.activeWebLabel });
-      }
+      this.hideWebWindowForMenu();
       const searchInput = this.tabPickerDropdown.querySelector<HTMLInputElement>(".tab-picker-search");
       if (searchInput) {
         searchInput.value = "";
@@ -2150,7 +2267,7 @@ export class Editor {
   private focusActiveTabPickerControl() {
     requestAnimationFrame(() => {
       const activeType = this.tabPickerDropdown.querySelector(".tab-picker-type.active") as HTMLElement | null;
-      const targetSelector = activeType?.dataset.kind === "web" ? ".tab-picker-input" : ".tab-picker-action";
+      const targetSelector = activeType?.dataset.kind === "web" ? ".tab-picker-search" : ".tab-picker-action";
       (this.tabPickerDropdown.querySelector(targetSelector) as HTMLElement | null)?.focus();
     });
   }
@@ -2163,6 +2280,38 @@ export class Editor {
       panel.classList.toggle("hidden", panel.dataset.panel !== kind);
     });
     this.focusActiveTabPickerControl();
+  }
+
+  private loadBookmarks() {
+    try { this.bookmarks = JSON.parse(localStorage.getItem("athva-web-bookmarks") || "[]"); }
+    catch { this.bookmarks = []; }
+  }
+
+  private saveBookmarks() {
+    localStorage.setItem("athva-web-bookmarks", JSON.stringify(this.bookmarks));
+  }
+
+  private addBookmark(url: string, label: string) {
+    if (!this.bookmarks.find((b) => b.url === url)) {
+      this.bookmarks.push({ url, label });
+      this.saveBookmarks();
+      this.rebuildTabPicker();
+    }
+  }
+
+  private removeBookmark(url: string) {
+    this.bookmarks = this.bookmarks.filter((b) => b.url !== url);
+    this.saveBookmarks();
+    this.rebuildTabPicker();
+  }
+
+  private isBookmarked(url: string): boolean {
+    return this.bookmarks.some((b) => b.url === url);
+  }
+
+  private rebuildTabPicker() {
+    this.tabPickerDropdown.innerHTML = this.buildTabPickerHTML();
+    this.setupTabPickerListeners();
   }
 
   private buildTabPickerHTML(): string {
@@ -2261,16 +2410,39 @@ export class Editor {
         <div class="tab-picker-search-wrap">
           <svg class="tab-picker-search-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
           <input class="tab-picker-search" type="text" placeholder="Search…" spellcheck="false" autocomplete="off" />
+          <button class="tab-picker-add-url-btn" type="button" title="Add custom URL">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/></svg>
+          </button>
+        </div>
+        <div class="tab-picker-add-form hidden">
+          <input class="tab-picker-add-input" type="url" placeholder="https://…" spellcheck="false" autocomplete="off" />
+          <div class="tab-picker-add-footer">
+            <label class="tab-picker-add-bookmark-label">
+              <input type="checkbox" class="tab-picker-add-bookmark-check" /> Bookmark this tab
+            </label>
+            <button class="tab-picker-add-submit" type="button">Open</button>
+          </div>
         </div>
         <div class="tab-picker-sections">
+          ${this.bookmarks.length > 0 ? `
+            <div class="tab-picker-section">
+              <div class="tab-picker-section-header">
+                <span class="tab-picker-section-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg></span>
+                <span class="tab-picker-section-label">Bookmarks</span>
+              </div>
+              <div class="tab-picker-section-items">
+                ${this.bookmarks.map((b) => `
+                  <button class="tab-picker-preset" data-url="${b.url}" data-label="${b.label}" type="button" title="${b.label}">
+                    <span class="tab-picker-preset-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg></span>
+                    <span>${b.label}</span>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""}
           ${sectionsHTML}
         </div>
         <div class="tab-picker-no-results hidden">No results</div>
-        <div class="tab-picker-divider"></div>
-        <div class="tab-picker-custom">
-          <input class="tab-picker-input" type="url" placeholder="https://..." spellcheck="false" />
-          <button class="tab-picker-go" type="button">Open</button>
-        </div>
       </div>
     `;
   }
@@ -2297,27 +2469,42 @@ export class Editor {
         this.openWebTab(url, label);
         return;
       }
-      const goBtn = (e.target as HTMLElement).closest(".tab-picker-go");
-      if (goBtn) {
-        const input = this.tabPickerDropdown.querySelector(".tab-picker-input") as HTMLInputElement;
+      const addUrlBtn = (e.target as HTMLElement).closest(".tab-picker-add-url-btn");
+      if (addUrlBtn) {
+        const form = this.tabPickerDropdown.querySelector(".tab-picker-add-form") as HTMLElement;
+        form.classList.toggle("hidden");
+        if (!form.classList.contains("hidden")) {
+          (form.querySelector(".tab-picker-add-input") as HTMLInputElement)?.focus();
+        }
+        return;
+      }
+
+      const submitBtn = (e.target as HTMLElement).closest(".tab-picker-add-submit");
+      if (submitBtn) {
+        const input = this.tabPickerDropdown.querySelector(".tab-picker-add-input") as HTMLInputElement;
         let url = input.value.trim();
         if (!url) return;
         if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
         const label = new URL(url).hostname.replace(/^www\./, "");
+        const bookmarkCheck = this.tabPickerDropdown.querySelector(".tab-picker-add-bookmark-check") as HTMLInputElement;
+        if (bookmarkCheck?.checked) this.addBookmark(url, label);
         this.setTabPickerVisible(false, false);
         input.value = "";
         this.openWebTab(url, label);
+        return;
       }
     });
 
     this.tabPickerDropdown.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        const input = this.tabPickerDropdown.querySelector(".tab-picker-input") as HTMLInputElement;
+        const input = this.tabPickerDropdown.querySelector(".tab-picker-add-input") as HTMLInputElement;
         if (document.activeElement === input) {
           let url = input.value.trim();
           if (!url) return;
           if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
           const label = new URL(url).hostname.replace(/^www\./, "");
+          const bookmarkCheck = this.tabPickerDropdown.querySelector(".tab-picker-add-bookmark-check") as HTMLInputElement;
+          if (bookmarkCheck?.checked) this.addBookmark(url, label);
           this.setTabPickerVisible(false, false);
           input.value = "";
           this.openWebTab(url, label);
@@ -2362,9 +2549,26 @@ export class Editor {
   private showTabContextMenu(e: MouseEvent, path: string) {
     const tab = this.tabs.find((t) => t.path === path)!;
     this.tabContextMenu.innerHTML = "";
+    const pane = this.getPaneForTab(path);
+    const oppositePane = pane === "left" ? "right" : "left";
 
     const items: { label?: string; action?: () => void; separator?: boolean }[] = [
       { label: tab.pinned ? "Unpin Tab" : "Pin Tab", action: () => this.pinTab(path) },
+      ...(tab.kind === "web" && tab.url ? [
+        { separator: true as const },
+        {
+          label: this.isBookmarked(tab.url) ? "Remove Bookmark" : "Bookmark Tab",
+          action: () => {
+            if (this.isBookmarked(tab.url!)) this.removeBookmark(tab.url!);
+            else this.addBookmark(tab.url!, tab.name);
+          },
+        },
+      ] : []),
+      { separator: true },
+      { label: "Split", action: () => this.splitTab(path, oppositePane) },
+      { label: "Split Right", action: () => this.splitTab(path, "right") },
+      { label: "Split Left", action: () => this.splitTab(path, "left") },
+      { label: "Switch Split Pane Position", action: () => this.swapSplitPanes() },
       { separator: true },
       { label: "Close Other Tabs", action: () => { void this.closeOtherTabs(path); } },
       { label: "Close All Tabs", action: () => { void this.closeAllTabs(); } },
@@ -2384,9 +2588,13 @@ export class Editor {
         ev.stopPropagation();
         this.tabContextMenu.classList.add("hidden");
         item.action?.();
+        this.restoreActiveWebWindow();
       });
       this.tabContextMenu.appendChild(row);
     }
+
+    // Native webview sits above all HTML — hide it so the context menu is visible
+    this.hideWebWindowForMenu();
 
     this.tabContextMenu.classList.remove("hidden");
     this.tabContextMenu.style.left = `${e.clientX}px`;
@@ -2404,11 +2612,12 @@ export class Editor {
   }
 
   private renderTabs() {
-    const tabsHTML = this.tabs.map((tab) => {
+    const buildTabHtml = (tab: OpenTab) => {
       const isWeb = tab.kind === "web";
       const isPlaying = isWeb && this.webTabMediaState.get(tab.path) === true;
+      const pane = this.getPaneForTab(tab.path);
       return `
-        <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${isWeb ? " web-tab" : ""}" data-path="${this.escapeAttr(tab.path)}">
+        <div class="editor-tab ${tab.path === this.activeTab ? "active" : ""}${tab.pinned ? " pinned" : ""}${isWeb ? " web-tab" : ""}${this.splitEnabled ? ` pane-${pane}` : ""}" data-path="${this.escapeAttr(tab.path)}">
           ${tab.pinned ? `<span class="editor-tab-pin">&#x2605;</span>` : ""}
           ${isWeb ? `<span class="editor-tab-web-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.5a6.5 6.5 0 1 1 0 13A6.5 6.5 0 0 1 8 1.5zM6.3 3.1C5.5 4.3 5 5.9 4.9 7.3H2.6a5.4 5.4 0 0 1 3.7-4.2zm3.4 0a5.4 5.4 0 0 1 3.7 4.2h-2.3c-.1-1.4-.6-3-1.4-4.2zM4.9 8.7c.1 1.4.6 3 1.4 4.2A5.4 5.4 0 0 1 2.6 8.7H4.9zm5.2 0h2.3a5.4 5.4 0 0 1-3.7 4.2c.8-1.2 1.3-2.8 1.4-4.2zM6.4 8.7h3.2c-.1 1.2-.5 2.6-1.1 3.6-.3.5-.5.7-.5.7s-.2-.2-.5-.7c-.6-1-.9-2.4-1.1-3.6zm0-1.4c.2-1.2.5-2.6 1.1-3.6.3-.5.5-.7.5-.7s.2.2.5.7c.6 1 .9 2.4 1.1 3.6H6.4z"/></svg></span>` : ""}
           <span class="editor-tab-label">
@@ -2418,18 +2627,39 @@ export class Editor {
           <button class="editor-tab-close" data-close="${this.escapeAttr(tab.path)}">\u00D7</button>
         </div>
       `;
-    }).join("");
-
+    };
     const addTabBtn = `<button class="editor-tab-add" id="btn-add-tab" title="Open new tab">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14H8v-1H2.5a.5.5 0 0 1-.5-.5V6h12v2.5h1V3.5A1.5 1.5 0 0 0 13.5 2h-11zm0 1h11a.5.5 0 0 1 .5.5V5H2V3.5a.5.5 0 0 1 .5-.5zm9.75 6a.5.5 0 0 1 .5.5V12h2.5a.5.5 0 0 1 0 1h-2.5v2.5a.5.5 0 0 1-1 0V13h-2.5a.5.5 0 0 1 0-1h2.5V9.5a.5.5 0 0 1 .5-.5z"/></svg>
     </button>`;
 
-    this.tabsContainer.innerHTML = tabsHTML + addTabBtn;
+    if (this.splitEnabled) {
+      const leftTabs = this.tabs.filter((t) => this.getPaneForTab(t.path) === "left");
+      const rightTabs = this.tabs.filter((t) => this.getPaneForTab(t.path) === "right");
+      const leftActive = leftTabs.some((t) => t.path === this.activeTab) ? " active" : "";
+      const rightActive = rightTabs.some((t) => t.path === this.activeTab) ? " active" : "";
+      this.tabsContainer.classList.add("split-active-tabs");
+      this.tabsContainer.innerHTML = `
+        <div class="editor-tab-split-group${leftActive}">
+          <span class="editor-tab-split-header">LEFT</span>
+          <div class="editor-tab-split-list">${leftTabs.map(buildTabHtml).join("")}</div>
+        </div>
+        <div class="editor-tab-split-divider"></div>
+        <div class="editor-tab-split-group${rightActive}">
+          <span class="editor-tab-split-header">RIGHT</span>
+          <div class="editor-tab-split-list">${rightTabs.map(buildTabHtml).join("")}</div>
+        </div>
+        ${addTabBtn}
+      `;
+    } else {
+      this.tabsContainer.classList.remove("split-active-tabs");
+      this.tabsContainer.innerHTML = this.tabs.map(buildTabHtml).join("") + addTabBtn;
+    }
 
     this.tabsContainer.querySelectorAll(".editor-tab").forEach((el) => {
       el.addEventListener("click", (e) => {
         if ((e.target as HTMLElement).closest(".editor-tab-close")) return;
         const path = (el as HTMLElement).dataset.path!;
+        this.activePane = this.getPaneForTab(path);
         this.switchToTab(path);
       });
       el.addEventListener("mousedown", (e) => {
@@ -2538,6 +2768,97 @@ export class Editor {
     const insertAt = insertBefore ? effectiveTargetIdx : effectiveTargetIdx + 1;
     this.tabs.splice(Math.max(0, Math.min(this.tabs.length, insertAt)), 0, fromTab);
     this.renderTabs();
+  }
+
+  private getPaneForTab(path: string): "left" | "right" {
+    return this.tabPane.get(path) ?? "left";
+  }
+
+  private setupSplitDivider() {
+    const el = this.splitDividerEl;
+    el.addEventListener("mousedown", (startEvt) => {
+      startEvt.preventDefault();
+      const container = this.editorEl.parentElement!;
+      const containerRect = container.getBoundingClientRect();
+      el.classList.add("dragging");
+      const onMove = (e: MouseEvent) => {
+        const pct = Math.min(80, Math.max(20, ((e.clientX - containerRect.left) / containerRect.width) * 100));
+        this.splitLeftWidth = pct;
+        container.style.setProperty("--split-left-width", `${pct}%`);
+        this.monacoEditor.layout();
+        this.rightMonacoEditor?.layout();
+      };
+      const onUp = () => {
+        el.classList.remove("dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
+  private splitTab(path: string, pane: "left" | "right") {
+    this.splitEnabled = true;
+    this.tabPane.set(path, pane);
+    this.activePane = pane;
+    this.setSplitLayout(true);
+    this.switchToTab(path);
+  }
+
+  private swapSplitPanes() {
+    if (!this.splitEnabled) return;
+    for (const t of this.tabs) {
+      const pane = this.getPaneForTab(t.path);
+      this.tabPane.set(t.path, pane === "left" ? "right" : "left");
+    }
+    this.activePane = this.activePane === "left" ? "right" : "left";
+    const left = this.monacoEditor.getModel();
+    const right = this.rightMonacoEditor?.getModel() ?? null;
+    this.monacoEditor.setModel(right);
+    this.rightMonacoEditor?.setModel(left);
+    this.renderTabs();
+  }
+
+  private setSplitLayout(enabled: boolean) {
+    const container = this.editorEl.parentElement;
+    if (!container || !this.rightEditorEl) return;
+    container.classList.toggle("split-active", enabled);
+    this.rightEditorEl.classList.toggle("hidden", !enabled);
+    this.splitDividerEl.classList.toggle("hidden", !enabled);
+    if (enabled) {
+      container.style.setProperty("--split-left-width", `${this.splitLeftWidth}%`);
+    } else {
+      container.style.removeProperty("--split-left-width");
+    }
+    if (enabled && !this.rightMonacoEditor) {
+      this.rightMonacoEditor = monaco.editor.create(this.rightEditorEl, {
+        value: "",
+        language: "plaintext",
+        theme: "athva-dark",
+        fontSize: this.currentSettings.fontSize,
+        tabSize: this.currentSettings.tabSize,
+        wordWrap: this.currentSettings.wordWrap ? "on" : "off",
+        lineNumbers: this.currentSettings.showGutter ? "on" : "off",
+        minimap: { enabled: this.currentSettings.showMinimap },
+        contextmenu: false,
+        automaticLayout: true,
+        scrollBeyondLastLine: false,
+        smoothScrolling: true,
+      });
+      this.rightMonacoEditor.onDidFocusEditorText(() => { this.activePane = "right"; });
+      this.rightMonacoEditor.onDidChangeModelContent(() => {
+        const model = this.rightMonacoEditor?.getModel();
+        if (!model) return;
+        const tab = this.tabs.find((t) => this.models.get(t.path) === model);
+        if (!tab || tab.lockedView) return;
+        tab.content = model.getValue();
+        tab.modified = true;
+        this.renderTabs();
+      });
+    }
+    this.monacoEditor.layout();
+    this.rightMonacoEditor?.layout();
   }
 
   private async saveCurrentFile() {
@@ -2721,6 +3042,7 @@ export class Editor {
 
   resize() {
     this.monacoEditor.layout();
+    this.rightMonacoEditor?.layout();
   }
 
   setOnAskAI(handler: (prompt: string, code: string) => void) {

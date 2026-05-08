@@ -3040,6 +3040,69 @@ body {
   scrollbar-width: none;
 }
 
+.editor-tab.pane-right::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(100, 181, 246, 0.9);
+}
+
+.editor-tab-split-group {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor-tab-split-group.active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.editor-tab-split-header {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  user-select: none;
+}
+
+.editor-tab-split-list {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* Split mode: grid gives each zone a guaranteed slot */
+.editor-tabs.split-active-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr auto;
+}
+
+.editor-tabs.split-active-tabs .editor-tab-split-divider {
+  width: 1px;
+}
+
+.editor-tab-split-list::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-tab-split-divider {
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* .editor-tab-add sits as 4th grid column in split mode, no extra rules needed */
+
 .editor-tabs::-webkit-scrollbar {
   display: none;
 }
@@ -3500,6 +3563,88 @@ body {
   width: 100%;
 }
 
+/* tab-split-wrapper removed — using CSS grid on .editor-tabs.split-active-tabs */
+
+.tab-picker-add-url-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-picker-add-url-btn:hover {
+  background: rgba(100, 181, 246, 0.18);
+  color: #64b5f6;
+}
+
+.tab-picker-add-form {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tab-picker-add-form.hidden {
+  display: none;
+}
+
+.tab-picker-add-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e8eaf0;
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.tab-picker-add-input:focus {
+  border-color: rgba(100, 181, 246, 0.5);
+}
+
+.tab-picker-add-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tab-picker-add-bookmark-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tab-picker-add-submit {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 5px;
+  background: rgba(100, 181, 246, 0.22);
+  color: #64b5f6;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tab-picker-add-submit:hover {
+  background: rgba(100, 181, 246, 0.35);
+}
+
 .tab-picker-divider {
   height: 1px;
   background: rgba(255, 255, 255, 0.07);
@@ -3564,6 +3709,59 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
+  background: var(--bg-primary, #1e1e2e);
+}
+
+.web-window-placeholder {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-primary, #1e1e2e);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.web-window-placeholder.hidden {
+  display: none;
+}
+
+.editor-container.split-active #monaco-editor {
+  left: 0;
+  right: auto;
+  width: var(--split-left-width, 50%);
+}
+
+.monaco-editor-container.split-right {
+  position: absolute;
+  top: 0;
+  left: auto;
+  right: 0;
+  bottom: 0;
+  width: calc(100% - var(--split-left-width, 50%));
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.split-pane-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split-left-width, 50%);
+  transform: translateX(-50%);
+  width: 5px;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.split-pane-divider:hover,
+.split-pane-divider.dragging {
+  background: rgba(100, 181, 246, 0.45);
+}
+
+.split-pane-divider.hidden {
+  display: none;
 }
 
 .editor-protected-banner {
