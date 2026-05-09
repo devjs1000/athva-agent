@@ -154,6 +154,7 @@ const EXT_LANGUAGE_MAP: Record<string, string> = {
 const EMMET_EXTS = new Set(["html", "htm", "jsx", "tsx"]);
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tiff", "avif"]);
 const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "avi", "mkv", "ogv"]);
+const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac"]);
 const MIME_MAP: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
   gif: "image/gif", webp: "image/webp", ico: "image/x-icon",
@@ -161,6 +162,8 @@ const MIME_MAP: Record<string, string> = {
   svg: "image/svg+xml",
   mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
   avi: "video/x-msvideo", mkv: "video/x-matroska", ogv: "video/ogg",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
+  m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac",
 };
 const HTML_TAGS = new Set([
   "a", "article", "aside", "button", "canvas", "div", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -232,6 +235,7 @@ export class Editor {
   private currentPreviewType: "svg" | "markdown" | "csv" | "flow" | "txt" | "xlsx" | null = null;
   /** True if this file type should default to preview mode on open */
   private previewDefaultsToOn = false;
+  private mediaPlayhead: Map<string, number> = new Map();
   private todoPanelEl: HTMLElement = document.createElement("div");
   private activeTodoPanel: TodoPanel | null = null;
   private activeDocEditor: DocumentEditor | null = null;
@@ -1119,7 +1123,7 @@ export class Editor {
         }
         this.renderTabs();
         return;
-      } else if (tab.specialView || IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext) || ext === "txt") {
+      } else if (tab.specialView || IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext) || AUDIO_EXTS.has(ext) || ext === "txt") {
         // Route other non-text/special tabs back to primary pane
         this.tabPane.set(path, "left");
         this.activePane = "left";
@@ -1242,6 +1246,17 @@ export class Editor {
       this.updateProtectedBanner(tab);
       this.renderTabs();
       void this.loadMediaPreview(path, ext, "video");
+      return;
+    }
+
+    // Audio preview
+    if (AUDIO_EXTS.has(ext)) {
+      this.editorEl.style.display = "none";
+      this.mediaPreviewEl.classList.remove("hidden");
+      this.mediaPreviewEl.innerHTML = `<span class="media-preview-loading">Loading…</span>`;
+      this.updateProtectedBanner(tab);
+      this.renderTabs();
+      void this.loadMediaPreview(path, ext, "audio");
       return;
     }
 
@@ -1466,7 +1481,81 @@ export class Editor {
     }
   }
 
-  private async loadMediaPreview(path: string, ext: string, kind: "img" | "video") {
+  private formatMediaTime(seconds: number): string {
+    if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+    const s = Math.floor(seconds);
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return `${m}:${String(rem).padStart(2, "0")}`;
+  }
+
+  private attachMediaPlayerUI(path: string, mediaEl: HTMLMediaElement, kind: "video" | "audio") {
+    const playBtn = this.mediaPreviewEl.querySelector<HTMLButtonElement>(".media-player-btn-play");
+    const muteBtn = this.mediaPreviewEl.querySelector<HTMLButtonElement>(".media-player-btn-mute");
+    const progress = this.mediaPreviewEl.querySelector<HTMLInputElement>(".media-player-progress");
+    const volume = this.mediaPreviewEl.querySelector<HTMLInputElement>(".media-player-volume");
+    const timeEl = this.mediaPreviewEl.querySelector<HTMLElement>(".media-player-time");
+    const fullBtn = this.mediaPreviewEl.querySelector<HTMLButtonElement>(".media-player-btn-full");
+
+    if (!playBtn || !muteBtn || !progress || !volume || !timeEl) return;
+
+    const lastTime = this.mediaPlayhead.get(path);
+    if (typeof lastTime === "number" && Number.isFinite(lastTime) && lastTime >= 0) {
+      mediaEl.currentTime = lastTime;
+    }
+
+    const syncControls = () => {
+      const duration = Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0;
+      const current = Number.isFinite(mediaEl.currentTime) ? mediaEl.currentTime : 0;
+      progress.max = duration > 0 ? String(duration) : "100";
+      progress.value = String(Math.min(current, duration || 100));
+      timeEl.textContent = `${this.formatMediaTime(current)} / ${duration > 0 ? this.formatMediaTime(duration) : "--:--"}`;
+      playBtn.textContent = mediaEl.paused ? "Play" : "Pause";
+      muteBtn.textContent = mediaEl.muted ? "Unmute" : "Mute";
+    };
+
+    playBtn.addEventListener("click", () => {
+      if (mediaEl.paused) void mediaEl.play().catch(() => {});
+      else mediaEl.pause();
+      syncControls();
+    });
+    muteBtn.addEventListener("click", () => {
+      mediaEl.muted = !mediaEl.muted;
+      syncControls();
+    });
+    progress.addEventListener("input", () => {
+      const next = Number(progress.value);
+      if (Number.isFinite(next)) mediaEl.currentTime = next;
+      syncControls();
+    });
+    volume.addEventListener("input", () => {
+      const next = Number(volume.value);
+      if (!Number.isFinite(next)) return;
+      mediaEl.volume = Math.max(0, Math.min(1, next));
+      mediaEl.muted = mediaEl.volume === 0;
+      syncControls();
+    });
+
+    if (kind === "video" && fullBtn) {
+      fullBtn.addEventListener("click", () => {
+        mediaEl.requestFullscreen?.().catch(() => {});
+      });
+    } else if (fullBtn) {
+      fullBtn.classList.add("hidden");
+    }
+
+    mediaEl.addEventListener("timeupdate", () => {
+      this.mediaPlayhead.set(path, mediaEl.currentTime);
+      syncControls();
+    });
+    mediaEl.addEventListener("loadedmetadata", syncControls);
+    mediaEl.addEventListener("play", syncControls);
+    mediaEl.addEventListener("pause", syncControls);
+    mediaEl.addEventListener("volumechange", syncControls);
+    syncControls();
+  }
+
+  private async loadMediaPreview(path: string, ext: string, kind: "img" | "video" | "audio") {
     // Only render if this path is still the active tab
     if (this.activeTab !== path) return;
     try {
@@ -1480,7 +1569,34 @@ export class Editor {
       if (kind === "img") {
         this.mediaPreviewEl.innerHTML = `<img src="${src}" alt="${path.split("/").pop()}" class="media-preview-img" />`;
       } else {
-        this.mediaPreviewEl.innerHTML = `<video src="${src}" controls class="media-preview-video"></video>`;
+        const fileName = path.split("/").pop() ?? "media";
+        const mediaTag = kind === "video"
+          ? `<video src="${src}" class="media-preview-video" preload="metadata"></video>`
+          : `<audio src="${src}" class="media-preview-audio" preload="metadata"></audio>`;
+        this.mediaPreviewEl.innerHTML = `
+          <div class="media-player-shell">
+            <div class="media-player-head">
+              <span class="media-player-kind">${kind.toUpperCase()}</span>
+              <span class="media-player-name">${fileName}</span>
+            </div>
+            <div class="media-player-stage">
+              ${mediaTag}
+            </div>
+            <div class="media-player-controls">
+              <button class="media-player-btn media-player-btn-play" type="button">Play</button>
+              <button class="media-player-btn media-player-btn-mute" type="button">Mute</button>
+              <input class="media-player-progress" type="range" min="0" max="100" value="0" />
+              <span class="media-player-time">0:00 / --:--</span>
+              <label class="media-player-volume-wrap">
+                Vol
+                <input class="media-player-volume" type="range" min="0" max="1" step="0.01" value="1" />
+              </label>
+              <button class="media-player-btn media-player-btn-full" type="button">Fullscreen</button>
+            </div>
+          </div>
+        `;
+        const mediaEl = this.mediaPreviewEl.querySelector<HTMLMediaElement>(kind === "video" ? "video" : "audio");
+        if (mediaEl) this.attachMediaPlayerUI(path, mediaEl, kind);
       }
     } catch (e) {
       if (this.activeTab !== path) return;

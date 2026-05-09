@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
+import { getIdeLogsSnapshot } from "./ide-logs";
 
 // Since tauri-plugin-shell doesn't provide a real PTY, we implement
 // a command-by-command execution model (like a basic shell prompt).
@@ -61,6 +62,9 @@ export class TerminalPanel {
     });
     document.getElementById("btn-stop-terminal")?.addEventListener("click", () => {
       void this.stopRunningCommand();
+    });
+    document.getElementById("btn-terminal-logs")?.addEventListener("click", () => {
+      this.printIdeLogs();
     });
 
     this.setupResize();
@@ -252,6 +256,35 @@ export class TerminalPanel {
     }
     this.inputBuffer = newInput;
     this.term.write(newInput);
+  }
+
+  private printIdeLogs() {
+    if (!this.term) return;
+    const logs = getIdeLogsSnapshot(300);
+    this.term.writeln("\r\n\x1b[95m--- IDE Logs ---\x1b[0m");
+    if (!logs.length) {
+      this.term.writeln("\x1b[90mNo logs captured yet.\x1b[0m");
+      this.printPrompt();
+      return;
+    }
+    for (const entry of logs) {
+      const ts = new Date(entry.ts).toLocaleTimeString();
+      const level = entry.level.toUpperCase().padEnd(5, " ");
+      const color = entry.level === "error"
+        ? "\x1b[31m"
+        : entry.level === "warn"
+          ? "\x1b[33m"
+          : entry.level === "info"
+            ? "\x1b[36m"
+            : "\x1b[90m";
+      const lines = entry.message.split("\n");
+      this.term.writeln(`${color}[${ts}] [${level}] ${lines[0] ?? ""}\x1b[0m`);
+      for (let i = 1; i < lines.length; i++) {
+        this.term.writeln(`${color}               ${lines[i]}\x1b[0m`);
+      }
+    }
+    this.term.writeln("\x1b[95m--- End IDE Logs ---\x1b[0m");
+    this.printPrompt();
   }
 
   // Run a command externally (from script runner etc.) - shows terminal, prints command, executes

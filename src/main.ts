@@ -41,6 +41,7 @@ import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
 import { ScreenSaver } from "./modules/screen-saver";
 import { renderMarkdown } from "./modules/markdown-renderer";
+import { initIdeLogsCapture } from "./modules/ide-logs";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -712,7 +713,6 @@ interface PanelWindowConfig {
   resizeId?: string;
   actionsSelector: string;
   maximizeBtnId: string;
-  minimizeBtnId: string;
   axis: "width" | "height";
   close: () => void;
 }
@@ -726,7 +726,12 @@ function applyPanelMaximizedState(config: PanelWindowConfig, isMaximized: boolea
   panel.classList.toggle("panel-maximized", isMaximized);
   panel.classList.toggle("panel-maximized-height", isMaximized && config.axis === "height");
   if (resize) resize.classList.toggle("hidden", isMaximized || panel.classList.contains("hidden"));
-  if (maximizeBtn) maximizeBtn.setAttribute("title", isMaximized ? "Restore Panel" : "Maximize Panel");
+  if (maximizeBtn) {
+    maximizeBtn.setAttribute("title", isMaximized ? "Restore Panel" : "Maximize Panel");
+    maximizeBtn.innerHTML = isMaximized
+      ? `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 4.75A1.75 1.75 0 0 1 5.75 3h6.5A1.75 1.75 0 0 1 14 4.75v6.5A1.75 1.75 0 0 1 12.25 13h-6.5A1.75 1.75 0 0 1 4 11.25v-6.5zM5.75 4a.75.75 0 0 0-.75.75v6.5c0 .414.336.75.75.75h6.5a.75.75 0 0 0 .75-.75v-6.5a.75.75 0 0 0-.75-.75h-6.5z"/></svg>`
+      : `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 2A1.75 1.75 0 0 0 1 3.75v8.5C1 13.216 1.784 14 2.75 14h10.5A1.75 1.75 0 0 0 15 12.25v-8.5A1.75 1.75 0 0 0 13.25 2H2.75zm0 1h10.5c.414 0 .75.336.75.75v8.5a.75.75 0 0 1-.75.75H2.75a.75.75 0 0 1-.75-.75v-8.5c0-.414.336-.75.75-.75z"/></svg>`;
+  }
   if (isMaximized) maximizedPanels.add(config.panelId);
   else maximizedPanels.delete(config.panelId);
   editor.resize();
@@ -745,7 +750,6 @@ function setupPanelWindowControls() {
       resizeId: "terminal-resize",
       actionsSelector: ".terminal-header-actions",
       maximizeBtnId: "btn-maximize-terminal",
-      minimizeBtnId: "btn-minimize-terminal",
       axis: "height",
       close: () => terminal.toggle(),
     },
@@ -754,7 +758,6 @@ function setupPanelWindowControls() {
       resizeId: "snippets-resize",
       actionsSelector: ".snippets-header-actions",
       maximizeBtnId: "btn-maximize-snippets",
-      minimizeBtnId: "btn-minimize-snippets",
       axis: "width",
       close: () => {
         snippetsPanel.hide();
@@ -767,7 +770,6 @@ function setupPanelWindowControls() {
       resizeId: "source-control-resize",
       actionsSelector: ".scm-header-actions",
       maximizeBtnId: "btn-maximize-scm",
-      minimizeBtnId: "btn-minimize-scm",
       axis: "width",
       close: () => {
         if (sourceControl.isOpen()) sourceControl.toggle();
@@ -779,7 +781,6 @@ function setupPanelWindowControls() {
       resizeId: "review-resize",
       actionsSelector: ".review-header-actions",
       maximizeBtnId: "btn-maximize-review",
-      minimizeBtnId: "btn-minimize-review",
       axis: "width",
       close: () => codeReviewPanel.close(),
     },
@@ -788,7 +789,6 @@ function setupPanelWindowControls() {
       resizeId: "quality-resize",
       actionsSelector: ".quality-header-actions",
       maximizeBtnId: "btn-maximize-quality",
-      minimizeBtnId: "btn-minimize-quality",
       axis: "width",
       close: () => qualityPanel.close(),
     },
@@ -797,7 +797,6 @@ function setupPanelWindowControls() {
       resizeId: "extensions-resize",
       actionsSelector: ".extensions-header-actions",
       maximizeBtnId: "btn-maximize-extensions",
-      minimizeBtnId: "btn-minimize-extensions",
       axis: "width",
       close: () => extensionsPanel.close(),
     },
@@ -806,7 +805,6 @@ function setupPanelWindowControls() {
       resizeId: "ext-view-panel-resize",
       actionsSelector: "#ext-view-panel .extensions-header-actions",
       maximizeBtnId: "btn-maximize-ext-view-panel",
-      minimizeBtnId: "btn-minimize-ext-view-panel",
       axis: "width",
       close: () => closeExtensionViewPanel(),
     },
@@ -815,7 +813,6 @@ function setupPanelWindowControls() {
       resizeId: "chat-resize",
       actionsSelector: ".chat-header-actions",
       maximizeBtnId: "btn-maximize-chat",
-      minimizeBtnId: "btn-minimize-chat",
       axis: "width",
       close: () => {
         if (isChatOpen()) toggleChat();
@@ -825,7 +822,6 @@ function setupPanelWindowControls() {
   ];
 
   const maximizeIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 2A1.75 1.75 0 0 0 1 3.75v8.5C1 13.216 1.784 14 2.75 14h10.5A1.75 1.75 0 0 0 15 12.25v-8.5A1.75 1.75 0 0 0 13.25 2H2.75zm0 1h10.5c.414 0 .75.336.75.75v8.5a.75.75 0 0 1-.75.75H2.75a.75.75 0 0 1-.75-.75v-8.5c0-.414.336-.75.75-.75z"/></svg>`;
-  const minimizeIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 8.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5z"/></svg>`;
 
   configs.forEach((config) => {
     const panel = document.getElementById(config.panelId);
@@ -844,21 +840,6 @@ function setupPanelWindowControls() {
         togglePanelMaximized(config);
       });
       actions.insertBefore(maximizeBtn, actions.lastElementChild);
-    }
-
-    if (!document.getElementById(config.minimizeBtnId)) {
-      const minimizeBtn = document.createElement("button");
-      minimizeBtn.id = config.minimizeBtnId;
-      minimizeBtn.className = "btn-icon btn-icon-sm";
-      minimizeBtn.title = "Minimize Panel";
-      minimizeBtn.innerHTML = minimizeIcon;
-      minimizeBtn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        applyPanelMaximizedState(config, false);
-        config.close();
-      });
-      actions.insertBefore(minimizeBtn, actions.lastElementChild);
     }
 
     const observer = new MutationObserver(() => {
@@ -912,6 +893,7 @@ function syncTopBarActionStates() {
   document.getElementById("btn-toggle-scm")?.classList.toggle("active", sourceControl?.isOpen?.() ?? false);
   document.getElementById("btn-toggle-snippets")?.classList.toggle("active", snippetsPanel?.isVisible?.() ?? false);
   document.getElementById("btn-toggle-sidebar")?.classList.toggle("active", !$("sidebar").classList.contains("hidden"));
+  document.getElementById("btn-toggle-zen")?.classList.toggle("active", !!appSettings?.appearance?.zenMode);
 }
 
 function toggleSidebar(force?: boolean) {
@@ -2271,6 +2253,18 @@ function applyZenMode(enabled: boolean) {
   setTimeout(() => editor?.resize?.(), 0);
 }
 
+async function toggleZenMode() {
+  appSettings = {
+    ...appSettings,
+    appearance: {
+      ...appSettings.appearance,
+      zenMode: !appSettings.appearance.zenMode,
+    },
+  };
+  onSettingsChange(appSettings);
+  await saveSettings(appSettings);
+}
+
 function getBatteryAccentColor(level: number): string {
   const shadeScale = [
     "#d10000",
@@ -2305,6 +2299,7 @@ function applyBatteryAdaptiveAccent() {
 
 // ── Init ──
 window.addEventListener("DOMContentLoaded", async () => {
+  initIdeLogsCapture();
   // Load settings
   appSettings = await loadSettings();
   void syncNativeTranslucentMode(!!appSettings.appearance.translucentMode);
@@ -2726,6 +2721,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!isChatOpen()) closePanelsOnSameSide("chat-panel");
     toggleChat();
     syncTopBarActionStates();
+  });
+  $("btn-toggle-zen").addEventListener("click", () => {
+    void toggleZenMode();
   });
   $("btn-close-chat").addEventListener("click", () => {
     toggleChat();

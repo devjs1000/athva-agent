@@ -321,7 +321,6 @@ export class SettingsUI {
   // Appearance elements
   private appearanceThemeCardsEl: HTMLElement;
   private appearanceTranslucentEl: HTMLInputElement;
-  private appearanceZenModeEl: HTMLInputElement;
   private appearanceBatteryAdaptiveAccentEl: HTMLInputElement;
   private appearanceColorRows: Record<keyof ThemeColors, { picker: HTMLInputElement; resetBtn: HTMLButtonElement }>;
   private appearanceSaveThemeBtn: HTMLButtonElement;
@@ -399,7 +398,6 @@ export class SettingsUI {
     // Appearance
     this.appearanceThemeCardsEl = document.getElementById("appearance-theme-cards")!;
     this.appearanceTranslucentEl = document.getElementById("appearance-translucent-mode") as HTMLInputElement;
-    this.appearanceZenModeEl = document.getElementById("appearance-zen-mode") as HTMLInputElement;
     this.appearanceBatteryAdaptiveAccentEl = document.getElementById("appearance-battery-adaptive-accent") as HTMLInputElement;
     this.appearanceColorRows = {
       topBar: { picker: document.getElementById("appearance-color-top-bar") as HTMLInputElement, resetBtn: document.getElementById("appearance-reset-top-bar") as HTMLButtonElement },
@@ -489,7 +487,6 @@ export class SettingsUI {
 
     // Appearance
     this.appearanceTranslucentEl.checked = !!this.settings.appearance.translucentMode;
-    this.appearanceZenModeEl.checked = !!this.settings.appearance.zenMode;
     this.appearanceBatteryAdaptiveAccentEl.checked = !!this.settings.appearance.batteryAdaptiveAccent;
     this.renderThemeCards();
     this.updateColorPickers();
@@ -776,10 +773,6 @@ export class SettingsUI {
     this.appearanceTranslucentEl.addEventListener("change", () => {
       this.settings.appearance.translucentMode = this.appearanceTranslucentEl.checked;
       applyTheme(this.settings.appearance);
-    });
-    this.appearanceZenModeEl.addEventListener("change", () => {
-      this.settings.appearance.zenMode = this.appearanceZenModeEl.checked;
-      this.onApply({ ...this.settings });
     });
     this.appearanceBatteryAdaptiveAccentEl.addEventListener("change", () => {
       this.settings.appearance.batteryAdaptiveAccent = this.appearanceBatteryAdaptiveAccentEl.checked;

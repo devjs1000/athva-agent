@@ -392,6 +392,11 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
             </button>
             </div>
+            <div class="workspace-action-item zen-toggle-item">
+            <button id="btn-toggle-zen" class="btn-icon" title="Toggle Zen Mode" aria-label="Toggle Zen Mode">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9c0-.5-.04-1-.12-1.48A7 7 0 1 1 13.48 3.12 9.08 9.08 0 0 0 12 3z"/></svg>
+            </button>
+            </div>
           </div>
         </div>
 
@@ -521,6 +526,9 @@
               <div class="terminal-header">
                 <span class="terminal-header-title">TERMINAL</span>
                 <div class="terminal-header-actions">
+                  <button id="btn-terminal-logs" class="btn-icon btn-icon-sm" title="Show IDE Logs">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 .75.75v8.5a.75.75 0 0 1-.75.75H8.31l-2.59 2.2a.5.5 0 0 1-.82-.38V12H2.75A.75.75 0 0 1 2 11.25v-8.5zm2.5 2.5h7a.5.5 0 0 0 0-1h-7a.5.5 0 0 0 0 1zm0 2.5h7a.5.5 0 0 0 0-1h-7a.5.5 0 0 0 0 1zm0 2.5h4.5a.5.5 0 0 0 0-1H4.5a.5.5 0 0 0 0 1z"/></svg>
+                  </button>
                   <button id="btn-stop-terminal" class="btn-icon btn-icon-sm hidden" title="Stop Running Command">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
                   </button>
@@ -1265,13 +1273,6 @@
                       <span class="setting-hint">Glass-like panel backgrounds inspired by macOS.</span>
                     </div>
                     <input id="appearance-translucent-mode" type="checkbox" />
-                  </div>
-                  <div class="setting-row">
-                    <div class="setting-label-group">
-                      <label for="appearance-zen-mode">Zen Mode</label>
-                      <span class="setting-hint">Hide side panels and chrome for a distraction-free editor view.</span>
-                    </div>
-                    <input id="appearance-zen-mode" type="checkbox" />
                   </div>
                   <div class="setting-row">
                     <div class="setting-label-group">
