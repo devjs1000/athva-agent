@@ -222,8 +222,8 @@ export class Editor {
   private activePane: "left" | "right" = "left";
   private blameEnabled = false;
   private blameBtn: HTMLButtonElement | null = null;
-  private blameLines: { line: number; hash: string; author: string; date: string }[] = [];
-  private blameByLine: Map<number, string> = new Map();
+  private blameLines: { line: number; hash: string; author: string; date: string; summary: string }[] = [];
+  private blameDecorations: monaco.editor.IEditorDecorationsCollection;
   private tabPane: Map<string, "left" | "right"> = new Map();
   private rightEditorEl: HTMLElement | null = null;
   private rightMonacoEditor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -302,6 +302,7 @@ export class Editor {
       hover: { enabled: true, delay: 600 },
       links: false,
     });
+    this.blameDecorations = this.monacoEditor.createDecorationsCollection([]);
     this.monacoEditor.onDidFocusEditorText(() => { this.activePane = "left"; });
 
     // Register hover provider for all relevant languages
@@ -793,7 +794,6 @@ export class Editor {
       lineNumbers: settings.showGutter ? "on" : "off",
       minimap: { enabled: settings.showMinimap },
     });
-    if (this.blameEnabled) this.applyBlameLineNumbers();
     setAICompleterEnabled(settings.aiInlineSuggestions);
   }
 
@@ -3201,19 +3201,20 @@ export class Editor {
 
   private clearBlame() {
     this.blameLines = [];
-    this.blameByLine.clear();
-    this.monacoEditor.updateOptions({
-      lineNumbers: this.currentSettings.showGutter ? "on" : "off",
-      lineNumbersMinChars: 5,
-    });
+    this.blameDecorations.clear();
     this.blameEnabled = false;
     this.blameBtn?.classList.remove("active");
   }
 
-  private blameRelativeDate(ymd: string): string {
+  private blameAgeDays(ymd: string): number | null {
     const d = new Date(`${ymd}T00:00:00`);
-    if (isNaN(d.getTime())) return ymd;
-    const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+    if (isNaN(d.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86_400_000));
+  }
+
+  private blameRelativeDate(ymd: string): string {
+    const days = this.blameAgeDays(ymd);
+    if (days === null) return ymd;
     if (days === 0) return "today";
     if (days === 1) return "yesterday";
     if (days < 30) return `${days}d ago`;
@@ -3221,16 +3222,45 @@ export class Editor {
     return `${Math.floor(days / 365)}y ago`;
   }
 
-  private applyBlameLineNumbers() {
-    const render: monaco.editor.LineNumbersType = (lineNumber) => {
-      const blame = this.blameByLine.get(lineNumber);
-      return blame ? `${lineNumber}  ${blame}` : String(lineNumber);
-    };
-    this.monacoEditor.updateOptions({
-      lineNumbers: render,
-      // Reserve space for "<line>  <hash>  <author>  <when>" in the gutter.
-      lineNumbersMinChars: 34,
-    });
+  private blameAgeClass(days: number | null): string {
+    if (days === null) return "git-blame-age-unknown";
+    if (days <= 1) return "git-blame-age-fresh";
+    if (days <= 30) return "git-blame-age-recent";
+    if (days <= 180) return "git-blame-age-stale";
+    return "git-blame-age-old";
+  }
+
+  private renderBlameDecorations() {
+    const model = this.monacoEditor.getModel();
+    if (!model || !this.blameLines.length) {
+      this.blameDecorations.clear();
+      return;
+    }
+
+    const maxLine = model.getLineCount();
+    const next: monaco.editor.IModelDeltaDecoration[] = [];
+    for (const l of this.blameLines) {
+      if (l.line < 1 || l.line > maxLine) continue;
+      const days = this.blameAgeDays(l.date);
+      const when = this.blameRelativeDate(l.date);
+      const summary = l.summary.replace(/\s+/g, " ").trim();
+      const hoverLines = [
+        `**Author:** ${l.author || "Unknown"}`,
+        `**Commit:** \`${l.hash}\``,
+        `**Date:** ${l.date} (${when})`,
+      ];
+      if (summary) hoverLines.push(`**Summary:** ${summary}`);
+
+      next.push({
+        range: new monaco.Range(l.line, 1, l.line, 1),
+        options: {
+          isWholeLine: true,
+          className: `git-blame-line ${this.blameAgeClass(days)}`,
+          hoverMessage: [{ value: hoverLines.join("\n\n") }],
+        },
+      });
+    }
+    this.blameDecorations.set(next);
   }
 
   async toggleBlame() {
@@ -3251,14 +3281,14 @@ export class Editor {
 
     if (!lines.length) return;
 
-    this.blameLines = lines.map(l => ({ line: l.line, hash: l.hash, author: l.author, date: l.date }));
-    this.blameByLine.clear();
-    for (const l of this.blameLines) {
-      const author = l.author.length > 16 ? l.author.slice(0, 15) + "…" : l.author;
-      const when = this.blameRelativeDate(l.date);
-      this.blameByLine.set(l.line, `${l.hash}  ${author}  ${when}`);
-    }
-    this.applyBlameLineNumbers();
+    this.blameLines = lines.map(l => ({
+      line: l.line,
+      hash: l.hash,
+      author: l.author,
+      date: l.date,
+      summary: l.summary,
+    }));
+    this.renderBlameDecorations();
 
     this.blameEnabled = true;
     this.blameBtn?.classList.add("active");

@@ -3165,13 +3165,23 @@ body {
   background: rgba(77, 157, 224, 0.12);
 }
 
-.git-blame-inline {
-  color: #6b7c93;
-  font-style: italic;
-  font-size: 11px;
-  letter-spacing: 0.2px;
-  opacity: 0.75;
-  pointer-events: none;
+.git-blame-line {
+  transition: background-color 0.12s ease;
+}
+.git-blame-age-fresh {
+  background: rgba(83, 201, 124, 0.12) !important;
+}
+.git-blame-age-recent {
+  background: rgba(102, 170, 255, 0.1) !important;
+}
+.git-blame-age-stale {
+  background: rgba(235, 179, 96, 0.1) !important;
+}
+.git-blame-age-old {
+  background: rgba(220, 110, 110, 0.09) !important;
+}
+.git-blame-age-unknown {
+  background: rgba(160, 160, 160, 0.08) !important;
 }
 
 .editor-tab {

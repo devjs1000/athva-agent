@@ -10,3 +10,4 @@
 - Wants Source Control-integrated contribution analytics opened in editor, including day-wise graph and custom date-range stats.
 - 2026-05-09: User prefers practical workspace tools in side panels; project-scoped persistence is expected for repeatable workflows (e.g., API requests + history + env-backed variables).
 - 2026-05-09: User reported Git Blame data arrives from Tauri but can still fail to render in-editor; when touching blame features, verify IPC output, DOM injection, and CSS visibility/stacking together.
+- 2026-05-09: For Git Blame UX, user prefers age-based line coloring with hover details over inline/gutter text overlays.
