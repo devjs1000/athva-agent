@@ -220,6 +220,10 @@ export class Editor {
   private bookmarks: { url: string; label: string }[] = [];
   private splitEnabled = false;
   private activePane: "left" | "right" = "left";
+  private blameEnabled = false;
+  private blameBtn: HTMLButtonElement | null = null;
+  private blameLines: { line: number; hash: string; author: string; date: string }[] = [];
+  private blameByLine: Map<number, string> = new Map();
   private tabPane: Map<string, "left" | "right"> = new Map();
   private rightEditorEl: HTMLElement | null = null;
   private rightMonacoEditor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -319,6 +323,9 @@ export class Editor {
     this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, () => this.redo());
     this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void this.saveActiveTab();
+    });
+    this.monacoEditor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyB, () => {
+      void this.toggleBlame();
     });
 
     // Tab key: try Emmet first, then let Monaco handle indent
@@ -420,6 +427,16 @@ export class Editor {
             <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/>
           </svg>
         </button>`;
+      const blameBtn = document.createElement("button");
+      blameBtn.id = "editor-blame-btn";
+      blameBtn.className = "editor-undo-redo-btn";
+      blameBtn.title = "Toggle Git Blame (Alt+B)";
+      blameBtn.setAttribute("aria-label", "Toggle Git Blame");
+      blameBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/><line x1="19" y1="11" x2="23" y2="11"/><line x1="19" y1="15" x2="23" y2="15"/></svg>`;
+      blameBtn.addEventListener("click", () => void this.toggleBlame());
+      undoRedoBar.appendChild(blameBtn);
+      this.blameBtn = blameBtn;
+
       editorTop.appendChild(undoRedoBar);
       undoRedoBar.querySelector("#editor-undo-btn")!.addEventListener("click", () => this.undo());
       undoRedoBar.querySelector("#editor-redo-btn")!.addEventListener("click", () => this.redo());
@@ -478,6 +495,7 @@ export class Editor {
       if (this.saveTimeout) clearTimeout(this.saveTimeout);
       if (tab?.lockedView || tab?.untitled) return;
       this.saveTimeout = setTimeout(() => this.saveCurrentFile(), 1000);
+      if (this.blameEnabled) this.clearBlame();
     });
 
     // Initially hide editor
@@ -775,6 +793,7 @@ export class Editor {
       lineNumbers: settings.showGutter ? "on" : "off",
       minimap: { enabled: settings.showMinimap },
     });
+    if (this.blameEnabled) this.applyBlameLineNumbers();
     setAICompleterEnabled(settings.aiInlineSuggestions);
   }
 
@@ -1099,6 +1118,7 @@ export class Editor {
   }
 
   private switchToTab(path: string) {
+    if (this.blameEnabled) this.clearBlame();
     const prevWebLabel = this.activeWebLabel;
     if (!this.tabPane.has(path)) {
       this.tabPane.set(path, this.activePane);
@@ -3177,6 +3197,72 @@ export class Editor {
     this.onDocLinkNavigate = handler;
   }
 
+  // ── Git Blame ───────────────────────────────────────────────────────────
+
+  private clearBlame() {
+    this.blameLines = [];
+    this.blameByLine.clear();
+    this.monacoEditor.updateOptions({
+      lineNumbers: this.currentSettings.showGutter ? "on" : "off",
+      lineNumbersMinChars: 5,
+    });
+    this.blameEnabled = false;
+    this.blameBtn?.classList.remove("active");
+  }
+
+  private blameRelativeDate(ymd: string): string {
+    const d = new Date(`${ymd}T00:00:00`);
+    if (isNaN(d.getTime())) return ymd;
+    const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+    if (days === 0) return "today";
+    if (days === 1) return "yesterday";
+    if (days < 30) return `${days}d ago`;
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+    return `${Math.floor(days / 365)}y ago`;
+  }
+
+  private applyBlameLineNumbers() {
+    const render: monaco.editor.LineNumbersType = (lineNumber) => {
+      const blame = this.blameByLine.get(lineNumber);
+      return blame ? `${lineNumber}  ${blame}` : String(lineNumber);
+    };
+    this.monacoEditor.updateOptions({
+      lineNumbers: render,
+      // Reserve space for "<line>  <hash>  <author>  <when>" in the gutter.
+      lineNumbersMinChars: 34,
+    });
+  }
+
+  async toggleBlame() {
+    if (this.blameEnabled) { this.clearBlame(); return; }
+
+    const filePath = this.getActiveFilePath();
+    if (!filePath || !this.projectRoot) return;
+
+    const rel = filePath.startsWith(`${this.projectRoot}/`)
+      ? filePath.slice(this.projectRoot.length + 1)
+      : filePath;
+
+    interface BlameLine { line: number; hash: string; author: string; date: string; summary: string; }
+    let lines: BlameLine[];
+    try {
+      lines = await invoke<BlameLine[]>("git_blame_file", { path: this.projectRoot, file: rel });
+    } catch { return; }
+
+    if (!lines.length) return;
+
+    this.blameLines = lines.map(l => ({ line: l.line, hash: l.hash, author: l.author, date: l.date }));
+    this.blameByLine.clear();
+    for (const l of this.blameLines) {
+      const author = l.author.length > 16 ? l.author.slice(0, 15) + "…" : l.author;
+      const when = this.blameRelativeDate(l.date);
+      this.blameByLine.set(l.line, `${l.hash}  ${author}  ${when}`);
+    }
+    this.applyBlameLineNumbers();
+
+    this.blameEnabled = true;
+    this.blameBtn?.classList.add("active");
+  }
   setProjectRoot(path: string) {
     this.projectRoot = path;
   }

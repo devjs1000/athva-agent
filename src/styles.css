@@ -3160,6 +3160,20 @@ body {
   color: #fff;
 }
 
+.editor-undo-redo-btn.active {
+  color: #4d9de0;
+  background: rgba(77, 157, 224, 0.12);
+}
+
+.git-blame-inline {
+  color: #6b7c93;
+  font-style: italic;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
 .editor-tab {
   display: flex;
   align-items: center;

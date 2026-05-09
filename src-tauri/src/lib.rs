@@ -1037,6 +1037,62 @@ fn git_author_stats(path: String) -> Result<Vec<GitAuthorStat>, String> {
     Ok(result)
 }
 
+// ── Git Blame ──
+
+#[derive(Debug, Serialize)]
+struct GitBlameLine {
+    line: u32,
+    hash: String,
+    author: String,
+    date: String,
+    summary: String,
+}
+
+fn unix_to_ymd(ts: i64) -> String {
+    let z = ts / 86400 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+#[tauri::command]
+fn git_blame_file(path: String, file: String) -> Result<Vec<GitBlameLine>, String> {
+    let output = run_git(&path, &["blame", "--line-porcelain", "--", &file])?;
+    let mut result: Vec<GitBlameLine> = Vec::new();
+    let mut hash = String::new();
+    let mut author = String::new();
+    let mut author_time: i64 = 0;
+    let mut summary = String::new();
+
+    for line in output.lines() {
+        if line.starts_with('\t') {
+            result.push(GitBlameLine {
+                line: result.len() as u32 + 1,
+                hash: hash[..8.min(hash.len())].to_string(),
+                author: author.clone(),
+                date: unix_to_ymd(author_time),
+                summary: summary.clone(),
+            });
+        } else if line.len() >= 40 && line[..40].chars().all(|c| c.is_ascii_hexdigit()) {
+            hash = line[..40].to_string();
+        } else if let Some(a) = line.strip_prefix("author ") {
+            author = a.to_string();
+        } else if let Some(t) = line.strip_prefix("author-time ") {
+            author_time = t.trim().parse().unwrap_or(0);
+        } else if let Some(s) = line.strip_prefix("summary ") {
+            summary = s.to_string();
+        }
+    }
+    Ok(result)
+}
+
 // ── Settings ──
 
 #[tauri::command]
@@ -2309,6 +2365,7 @@ pub fn run() {
             git_contribution_days,
             git_log_graph,
             git_author_stats,
+            git_blame_file,
             load_settings,
             save_settings,
             set_window_translucent_mode,

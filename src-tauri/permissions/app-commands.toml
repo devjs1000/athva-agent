@@ -45,6 +45,7 @@ commands.allow = [
   "git_contribution_days",
   "git_log_graph",
   "git_author_stats",
+  "git_blame_file",
   "load_settings",
   "save_settings",
   "set_window_translucent_mode",
