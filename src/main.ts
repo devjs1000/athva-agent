@@ -81,6 +81,11 @@ const webviewBridgeRuntimeById = new Map<string, ExtensionRuntime>();
 const webviewBridgeViewIdById = new Map<string, string>();
 const webviewBridgeIframeSelectorById = new Map<string, string>();
 
+interface GitContributionDay {
+  date: string;
+  count: number;
+}
+
 async function syncNativeTranslucentMode(enabled: boolean): Promise<void> {
   try {
     await invoke("set_window_translucent_mode", { enabled });
@@ -353,6 +358,138 @@ function escapeHtml(str: string): string {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+function toYmd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function isoToDisplay(iso: string): string {
+  const dt = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return iso;
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function clampDateRange(from: string, to: string): { from: string; to: string } {
+  if (!from && !to) {
+    const now = new Date();
+    const prev = new Date(now);
+    prev.setDate(now.getDate() - 29);
+    return { from: toYmd(prev), to: toYmd(now) };
+  }
+  if (!from) return { from: to, to };
+  if (!to) return { from, to: from };
+  return from <= to ? { from, to } : { from: to, to: from };
+}
+
+function buildContributionHeatmap(last365: GitContributionDay[]): string {
+  const byDate = new Map(last365.map((d) => [d.date, d.count]));
+  const max = Math.max(1, ...last365.map((d) => d.count));
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(now.getDate() - 364);
+
+  const cells: string[] = [];
+  for (let i = 0; i < 365; i++) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    const key = toYmd(day);
+    const count = byDate.get(key) ?? 0;
+    const level = count === 0 ? 0 : Math.min(4, Math.ceil((count / max) * 4));
+    cells.push(`<div class="scm-gh-cell l${level}" title="${escapeHtml(key)}: ${count} commit${count === 1 ? "" : "s"}"></div>`);
+  }
+  return `<div class="scm-gh-grid">${cells.join("")}</div>`;
+}
+
+async function openScmContributionTool(projectPath: string, from?: string, to?: string) {
+  const range = clampDateRange(from ?? "", to ?? "");
+  const now = new Date();
+  const since365 = new Date(now);
+  since365.setDate(now.getDate() - 364);
+
+  const [rangeDays, yearDays] = await Promise.all([
+    invoke<GitContributionDay[]>("git_contribution_days", {
+      path: projectPath,
+      since: range.from,
+      until: range.to,
+    }).catch(() => []),
+    invoke<GitContributionDay[]>("git_contribution_days", {
+      path: projectPath,
+      since: toYmd(since365),
+      until: toYmd(now),
+    }).catch(() => []),
+  ]);
+
+  const total = rangeDays.reduce((sum, item) => sum + item.count, 0);
+  const activeDays = rangeDays.filter((item) => item.count > 0).length;
+  const maxDay = rangeDays.reduce((best, item) => (item.count > best.count ? item : best), { date: "", count: 0 });
+  const avg = activeDays ? (total / activeDays).toFixed(2) : "0.00";
+  const heatmap = buildContributionHeatmap(yearDays);
+  const rows = rangeDays.length
+    ? rangeDays
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .map((item) => `<tr><td>${escapeHtml(isoToDisplay(item.date))}</td><td>${item.count}</td></tr>`)
+      .join("")
+    : `<tr><td colspan="2">No commits in selected range.</td></tr>`;
+
+  const toolId = `scm-contrib-${encodeURIComponent(projectPath)}`;
+  const pagePath = `athva://scm/contributions/${encodeURIComponent(projectPath)}`;
+  const html = `
+    <article class="scm-contrib-tool" data-scm-tool-id="${toolId}" data-project-path="${escapeHtml(projectPath)}">
+      <style>
+        .scm-contrib-tool{padding:20px 24px;color:#d7deea;background:#0f141d;min-height:100%;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto}
+        .scm-contrib-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+        .scm-contrib-title{font-size:20px;font-weight:700}
+        .scm-contrib-sub{font-size:12px;color:#93a1ba}
+        .scm-contrib-range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
+        .scm-contrib-range input{background:#0c1018;border:1px solid #27334b;color:#dce7ff;border-radius:8px;padding:6px 8px}
+        .scm-contrib-range button{background:#1f6feb;border:1px solid #327fe8;color:#fff;border-radius:8px;padding:7px 12px;cursor:pointer}
+        .scm-contrib-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}
+        .scm-contrib-card{background:#141b28;border:1px solid #263247;border-radius:10px;padding:10px}
+        .scm-contrib-card .k{font-size:11px;color:#95a5c3}
+        .scm-contrib-card .v{font-size:18px;font-weight:700;color:#eaf0ff}
+        .scm-gh-wrap{background:#141b28;border:1px solid #263247;border-radius:10px;padding:12px}
+        .scm-gh-grid{display:grid;grid-template-columns:repeat(53,1fr);gap:4px}
+        .scm-gh-cell{aspect-ratio:1;border-radius:3px;background:#1a2130}
+        .scm-gh-cell.l1{background:#123c2c}.scm-gh-cell.l2{background:#1b5b3f}.scm-gh-cell.l3{background:#2f8a5e}.scm-gh-cell.l4{background:#49b37a}
+        .scm-contrib-table{margin-top:14px;background:#141b28;border:1px solid #263247;border-radius:10px;overflow:hidden}
+        .scm-contrib-table table{width:100%;border-collapse:collapse}
+        .scm-contrib-table th,.scm-contrib-table td{padding:8px 10px;border-bottom:1px solid #202b3f;font-size:12px}
+        .scm-contrib-table th{text-align:left;color:#9bb0d2}
+      </style>
+      <div class="scm-contrib-head">
+        <div>
+          <div class="scm-contrib-title">GitHub-style Contribution Insights</div>
+          <div class="scm-contrib-sub">Repository: ${escapeHtml(projectPath)}</div>
+        </div>
+      </div>
+      <div class="scm-contrib-range">
+        <label>From <input type="date" data-scm-contrib-from value="${escapeHtml(range.from)}" /></label>
+        <label>To <input type="date" data-scm-contrib-to value="${escapeHtml(range.to)}" /></label>
+        <button type="button" data-scm-contrib-action="apply-range">Apply Range</button>
+      </div>
+      <div class="scm-contrib-cards">
+        <div class="scm-contrib-card"><div class="k">Total Commits</div><div class="v">${total}</div></div>
+        <div class="scm-contrib-card"><div class="k">Active Days</div><div class="v">${activeDays}</div></div>
+        <div class="scm-contrib-card"><div class="k">Avg / Active Day</div><div class="v">${avg}</div></div>
+        <div class="scm-contrib-card"><div class="k">Best Day</div><div class="v">${maxDay.date ? `${maxDay.count} (${escapeHtml(isoToDisplay(maxDay.date))})` : "—"}</div></div>
+      </div>
+      <div class="scm-gh-wrap">
+        <div class="scm-contrib-sub">Last 365 days</div>
+        ${heatmap}
+      </div>
+      <div class="scm-contrib-table">
+        <table>
+          <thead><tr><th>Day</th><th>Commits</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </article>
+  `;
+  editor.openHtmlTab(pagePath, "SCM Contributions", html);
 }
 
 // ── Pages ──
@@ -2495,7 +2632,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   scriptRunner = new ScriptRunner(terminal);
 
   // Init source control
-  sourceControl = new SourceControl(() => editor.resize(), () => appSettings.ai);
+  sourceControl = new SourceControl(
+    () => editor.resize(),
+    () => appSettings.ai,
+    (projectPath) => {
+      void openScmContributionTool(projectPath);
+    }
+  );
 
   // Init code review panel
   codeReviewPanel = new CodeReviewPanel(
@@ -2741,6 +2884,20 @@ window.addEventListener("DOMContentLoaded", async () => {
       root?.querySelectorAll<HTMLElement>("[data-extension-page-panel]").forEach((panel) => {
         panel.classList.toggle("hidden", panel.dataset.extensionPagePanel !== tab);
       });
+      return;
+    }
+
+    const scmAction = (event.target as HTMLElement).closest("[data-scm-contrib-action]") as HTMLElement | null;
+    if (scmAction) {
+      event.preventDefault();
+      const root = scmAction.closest<HTMLElement>("[data-project-path]");
+      const projectPath = root?.dataset.projectPath || currentProjectPath;
+      if (!projectPath) return;
+      if (scmAction.dataset.scmContribAction === "apply-range") {
+        const from = root?.querySelector<HTMLInputElement>("[data-scm-contrib-from]")?.value ?? "";
+        const to = root?.querySelector<HTMLInputElement>("[data-scm-contrib-to]")?.value ?? "";
+        void openScmContributionTool(projectPath, from, to);
+      }
       return;
     }
 

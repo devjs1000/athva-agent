@@ -7,3 +7,4 @@
 - Wants a settings option for battery-percentage-based color changes with multiple shades (10-step style).
 - Wants IDE-focused tooling: terminal-accessible IDE logs and first-class in-IDE media players (audio/video) with polished synced UI.
 - Prefers Zen Mode as a dedicated top-right navbar toggle (not in Settings), and in Zen Mode only that toggle should remain visible in the top nav.
+- Wants Source Control-integrated contribution analytics opened in editor, including day-wise graph and custom date-range stats.

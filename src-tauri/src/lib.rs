@@ -2,6 +2,7 @@ use regex::RegexBuilder;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -721,6 +722,12 @@ pub struct GitFileChange {
     pub staged: bool,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct GitContributionDay {
+    pub date: String, // YYYY-MM-DD
+    pub count: u32,
+}
+
 #[tauri::command]
 fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
     let output = run_git_bytes(&path, &["status", "--porcelain=v1", "-z", "-uall"])?;
@@ -853,6 +860,40 @@ fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, Str
     } else {
         run_git(&path, &["diff", "--", &file])
     }
+}
+
+#[tauri::command]
+fn git_contribution_days(
+    path: String,
+    since: Option<String>,
+    until: Option<String>,
+) -> Result<Vec<GitContributionDay>, String> {
+    let mut args = vec!["log", "--date=short", "--pretty=format:%ad"];
+    if let Some(s) = since.as_deref() {
+        if !s.trim().is_empty() {
+            args.push("--since");
+            args.push(s);
+        }
+    }
+    if let Some(u) = until.as_deref() {
+        if !u.trim().is_empty() {
+            args.push("--until");
+            args.push(u);
+        }
+    }
+    let output = run_git(&path, &args)?;
+    let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+    for line in output.lines() {
+        let date = line.trim();
+        if date.len() == 10 {
+            *counts.entry(date.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    Ok(counts
+        .into_iter()
+        .map(|(date, count)| GitContributionDay { date, count })
+        .collect())
 }
 
 // ── Settings ──
@@ -2124,6 +2165,7 @@ pub fn run() {
             git_commit,
             git_diff_stat,
             git_diff_file,
+            git_contribution_days,
             load_settings,
             save_settings,
             set_window_translucent_mode,

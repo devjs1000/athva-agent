@@ -39,10 +39,16 @@ export class SourceControl {
   private refreshRequestId = 0;
   private onResize: () => void;
   private getAISettings: () => AISettings;
+  private onOpenContributionTool: (projectPath: string) => void;
 
-  constructor(onResize: () => void, getAISettings: () => AISettings) {
+  constructor(
+    onResize: () => void,
+    getAISettings: () => AISettings,
+    onOpenContributionTool: (projectPath: string) => void,
+  ) {
     this.onResize = onResize;
     this.getAISettings = getAISettings;
+    this.onOpenContributionTool = onOpenContributionTool;
     this.panelEl = document.getElementById("source-control-panel")!;
     this.resizeEl = document.getElementById("source-control-resize")!;
     this.commitInput = document.getElementById("scm-commit-input") as HTMLTextAreaElement;
@@ -71,6 +77,10 @@ export class SourceControl {
 
     // Refresh
     document.getElementById("btn-scm-refresh")!.addEventListener("click", () => this.refresh());
+    document.getElementById("btn-scm-contrib")!.addEventListener("click", () => {
+      if (!this.projectPath) return;
+      this.onOpenContributionTool(this.projectPath);
+    });
 
     // Close
     document.getElementById("btn-close-scm")!.addEventListener("click", () => this.toggle());
