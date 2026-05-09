@@ -11128,3 +11128,238 @@ body.zen-mode #workspace-action-zone-top-right .titlebar-divider,
 body.zen-mode #btn-back-home {
   display: none !important;
 }
+
+/* API Requests Panel */
+.api-requests-panel {
+  width: 380px;
+  min-width: 280px;
+  max-width: 640px;
+  background: var(--right-panels-bg);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.api-req-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 12, 16, 0.24);
+}
+
+.api-req-header-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: #d8dee9;
+}
+
+.api-req-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.api-req-top {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 8px;
+}
+
+.api-req-row {
+  display: flex;
+  gap: 8px;
+}
+
+.api-req-input-wrap {
+  position: relative;
+}
+
+.api-req-row .api-req-input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.api-req-input-wrap .api-req-name,
+.api-req-input-wrap .api-req-url,
+.api-req-input-wrap .api-req-vars {
+  padding-right: 28px;
+}
+
+.api-req-paste-btn {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.api-req-input-wrap:hover .api-req-paste-btn,
+.api-req-paste-btn:focus-visible {
+  opacity: 1;
+}
+
+.api-req-paste-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 1;
+}
+
+.api-req-paste-btn-area {
+  top: 8px;
+  transform: none;
+}
+
+.api-req-method,
+.api-req-name,
+.api-req-url,
+.api-req-vars {
+  width: 100%;
+  padding: 7px 9px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.api-req-method {
+  max-width: 96px;
+}
+
+.api-req-vars {
+  min-height: 48px;
+  font-family: "SF Mono", Menlo, Monaco, monospace;
+  font-size: 11px;
+}
+
+.api-req-env-preview,
+.api-req-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.api-req-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.api-req-tab {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  border-radius: 8px;
+  font-size: 11px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.api-req-tab.active {
+  color: #bfe6ff;
+  background: rgba(0, 120, 212, 0.16);
+  border-color: rgba(0, 120, 212, 0.3);
+}
+
+.api-req-tab-panels {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.api-req-tab-panel {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px 10px;
+}
+
+.api-req-tab-panel.active {
+  display: flex;
+  flex-direction: column;
+}
+
+.api-req-editor {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.api-req-response-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.api-req-history {
+  overflow: auto;
+}
+
+.api-req-history-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.api-req-history-item:hover {
+  background: rgba(0, 120, 212, 0.1);
+  border-color: rgba(0, 120, 212, 0.2);
+}
+
+.api-req-history-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.api-req-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 120, 212, 0.16);
+  color: #bfe6ff;
+}
+
+.api-req-history-name {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.api-req-history-meta,
+.api-req-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+}

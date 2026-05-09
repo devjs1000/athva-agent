@@ -8,3 +8,4 @@
 - Wants IDE-focused tooling: terminal-accessible IDE logs and first-class in-IDE media players (audio/video) with polished synced UI.
 - Prefers Zen Mode as a dedicated top-right navbar toggle (not in Settings), and in Zen Mode only that toggle should remain visible in the top nav.
 - Wants Source Control-integrated contribution analytics opened in editor, including day-wise graph and custom date-range stats.
+- 2026-05-09: User prefers practical workspace tools in side panels; project-scoped persistence is expected for repeatable workflows (e.g., API requests + history + env-backed variables).

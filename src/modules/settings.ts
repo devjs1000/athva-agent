@@ -99,6 +99,7 @@ export type WorkspaceActionId =
   | "quality-panel"
   | "extensions-panel"
   | "snippets"
+  | "api-requests"
   | "source-control"
   | "terminal"
   | "chat";
@@ -186,6 +187,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       "quality-panel": "top-right",
       "extensions-panel": "top-right",
       snippets: "top-right",
+      "api-requests": "top-right",
       "source-control": "top-right",
       terminal: "top-right",
       chat: "top-right",
@@ -199,6 +201,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       "quality-panel": true,
       "extensions-panel": true,
       snippets: true,
+      "api-requests": true,
       "source-control": true,
       terminal: true,
       chat: true,

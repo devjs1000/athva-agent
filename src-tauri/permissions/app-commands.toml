@@ -42,6 +42,7 @@ commands.allow = [
   "git_commit",
   "git_diff_stat",
   "git_diff_file",
+  "git_contribution_days",
   "load_settings",
   "save_settings",
   "set_window_translucent_mode",
@@ -63,5 +64,6 @@ commands.allow = [
   "resize_web_window",
   "report_web_media_state",
   "touchid_authenticate",
-  "touchid_available"
+  "touchid_available",
+  "http_request"
 ]

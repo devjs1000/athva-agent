@@ -365,6 +365,11 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             </button>
             </div>
+            <div class="workspace-action-item" data-action-id="api-requests">
+            <button id="btn-toggle-api-requests" class="btn-icon" title="API Requests" aria-label="API Requests">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h11"/><path d="M8 12h11"/><path d="M8 18h11"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            </button>
+            </div>
 
             <div class="titlebar-divider"></div>
 
@@ -603,6 +608,68 @@
               </div>
             </div>
             <div class="snippets-list"></div>
+          </div>
+
+          <!-- API Requests resize handle -->
+          <div id="api-requests-resize" class="resize-handle-v hidden"></div>
+
+          <!-- API Requests Panel -->
+          <div id="api-requests-panel" class="api-requests-panel hidden">
+            <div class="api-req-header">
+              <span class="api-req-header-title">API REQUESTS</span>
+              <div class="api-req-header-actions">
+                <button id="btn-refresh-api-env" class="btn-icon btn-icon-sm" title="Reload .env variables">↻</button>
+                <button id="btn-send-api-request" class="btn-primary btn-icon-sm" title="Send Request">Send</button>
+                <button id="btn-close-api-requests" class="btn-icon btn-icon-sm" title="Close">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="api-req-top">
+              <div class="api-req-input-wrap">
+                <input class="api-req-name" type="text" placeholder="Request name" />
+                <button class="api-req-paste-btn" data-paste-target="name" title="Paste from clipboard" type="button"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
+              </div>
+              <div class="api-req-row">
+                <select class="api-req-method">
+                  <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+                </select>
+                <div class="api-req-input-wrap">
+                  <input class="api-req-url" type="text" placeholder="https://api.example.com/users/{{USER_ID}}" />
+                  <button class="api-req-paste-btn" data-paste-target="url" title="Paste URL from clipboard" type="button"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
+                </div>
+              </div>
+              <div class="api-req-input-wrap">
+                <textarea class="api-req-vars" rows="2" placeholder="Project vars: KEY=value"></textarea>
+                <button class="api-req-paste-btn api-req-paste-btn-area" data-paste-target="vars" title="Paste vars from clipboard" type="button"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
+              </div>
+              <div class="api-req-env-preview"></div>
+              <div class="api-req-status"></div>
+            </div>
+
+            <div class="api-req-tabs" role="tablist">
+              <button class="api-req-tab active" data-api-tab="body" type="button">Body</button>
+              <button class="api-req-tab" data-api-tab="headers" type="button">Headers</button>
+              <button class="api-req-tab" data-api-tab="response" type="button">Response</button>
+              <button class="api-req-tab" data-api-tab="requests" type="button">Select Request</button>
+            </div>
+
+            <div class="api-req-tab-panels">
+              <section class="api-req-tab-panel active" data-api-panel="body">
+                <div class="api-req-editor" id="api-req-body-editor"></div>
+              </section>
+              <section class="api-req-tab-panel" data-api-panel="headers">
+                <div class="api-req-editor" id="api-req-headers-editor"></div>
+              </section>
+              <section class="api-req-tab-panel" data-api-panel="response">
+                <div class="api-req-response-meta"></div>
+                <div class="api-req-editor api-req-editor-readonly" id="api-req-response-editor"></div>
+              </section>
+              <section class="api-req-tab-panel" data-api-panel="requests">
+                <div class="api-req-history"></div>
+              </section>
+            </div>
           </div>
 
           <!-- Source Control resize handle -->

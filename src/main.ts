@@ -28,6 +28,7 @@ import { ExtensionsPanel, type ExtensionDiagnostic, type ExtensionPreviewPayload
 import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
+import { ApiRequestsPanel } from "./modules/api-requests-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 import { ExportsTracker } from "./modules/exports-tracker";
 import { applyTheme, registerMonacoThemeDefiner, registerMonacoThemeSetter, registerRuntimeThemes, registerTerminalThemeSetter } from "./modules/theme-engine";
@@ -61,6 +62,7 @@ let commandPalette!: CommandPalette;
 let projectSwitcher!: ProjectSwitcher;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
+let apiRequestsPanel!: ApiRequestsPanel;
 let exportsTracker!: ExportsTracker;
 let docsWorkspace!: DocsWorkspace;
 let contextManager!: ContextManager;
@@ -139,6 +141,7 @@ const ACTION_ITEM_ORDER: WorkspaceActionId[] = [
   "quality-panel",
   "extensions-panel",
   "snippets",
+  "api-requests",
   "source-control",
   "terminal",
   "chat",
@@ -153,6 +156,7 @@ const ACTION_LABELS: Record<WorkspaceActionId, string> = {
   "quality-panel": "Quality Panel",
   "extensions-panel": "Extensions",
   snippets: "Snippets",
+  "api-requests": "API Requests",
   "source-control": "Source Control",
   terminal: "Terminal",
   chat: "Chat",
@@ -903,6 +907,18 @@ function setupPanelWindowControls() {
       },
     },
     {
+      panelId: "api-requests-panel",
+      resizeId: "api-requests-resize",
+      actionsSelector: ".api-req-header-actions",
+      maximizeBtnId: "btn-maximize-api-requests",
+      axis: "width",
+      close: () => {
+        apiRequestsPanel.hide();
+        document.getElementById("api-requests-resize")?.classList.add("hidden");
+        syncTopBarActionStates();
+      },
+    },
+    {
       panelId: "source-control-panel",
       resizeId: "source-control-resize",
       actionsSelector: ".scm-header-actions",
@@ -1003,6 +1019,10 @@ function closePanelsOnSameSide(panelId: string) {
     snippetsPanel.hide();
     document.getElementById("snippets-resize")?.classList.add("hidden");
   }
+  if (sameSide("api-requests-panel") && apiRequestsPanel?.isVisible?.()) {
+    apiRequestsPanel.hide();
+    document.getElementById("api-requests-resize")?.classList.add("hidden");
+  }
   if (sameSide("source-control-panel") && sourceControl?.isOpen?.()) sourceControl.toggle();
   if (sameSide("review-panel") && codeReviewPanel?.isOpen?.()) codeReviewPanel.close();
   if (sameSide("quality-panel") && qualityPanel?.isOpen?.()) qualityPanel.close();
@@ -1017,6 +1037,10 @@ function showExplorerSidebarOnly() {
     snippetsPanel.hide();
     document.getElementById("snippets-resize")?.classList.add("hidden");
   }
+  if (panelSide("api-requests-panel") === "left" && apiRequestsPanel?.isVisible?.()) {
+    apiRequestsPanel.hide();
+    document.getElementById("api-requests-resize")?.classList.add("hidden");
+  }
   if (panelSide("source-control-panel") === "left" && sourceControl?.isOpen?.()) sourceControl.toggle();
   if (panelSide("review-panel") === "left" && codeReviewPanel?.isOpen?.()) codeReviewPanel.close();
   if (panelSide("quality-panel") === "left" && qualityPanel?.isOpen?.()) qualityPanel.close();
@@ -1029,6 +1053,7 @@ function syncTopBarActionStates() {
   document.getElementById("btn-toggle-terminal")?.classList.toggle("active", terminal?.getIsVisible?.() ?? false);
   document.getElementById("btn-toggle-scm")?.classList.toggle("active", sourceControl?.isOpen?.() ?? false);
   document.getElementById("btn-toggle-snippets")?.classList.toggle("active", snippetsPanel?.isVisible?.() ?? false);
+  document.getElementById("btn-toggle-api-requests")?.classList.toggle("active", apiRequestsPanel?.isVisible?.() ?? false);
   document.getElementById("btn-toggle-sidebar")?.classList.toggle("active", !$("sidebar").classList.contains("hidden"));
   document.getElementById("btn-toggle-zen")?.classList.toggle("active", !!appSettings?.appearance?.zenMode);
 }
@@ -1082,6 +1107,7 @@ function renderWorkspaceActionPlacements() {
 
   // Reposition panels to match their button's sidebar side
   applyPanelSidePlacement("snippets-panel", "snippets-resize", "snippets");
+  applyPanelSidePlacement("api-requests-panel", "api-requests-resize", "api-requests");
   applyPanelSidePlacement("source-control-panel", "source-control-resize", "source-control");
   applyPanelSidePlacement("review-panel", "review-resize", "ai-review");
   applyPanelSidePlacement("quality-panel", "quality-resize", "quality-panel");
@@ -1112,6 +1138,10 @@ function closeActionSurface(actionId: WorkspaceActionId) {
   if (actionId === "snippets" && snippetsPanel?.isVisible?.()) {
     snippetsPanel.hide();
     document.getElementById("snippets-resize")?.classList.add("hidden");
+  }
+  if (actionId === "api-requests" && apiRequestsPanel?.isVisible?.()) {
+    apiRequestsPanel.hide();
+    document.getElementById("api-requests-resize")?.classList.add("hidden");
   }
   if (actionId === "source-control" && sourceControl?.isOpen?.()) sourceControl.toggle();
   if (actionId === "ai-review" && codeReviewPanel?.isOpen?.()) codeReviewPanel.close();
@@ -1361,6 +1391,7 @@ async function reloadInstalledExtensionSupport() {
 
   if (currentProjectPath) {
     await snippetsPanel.setProjectPath(currentProjectPath);
+    await apiRequestsPanel.setProjectPath(currentProjectPath);
     await fileExplorer.loadRoot(currentProjectPath);
   }
   if (shouldSaveSettings) {
@@ -2457,6 +2488,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Init snippets panel
   snippetsPanel = new SnippetsPanel("snippets-panel");
   snippetsPanel.onInsert((snippet) => editor.insertSnippet(snippet));
+  apiRequestsPanel = new ApiRequestsPanel("api-requests-panel");
   const snippetsCompleter = snippetsPanel.getCompleter();
   editor.addCompletionProvider(snippetsCompleter.languages, snippetsCompleter.provider);
   setupWorkspaceActionCustomization();
@@ -2853,6 +2885,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!snippetsPanel.isVisible()) closePanelsOnSameSide("snippets-panel");
     snippetsPanel.toggle();
     $("snippets-resize").classList.toggle("hidden", !snippetsPanel.isVisible());
+    syncTopBarActionStates();
+  });
+  $("btn-toggle-api-requests").addEventListener("click", () => {
+    if (!apiRequestsPanel.isVisible()) closePanelsOnSameSide("api-requests-panel");
+    apiRequestsPanel.toggle();
+    $("api-requests-resize").classList.toggle("hidden", !apiRequestsPanel.isVisible());
     syncTopBarActionStates();
   });
   $("btn-toggle-scm").addEventListener("click", () => {

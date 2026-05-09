@@ -236,6 +236,73 @@ fn collect_child_pids(pid: u32) -> Result<Vec<u32>, String> {
     Ok(pids)
 }
 
+
+#[derive(Debug, Deserialize)]
+struct HttpRequestPayload {
+    method: String,
+    url: String,
+    headers: Option<BTreeMap<String, String>>,
+    body: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct HttpResponsePayload {
+    status: u16,
+    status_text: String,
+    headers: BTreeMap<String, String>,
+    body: String,
+}
+
+#[tauri::command]
+async fn http_request(payload: HttpRequestPayload) -> Result<HttpResponsePayload, String> {
+    let method = reqwest::Method::from_bytes(payload.method.trim().as_bytes())
+        .map_err(|e| format!("Invalid HTTP method: {}", e))?;
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut req = client.request(method.clone(), payload.url.trim());
+    if let Some(headers) = payload.headers {
+        let mut map = reqwest::header::HeaderMap::new();
+        for (k, v) in headers {
+            let name = reqwest::header::HeaderName::from_bytes(k.trim().as_bytes())
+                .map_err(|e| format!("Invalid header name '{}': {}", k, e))?;
+            let value = reqwest::header::HeaderValue::from_str(v.trim())
+                .map_err(|e| format!("Invalid header value for '{}': {}", k, e))?;
+            map.insert(name, value);
+        }
+        req = req.headers(map);
+    }
+
+    if method != reqwest::Method::GET && method != reqwest::Method::HEAD {
+        if let Some(body) = payload.body {
+            if !body.is_empty() {
+                req = req.body(body);
+            }
+        }
+    }
+
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let status_text = status.canonical_reason().unwrap_or("").to_string();
+
+    let mut out_headers = BTreeMap::new();
+    for (k, v) in resp.headers() {
+        out_headers.insert(k.to_string(), v.to_str().unwrap_or("").to_string());
+    }
+
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+
+    Ok(HttpResponsePayload {
+        status: status.as_u16(),
+        status_text,
+        headers: out_headers,
+        body,
+    })
+}
+
 // ── File system commands ──
 
 #[derive(Debug, Serialize, Clone)]
@@ -2188,6 +2255,7 @@ pub fn run() {
             report_web_media_state,
             touchid_authenticate,
             touchid_available,
+            http_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
