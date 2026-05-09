@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { readFile, readDir } from "@tauri-apps/plugin-fs";
 import { listen } from "@tauri-apps/api/event";
 import { attachAICompleter, setAICompleterEnabled, setAICompleterConfig } from "./ai-completer";
-import { showConfirmDialog, showInputDialog } from "./dialogs";
+import { showCodeBookmarkDialog, showConfirmDialog, showInputDialog } from "./dialogs";
 import { renderMarkdown } from "./markdown-renderer";
 import { TodoPanel } from "./todo-panel";
 import { DocumentEditor } from "./doc-editor";
@@ -73,7 +73,22 @@ interface OpenTab {
   lockedView?: boolean;
   untitled?: boolean;
   docRoot?: string;
-  specialView?: "contexts";
+  specialView?: "contexts" | "bookmarks";
+}
+
+interface CodeBookmark {
+  id: string;
+  projectRoot: string;
+  path: string;
+  title: string;
+  description: string;
+  tag: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  snippet: string;
+  createdAt: string;
 }
 
 interface WebMediaStatePayload {
@@ -172,6 +187,16 @@ const HTML_TAGS = new Set([
   "ul", "video",
 ]);
 const VOID_HTML_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+const CODE_BOOKMARKS_STORAGE_KEY = "athva-code-bookmarks-v1";
+const BOOKMARK_TAG_COLORS: Record<string, string> = {
+  critical: "#ef4444",
+  high: "#f97316",
+  medium: "#f59e0b",
+  low: "#3b82f6",
+  info: "#22c55e",
+  todo: "#a78bfa",
+  note: "#94a3b8",
+};
 
 interface EmmetNode {
   tag: string;
@@ -218,12 +243,14 @@ export class Editor {
   private webTabMediaState: Map<string, boolean> = new Map();
   private activeWebLabel: string | null = null;
   private bookmarks: { url: string; label: string }[] = [];
+  private codeBookmarks: CodeBookmark[] = [];
   private splitEnabled = false;
   private activePane: "left" | "right" = "left";
   private blameEnabled = false;
   private blameBtn: HTMLButtonElement | null = null;
   private blameLines: { line: number; hash: string; author: string; date: string; summary: string }[] = [];
   private blameDecorations: monaco.editor.IEditorDecorationsCollection;
+  private codeBookmarkDecorations: monaco.editor.IEditorDecorationsCollection;
   private tabPane: Map<string, "left" | "right"> = new Map();
   private rightEditorEl: HTMLElement | null = null;
   private rightMonacoEditor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -303,6 +330,7 @@ export class Editor {
       links: false,
     });
     this.blameDecorations = this.monacoEditor.createDecorationsCollection([]);
+    this.codeBookmarkDecorations = this.monacoEditor.createDecorationsCollection([]);
     this.monacoEditor.onDidFocusEditorText(() => { this.activePane = "left"; });
 
     // Register hover provider for all relevant languages
@@ -449,6 +477,7 @@ export class Editor {
     this.tabPickerDropdown.innerHTML = this.buildTabPickerHTML();
     document.body.appendChild(this.tabPickerDropdown);
     this.loadBookmarks();
+    this.loadCodeBookmarks();
     this.setupTabPickerListeners();
 
     document.addEventListener("click", () => {
@@ -868,6 +897,10 @@ export class Editor {
       await this.refreshContextsView();
       return;
     }
+    if (path.startsWith("athva://bookmarks")) {
+      this.renderProjectBookmarksPanel();
+      return;
+    }
     const tab = this.tabs.find((t) => t.path === path);
     if (!tab) return;
     try {
@@ -1117,8 +1150,34 @@ export class Editor {
     await this.activeContextsView.reload();
   }
 
+  async openProjectBookmarksView() {
+    const root = this.projectRoot || "";
+    const rootParam = root ? `?root=${encodeURIComponent(root)}` : "";
+    const virtualPath = `athva://bookmarks${rootParam}`;
+    const existing = this.tabs.find((t) => t.path === virtualPath);
+    if (existing) {
+      this.switchToTab(virtualPath);
+      this.renderProjectBookmarksPanel();
+      return;
+    }
+
+    const tab: OpenTab = {
+      path: virtualPath,
+      name: "Bookmarks",
+      content: "",
+      modified: false,
+      pinned: false,
+      specialView: "bookmarks",
+      lockedView: true,
+    };
+    this.tabs.push(tab);
+    this.switchToTab(virtualPath);
+    this.renderProjectBookmarksPanel();
+  }
+
   private switchToTab(path: string) {
     if (this.blameEnabled) this.clearBlame();
+    this.codeBookmarkDecorations.clear();
     const prevWebLabel = this.activeWebLabel;
     if (!this.tabPane.has(path)) {
       this.tabPane.set(path, this.activePane);
@@ -1295,6 +1354,15 @@ export class Editor {
       return;
     }
 
+    if (tab.specialView === "bookmarks") {
+      this.editorEl.style.display = "none";
+      this.todoPanelEl.classList.remove("hidden");
+      this.renderProjectBookmarksPanel();
+      this.updateProtectedBanner(tab);
+      this.renderTabs();
+      return;
+    }
+
     // TODO file — special task-manager UI
     const baseName = tab.name.toLowerCase().replace(/\.(md|txt|json)$/, "");
     if (baseName === "todo" || baseName === "todos") {
@@ -1380,6 +1448,7 @@ export class Editor {
       tabSize: this.currentSettings.tabSize,
       readOnly: !!tab.lockedView,
     });
+    this.renderCodeBookmarkDecorations();
 
     // Load node_modules types for TS/JS files (async, does nothing if already loaded for this project)
     if (language === "typescript" || language === "javascript") {
@@ -2427,6 +2496,210 @@ export class Editor {
     localStorage.setItem("athva-web-bookmarks", JSON.stringify(this.bookmarks));
   }
 
+  private loadCodeBookmarks() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CODE_BOOKMARKS_STORAGE_KEY) || "[]");
+      if (!Array.isArray(parsed)) {
+        this.codeBookmarks = [];
+        return;
+      }
+      this.codeBookmarks = parsed
+        .filter((entry) => entry && typeof entry === "object")
+        .map((entry) => ({
+          id: String(entry.id || ""),
+          projectRoot: String(entry.projectRoot || ""),
+          path: String(entry.path || ""),
+          title: String(entry.title || ""),
+          description: String(entry.description || ""),
+          tag: String(entry.tag || "note"),
+          startLine: Math.max(1, Number(entry.startLine) || 1),
+          startColumn: Math.max(1, Number(entry.startColumn) || 1),
+          endLine: Math.max(1, Number(entry.endLine) || 1),
+          endColumn: Math.max(1, Number(entry.endColumn) || 1),
+          snippet: String(entry.snippet || ""),
+          createdAt: String(entry.createdAt || new Date().toISOString()),
+        }))
+        .filter((entry) => entry.id && entry.path && entry.title);
+    } catch {
+      this.codeBookmarks = [];
+    }
+  }
+
+  private saveCodeBookmarks() {
+    localStorage.setItem(CODE_BOOKMARKS_STORAGE_KEY, JSON.stringify(this.codeBookmarks));
+    if (this.activeTab.startsWith("athva://bookmarks")) this.renderProjectBookmarksPanel();
+    this.renderCodeBookmarkDecorations();
+  }
+
+  private normalizeBookmarkTag(tag: string): string {
+    const normalized = tag.trim().toLowerCase();
+    if (!normalized) return "note";
+    if (["critical", "crit", "blocker", "p0"].includes(normalized)) return "critical";
+    if (["high", "major", "p1"].includes(normalized)) return "high";
+    if (["medium", "med", "normal", "p2"].includes(normalized)) return "medium";
+    if (["low", "minor", "p3"].includes(normalized)) return "low";
+    if (["info", "information"].includes(normalized)) return "info";
+    if (["todo", "task", "later"].includes(normalized)) return "todo";
+    if (["note", "notes"].includes(normalized)) return "note";
+    return normalized;
+  }
+
+  private getBookmarkTagColor(tag: string): string {
+    const normalized = this.normalizeBookmarkTag(tag);
+    return BOOKMARK_TAG_COLORS[normalized] ?? BOOKMARK_TAG_COLORS.note;
+  }
+
+  private getBookmarkTagClass(tag: string): string {
+    const normalized = this.normalizeBookmarkTag(tag);
+    if (normalized in BOOKMARK_TAG_COLORS) return `code-bookmark-tag-${normalized}`;
+    return "code-bookmark-tag-note";
+  }
+
+  private getProjectCodeBookmarks(): CodeBookmark[] {
+    const root = this.projectRoot || "";
+    const filtered = root
+      ? this.codeBookmarks.filter((entry) => entry.projectRoot === root)
+      : this.codeBookmarks;
+    return [...filtered].sort((a, b) =>
+      a.path.localeCompare(b.path) ||
+      a.startLine - b.startLine ||
+      a.startColumn - b.startColumn
+    );
+  }
+
+  private renderCodeBookmarkDecorations() {
+    const model = this.monacoEditor.getModel();
+    if (!model || !this.activeTab || this.activeTab.startsWith("athva://")) {
+      this.codeBookmarkDecorations.clear();
+      return;
+    }
+
+    const bookmarks = this.getProjectCodeBookmarks().filter((entry) => entry.path === this.activeTab);
+    if (!bookmarks.length) {
+      this.codeBookmarkDecorations.clear();
+      return;
+    }
+
+    const maxLine = model.getLineCount();
+    const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+    for (const bookmark of bookmarks) {
+      const startLine = Math.min(Math.max(1, bookmark.startLine), maxLine);
+      const endLine = Math.min(Math.max(startLine, bookmark.endLine), maxLine);
+      const startColumn = Math.min(Math.max(1, bookmark.startColumn), model.getLineMaxColumn(startLine));
+      const endColumnRaw = Math.max(startColumn, bookmark.endColumn);
+      const endColumn = Math.min(endColumnRaw, model.getLineMaxColumn(endLine));
+      const when = new Date(bookmark.createdAt).toLocaleString();
+      const hoverParts = [
+        `**${bookmark.title}**`,
+        `**Tag:** ${this.normalizeBookmarkTag(bookmark.tag)}`,
+        `**Created:** ${when}`,
+      ];
+      if (bookmark.description.trim()) hoverParts.push(`**Description:** ${bookmark.description.trim()}`);
+      if (bookmark.snippet.trim()) hoverParts.push(`\`\`\`\n${bookmark.snippet.trim()}\n\`\`\``);
+      decorations.push({
+        range: new monaco.Range(startLine, startColumn, endLine, endColumn),
+        options: {
+          className: `code-bookmark-range ${this.getBookmarkTagClass(bookmark.tag)}`,
+          hoverMessage: [{ value: hoverParts.join("\n\n") }],
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      });
+    }
+    this.codeBookmarkDecorations.set(decorations);
+  }
+
+  private renderProjectBookmarksPanel() {
+    const bookmarks = this.getProjectCodeBookmarks();
+    const empty = bookmarks.length === 0;
+    this.todoPanelEl.innerHTML = `
+      <div class="project-bookmarks-panel">
+        <div class="project-bookmarks-header">
+          <div>
+            <div class="project-bookmarks-kicker">PROJECT</div>
+            <div class="project-bookmarks-title">Code Bookmarks</div>
+            <div class="project-bookmarks-subtitle">${empty ? "No bookmarks yet." : `${bookmarks.length} bookmark${bookmarks.length === 1 ? "" : "s"}`}</div>
+          </div>
+        </div>
+        <div class="project-bookmarks-list">
+          ${empty ? `<div class="project-bookmarks-empty">Select code, right-click, and choose <strong>Add Bookmark</strong>.</div>` : bookmarks.map((bookmark) => `
+            <div class="project-bookmark-item" data-bookmark-id="${this.escapeAttr(bookmark.id)}">
+              <div class="project-bookmark-top">
+                <div class="project-bookmark-title">${this.escapeHtml(bookmark.title)}</div>
+                <span class="project-bookmark-tag" style="--bookmark-tag-color:${this.getBookmarkTagColor(bookmark.tag)}">${this.escapeHtml(this.normalizeBookmarkTag(bookmark.tag))}</span>
+              </div>
+              <div class="project-bookmark-meta">${this.escapeHtml(this.getRelativeBookmarkPath(bookmark.path))}:${bookmark.startLine}</div>
+              ${bookmark.description.trim() ? `<div class="project-bookmark-description">${this.escapeHtml(bookmark.description.trim())}</div>` : ""}
+              <div class="project-bookmark-snippet">${this.escapeHtml(bookmark.snippet.trim())}</div>
+              <div class="project-bookmark-actions">
+                <button class="project-bookmark-btn" data-bookmark-open="${this.escapeAttr(bookmark.id)}" type="button">Open</button>
+                <button class="project-bookmark-btn danger" data-bookmark-delete="${this.escapeAttr(bookmark.id)}" type="button">Delete</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+
+    this.todoPanelEl.querySelectorAll<HTMLElement>("[data-bookmark-open]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = button.dataset.bookmarkOpen;
+        if (id) void this.openCodeBookmark(id);
+      });
+    });
+    this.todoPanelEl.querySelectorAll<HTMLElement>("[data-bookmark-id]").forEach((item) => {
+      item.addEventListener("click", () => {
+        const id = item.dataset.bookmarkId;
+        if (id) void this.openCodeBookmark(id);
+      });
+    });
+    this.todoPanelEl.querySelectorAll<HTMLElement>("[data-bookmark-delete]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = button.dataset.bookmarkDelete;
+        if (id) void this.deleteCodeBookmark(id);
+      });
+    });
+  }
+
+  private getRelativeBookmarkPath(path: string): string {
+    const root = this.projectRoot;
+    return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  }
+
+  private async deleteCodeBookmark(id: string) {
+    const idx = this.codeBookmarks.findIndex((entry) => entry.id === id);
+    if (idx === -1) return;
+    this.codeBookmarks.splice(idx, 1);
+    this.saveCodeBookmarks();
+  }
+
+  private async openCodeBookmark(id: string) {
+    const bookmark = this.codeBookmarks.find((entry) => entry.id === id);
+    if (!bookmark) return;
+    this.tabPane.set(bookmark.path, "left");
+    const fileName = bookmark.path.split("/").pop() || bookmark.path;
+    await this.openFile(bookmark.path, fileName, bookmark.startLine, bookmark.startColumn);
+    const model = this.monacoEditor.getModel();
+    if (!model) return;
+    const maxLine = model.getLineCount();
+    const startLine = Math.min(Math.max(1, bookmark.startLine), maxLine);
+    const endLine = Math.min(Math.max(startLine, bookmark.endLine), maxLine);
+    const startColumn = Math.min(Math.max(1, bookmark.startColumn), model.getLineMaxColumn(startLine));
+    const endColumn = Math.min(Math.max(startColumn, bookmark.endColumn), model.getLineMaxColumn(endLine));
+    const selection = new monaco.Selection(
+      startLine,
+      startColumn,
+      endLine,
+      endColumn,
+    );
+    this.monacoEditor.setSelection(selection);
+    this.monacoEditor.revealRangeInCenter(selection);
+    this.monacoEditor.focus();
+  }
+
   private addBookmark(url: string, label: string) {
     if (!this.bookmarks.find((b) => b.url === url)) {
       this.bookmarks.push({ url, label });
@@ -3295,6 +3568,8 @@ export class Editor {
   }
   setProjectRoot(path: string) {
     this.projectRoot = path;
+    this.renderCodeBookmarkDecorations();
+    if (this.activeTab.startsWith("athva://bookmarks")) this.renderProjectBookmarksPanel();
   }
 
   private getSelectedText(): string {
@@ -3372,13 +3647,47 @@ export class Editor {
     });
   }
 
+  private async addCodeBookmarkFromSelection(selectionText: string, selectionRange: monaco.Range) {
+    if (!this.activeTab || this.activeTab.startsWith("athva://")) return;
+    const root = this.projectRoot || "";
+    const firstLine = selectionText.split("\n")[0]?.trim() || "Code bookmark";
+    const suggestedTitle = firstLine.length > 72 ? `${firstLine.slice(0, 69)}...` : firstLine;
+
+    const result = await showCodeBookmarkDialog({
+      title: suggestedTitle,
+      description: "",
+      tag: "medium",
+    });
+    if (!result) return;
+
+    const bookmark: CodeBookmark = {
+      id: `bm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      projectRoot: root,
+      path: this.activeTab,
+      title: result.title.trim(),
+      description: result.description.trim(),
+      tag: this.normalizeBookmarkTag(result.tag),
+      startLine: selectionRange.startLineNumber,
+      startColumn: selectionRange.startColumn,
+      endLine: selectionRange.endLineNumber,
+      endColumn: selectionRange.endColumn,
+      snippet: selectionText.trim().slice(0, 800),
+      createdAt: new Date().toISOString(),
+    };
+    this.codeBookmarks.push(bookmark);
+    this.saveCodeBookmarks();
+  }
+
   private showEditorContextMenu(e: MouseEvent) {
     const selection = this.getSelectedText();
+    const selectionRange = this.monacoEditor.getSelection()
+      ? monaco.Range.lift(this.monacoEditor.getSelection())
+      : null;
     const menu = this.editorContextMenu;
     menu.innerHTML = "";
 
     type MenuItem =
-      | { label: string; icon: string; shortcut?: string; action: () => void; separator?: false }
+      | { label: string; icon: string; shortcut?: string; action: () => void | Promise<void>; separator?: false }
       | { separator: true };
 
     const items: MenuItem[] = [
@@ -3428,8 +3737,21 @@ export class Editor {
         shortcut: "⇧⌥F",
         action: () => this.formatDocument(),
       },
+      {
+        label: "Open Project Bookmarks",
+        icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 1A1.5 1.5 0 0 0 2 2.5v12a.5.5 0 0 0 .8.4L8 11.1l5.2 3.8a.5.5 0 0 0 .8-.4v-12A1.5 1.5 0 0 0 12.5 1h-9z"/></svg>`,
+        action: async () => { await this.openProjectBookmarksView(); },
+      },
       ...(selection ? [
         { separator: true } as MenuItem,
+        {
+          label: "Add Bookmark",
+          icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1.5A1.5 1.5 0 0 1 4.5 0h7A1.5 1.5 0 0 1 13 1.5V15a.5.5 0 0 1-.8.4L8 12.3l-4.2 3.1A.5.5 0 0 1 3 15V1.5zm1 0a.5.5 0 0 0-.5.5v12l4-2.9a.5.5 0 0 1 .6 0l4 2.9V2a.5.5 0 0 0-.5-.5h-7z"/></svg>`,
+          action: async () => {
+            if (!selectionRange || !selection.trim()) return;
+            await this.addCodeBookmarkFromSelection(selection, selectionRange);
+          },
+        } as MenuItem,
         {
           label: "Ask AI",
           icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`,
@@ -3520,7 +3842,7 @@ export class Editor {
       row.addEventListener("click", (ev) => {
         ev.stopPropagation();
         menu.classList.add("hidden");
-        item.action();
+        void item.action();
       });
       menu.appendChild(row);
     }

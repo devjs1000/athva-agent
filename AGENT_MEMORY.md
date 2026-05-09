@@ -11,3 +11,4 @@
 - 2026-05-09: User prefers practical workspace tools in side panels; project-scoped persistence is expected for repeatable workflows (e.g., API requests + history + env-backed variables).
 - 2026-05-09: User reported Git Blame data arrives from Tauri but can still fail to render in-editor; when touching blame features, verify IPC output, DOM injection, and CSS visibility/stacking together.
 - 2026-05-09: For Git Blame UX, user prefers age-based line coloring with hover details over inline/gutter text overlays.
+- 2026-05-09: User prefers code bookmark workflow directly from editor selection context-menu, with title/description/tag metadata, severity-like color tags, and a project-level bookmarks panel.
