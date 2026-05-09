@@ -40,15 +40,18 @@ export class SourceControl {
   private onResize: () => void;
   private getAISettings: () => AISettings;
   private onOpenContributionTool: (projectPath: string) => void;
+  private onOpenGitGraph: (projectPath: string) => void;
 
   constructor(
     onResize: () => void,
     getAISettings: () => AISettings,
     onOpenContributionTool: (projectPath: string) => void,
+    onOpenGitGraph: (projectPath: string) => void,
   ) {
     this.onResize = onResize;
     this.getAISettings = getAISettings;
     this.onOpenContributionTool = onOpenContributionTool;
+    this.onOpenGitGraph = onOpenGitGraph;
     this.panelEl = document.getElementById("source-control-panel")!;
     this.resizeEl = document.getElementById("source-control-resize")!;
     this.commitInput = document.getElementById("scm-commit-input") as HTMLTextAreaElement;
@@ -80,6 +83,10 @@ export class SourceControl {
     document.getElementById("btn-scm-contrib")!.addEventListener("click", () => {
       if (!this.projectPath) return;
       this.onOpenContributionTool(this.projectPath);
+    });
+    document.getElementById("btn-scm-graph")!.addEventListener("click", () => {
+      if (!this.projectPath) return;
+      this.onOpenGitGraph(this.projectPath);
     });
 
     // Close

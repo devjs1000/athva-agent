@@ -963,6 +963,80 @@ fn git_contribution_days(
         .collect())
 }
 
+// ── Git Graph ──
+
+#[derive(Debug, Serialize, Clone)]
+struct GitLogEntry {
+    hash: String,
+    short_hash: String,
+    parents: Vec<String>,
+    author: String,
+    date: String,
+    subject: String,
+    refs: String,
+}
+
+#[tauri::command]
+fn git_log_graph(path: String, max_count: Option<u32>) -> Result<Vec<GitLogEntry>, String> {
+    let max = max_count.unwrap_or(500).to_string();
+    let output = run_git(
+        &path,
+        &[
+            "log",
+            "--all",
+            "--topo-order",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%as%x1f%s%x1f%D",
+            &format!("--max-count={}", max),
+        ],
+    )?;
+    let mut entries = Vec::new();
+    for line in output.lines() {
+        let parts: Vec<&str> = line.splitn(7, '\x1f').collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        let parents: Vec<String> = parts[2]
+            .split_whitespace()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        entries.push(GitLogEntry {
+            hash: parts[0].to_string(),
+            short_hash: parts[1].to_string(),
+            parents,
+            author: parts[3].to_string(),
+            date: parts[4].to_string(),
+            subject: parts[5].to_string(),
+            refs: parts[6].to_string(),
+        });
+    }
+    Ok(entries)
+}
+
+#[derive(Debug, Serialize)]
+struct GitAuthorStat {
+    author: String,
+    commits: u32,
+}
+
+#[tauri::command]
+fn git_author_stats(path: String) -> Result<Vec<GitAuthorStat>, String> {
+    let output = run_git(&path, &["shortlog", "-sn", "--all", "HEAD"])?;
+    let mut result = Vec::new();
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(tab_idx) = trimmed.find('\t') {
+            let count: u32 = trimmed[..tab_idx].trim().parse().unwrap_or(0);
+            let author = trimmed[tab_idx + 1..].trim().to_string();
+            result.push(GitAuthorStat { author, commits: count });
+        }
+    }
+    Ok(result)
+}
+
 // ── Settings ──
 
 #[tauri::command]
@@ -2233,6 +2307,8 @@ pub fn run() {
             git_diff_stat,
             git_diff_file,
             git_contribution_days,
+            git_log_graph,
+            git_author_stats,
             load_settings,
             save_settings,
             set_window_translucent_mode,

@@ -43,6 +43,8 @@ commands.allow = [
   "git_diff_stat",
   "git_diff_file",
   "git_contribution_days",
+  "git_log_graph",
+  "git_author_stats",
   "load_settings",
   "save_settings",
   "set_window_translucent_mode",

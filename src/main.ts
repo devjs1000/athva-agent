@@ -88,6 +88,21 @@ interface GitContributionDay {
   count: number;
 }
 
+interface GitLogEntryRaw {
+  hash: string;
+  short_hash: string;
+  parents: string[];
+  author: string;
+  date: string;
+  subject: string;
+  refs: string;
+}
+
+interface GitAuthorStatRaw {
+  author: string;
+  commits: number;
+}
+
 async function syncNativeTranslucentMode(enabled: boolean): Promise<void> {
   try {
     await invoke("set_window_translucent_mode", { enabled });
@@ -406,6 +421,208 @@ function buildContributionHeatmap(last365: GitContributionDay[]): string {
     cells.push(`<div class="scm-gh-cell l${level}" title="${escapeHtml(key)}: ${count} commit${count === 1 ? "" : "s"}"></div>`);
   }
   return `<div class="scm-gh-grid">${cells.join("")}</div>`;
+}
+
+// ── Git Graph ──────────────────────────────────────────────────────────────
+
+const GG_LANE_W = 12;
+const GG_ROW_H = 22;
+const GG_MID = GG_ROW_H / 2;
+const GG_R = 3.5;
+const GG_COLORS = ["#4d9de0","#e15554","#3bb273","#e1bc29","#7768ae","#f4a261","#e76f51","#2a9d8f","#c77dff","#b5838d"];
+
+interface LanedCommit extends GitLogEntryRaw {
+  col: number;
+  lanesBefore: (string | null)[];
+  lanesAfter: (string | null)[];
+  mergingLanes: number[];
+  newBranchLanes: number[];
+}
+
+function ggLaneColor(i: number): string { return GG_COLORS[i % GG_COLORS.length]; }
+function ggLaneX(i: number): number { return i * GG_LANE_W + GG_LANE_W / 2; }
+
+function ggAuthorColor(name: string): string {
+  let h = 0;
+  for (const ch of name) h = ((h * 31) + ch.charCodeAt(0)) >>> 0;
+  return GG_COLORS[h % GG_COLORS.length];
+}
+
+function ggInitials(name: string): string {
+  return name.split(/\s+/).map(w => w[0]?.toUpperCase() ?? "").slice(0, 2).join("");
+}
+
+function ggComputeLanes(commits: GitLogEntryRaw[]): LanedCommit[] {
+  const lanes: (string | null)[] = [];
+  const result: LanedCommit[] = [];
+  for (const commit of commits) {
+    const lanesBefore = [...lanes];
+    let col = lanes.indexOf(commit.hash);
+    if (col === -1) { col = lanes.indexOf(null); if (col === -1) { col = lanes.length; lanes.push(null); } }
+
+    const mergingLanes: number[] = [];
+    for (let i = 0; i < lanes.length; i++) {
+      if (i !== col && lanes[i] === commit.hash) { mergingLanes.push(i); lanes[i] = null; }
+    }
+
+    lanes[col] = commit.parents[0] ?? null;
+
+    const newBranchLanes: number[] = [];
+    for (let pi = 1; pi < commit.parents.length; pi++) {
+      const ph = commit.parents[pi];
+      if (!lanes.includes(ph)) {
+        const empty = lanes.indexOf(null);
+        const nc = empty === -1 ? lanes.length : empty;
+        if (empty === -1) lanes.push(ph); else lanes[empty] = ph;
+        newBranchLanes.push(nc);
+      }
+    }
+    while (lanes.length > 0 && lanes[lanes.length - 1] === null) lanes.pop();
+    result.push({ ...commit, col, lanesBefore, lanesAfter: [...lanes], mergingLanes, newBranchLanes });
+  }
+  return result;
+}
+
+function ggRenderCell(c: LanedCommit): string {
+  const { col, lanesBefore, lanesAfter, mergingLanes, newBranchLanes } = c;
+  const maxCol = Math.max(lanesBefore.length, lanesAfter.length, col + 1);
+  const w = maxCol * GG_LANE_W + GG_LANE_W / 2;
+  const els: string[] = [];
+
+  for (let i = 0; i < lanesBefore.length; i++) {
+    if (lanesBefore[i] === null) continue;
+    const x = ggLaneX(i), cc = ggLaneColor(i);
+    if (mergingLanes.includes(i)) {
+      const cx = ggLaneX(col);
+      els.push(`<path d="M${x},0 Q${x},${GG_MID} ${cx},${GG_MID}" stroke="${cc}" stroke-width="1.5" fill="none"/>`);
+    } else {
+      els.push(`<line x1="${x}" y1="0" x2="${x}" y2="${GG_MID}" stroke="${cc}" stroke-width="1.5"/>`);
+    }
+  }
+  for (let i = 0; i < lanesAfter.length; i++) {
+    if (lanesAfter[i] === null) continue;
+    const x = ggLaneX(i), cc = ggLaneColor(i);
+    if (newBranchLanes.includes(i)) {
+      const cx = ggLaneX(col);
+      els.push(`<path d="M${cx},${GG_MID} Q${cx},${GG_ROW_H} ${x},${GG_ROW_H}" stroke="${cc}" stroke-width="1.5" fill="none"/>`);
+    } else {
+      els.push(`<line x1="${x}" y1="${GG_MID}" x2="${x}" y2="${GG_ROW_H}" stroke="${cc}" stroke-width="1.5"/>`);
+    }
+  }
+  const cc = ggLaneColor(col);
+  const isHead = c.refs.includes("HEAD");
+  els.push(`<circle cx="${ggLaneX(col)}" cy="${GG_MID}" r="${GG_R}" fill="${cc}" stroke="${isHead ? "#fff" : cc}" stroke-width="${isHead ? 1.5 : 0}"/>`);
+  return `<svg width="${w}" height="${GG_ROW_H}" viewBox="0 0 ${w} ${GG_ROW_H}" style="display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">${els.join("")}</svg>`;
+}
+
+function ggParseRefs(refs: string): string {
+  if (!refs.trim()) return "";
+  return refs.split(",").map(r => {
+    r = r.trim();
+    let cls = "gg-ref-branch", name = r;
+    if (r.startsWith("HEAD -> ")) { cls = "gg-ref-head"; name = r.slice(8); }
+    else if (r === "HEAD") { cls = "gg-ref-head"; }
+    else if (r.startsWith("tag: ")) { cls = "gg-ref-tag"; name = r.slice(5); }
+    else if (r.includes("/")) { cls = "gg-ref-remote"; }
+    return `<span class="${cls}">${escapeHtml(name)}</span>`;
+  }).join("");
+}
+
+async function openGitGraphTool(projectPath: string) {
+  const [commits, authorStats] = await Promise.all([
+    invoke<GitLogEntryRaw[]>("git_log_graph", { path: projectPath, maxCount: 500 }).catch(() => [] as GitLogEntryRaw[]),
+    invoke<GitAuthorStatRaw[]>("git_author_stats", { path: projectPath }).catch(() => [] as GitAuthorStatRaw[]),
+  ]);
+
+  const laned = ggComputeLanes(commits);
+  const totalCommits = authorStats.reduce((s, a) => s + a.commits, 0) || 1;
+
+  const graphRows = laned.map(c => {
+    const svg = ggRenderCell(c);
+    const refs = ggParseRefs(c.refs);
+    const initials = ggInitials(c.author);
+    const avatarColor = ggAuthorColor(c.author);
+    return `<tr class="gg-row">
+      <td class="gg-graph-col">${svg}</td>
+      <td class="gg-hash-col"><span class="gg-hash">${escapeHtml(c.short_hash)}</span></td>
+      <td class="gg-msg-col">${refs}<span class="gg-subject">${escapeHtml(c.subject)}</span></td>
+      <td class="gg-author-col"><span class="gg-avatar" style="background:${avatarColor}">${escapeHtml(initials)}</span><span class="gg-author-name">${escapeHtml(c.author)}</span></td>
+      <td class="gg-date-col">${escapeHtml(c.date)}</td>
+    </tr>`;
+  }).join("");
+
+  const authorCards = authorStats.slice(0, 40).map(a => {
+    const pct = Math.round((a.commits / totalCommits) * 100);
+    const barW = Math.max(2, Math.round((a.commits / (authorStats[0]?.commits || 1)) * 100));
+    const color = ggAuthorColor(a.author);
+    const initials = ggInitials(a.author);
+    return `<div class="gg-author-card">
+      <div class="gg-avatar gg-avatar-lg" style="background:${color}">${escapeHtml(initials)}</div>
+      <div class="gg-author-info">
+        <div class="gg-author-card-name">${escapeHtml(a.author)}</div>
+        <div class="gg-author-meta">${a.commits} commit${a.commits === 1 ? "" : "s"} · ${pct}% of total</div>
+        <div class="gg-bar-track"><div class="gg-bar-fill" style="width:${barW}%;background:${color}"></div></div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const pagePath = `athva://git-graph/${encodeURIComponent(projectPath)}`;
+  const html = `<article class="git-graph-tool" data-project-path="${escapeHtml(projectPath)}">
+  <style>
+    .git-graph-tool{display:flex;flex-direction:column;height:100%;background:#0d1117;color:#c9d1d9;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+    .gg-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #21262d;background:#161b22;flex-shrink:0}
+    .gg-title{font-size:13px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8b949e}
+    .gg-tab-bar{display:flex;gap:4px}
+    .gg-tab{background:none;border:1px solid transparent;color:#8b949e;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer}
+    .gg-tab.gg-tab-active{background:#21262d;border-color:#30363d;color:#c9d1d9}
+    .gg-panel{display:none;flex:1;min-height:0;overflow:auto}
+    .gg-panel.gg-panel-active{display:flex;flex-direction:column}
+    .gg-table-wrap{overflow:auto;flex:1}
+    .gg-table{border-collapse:collapse;width:100%;font-size:12px}
+    .gg-row{border-bottom:1px solid #161b22}
+    .gg-row:hover{background:#161b22}
+    .gg-graph-col{padding:0;white-space:nowrap;vertical-align:middle}
+    .gg-hash-col{padding:0 8px;white-space:nowrap;vertical-align:middle}
+    .gg-msg-col{padding:2px 8px;vertical-align:middle;max-width:340px}
+    .gg-author-col{padding:2px 8px;white-space:nowrap;vertical-align:middle}
+    .gg-date-col{padding:2px 8px;white-space:nowrap;vertical-align:middle;color:#8b949e;font-size:11px}
+    .gg-hash{font-family:ui-monospace,SFMono-Regular,monospace;color:#58a6ff;font-size:11px}
+    .gg-subject{color:#c9d1d9}
+    .gg-ref-head,.gg-ref-branch,.gg-ref-remote,.gg-ref-tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:999px;margin-right:4px;white-space:nowrap}
+    .gg-ref-head{background:#1a3a5c;color:#79c0ff;border:1px solid #1f6feb}
+    .gg-ref-branch{background:#1a3a2a;color:#56d364;border:1px solid #238636}
+    .gg-ref-remote{background:#2a1f3d;color:#d2a8ff;border:1px solid #6e40c9}
+    .gg-ref-tag{background:#3a2a0a;color:#e3b341;border:1px solid #9e6a03}
+    .gg-avatar{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-size:10px;font-weight:700;color:#fff;width:20px;height:20px;flex-shrink:0;margin-right:6px;vertical-align:middle}
+    .gg-avatar-lg{width:40px;height:40px;font-size:14px;margin-right:12px;flex-shrink:0}
+    .gg-author-name{font-size:11px;color:#8b949e;vertical-align:middle}
+    .gg-authors-grid{display:flex;flex-direction:column;gap:10px;padding:16px}
+    .gg-author-card{display:flex;align-items:center;background:#161b22;border:1px solid #21262d;border-radius:10px;padding:12px 14px}
+    .gg-author-info{flex:1;min-width:0}
+    .gg-author-card-name{font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:3px}
+    .gg-author-meta{font-size:11px;color:#8b949e;margin-bottom:6px}
+    .gg-bar-track{background:#21262d;border-radius:999px;height:6px;overflow:hidden}
+    .gg-bar-fill{height:100%;border-radius:999px;transition:width .3s}
+    .gg-empty{padding:40px;text-align:center;color:#8b949e;font-size:13px}
+  </style>
+  <div class="gg-toolbar">
+    <div class="gg-title">Git Graph · ${escapeHtml(projectPath.split("/").pop() ?? projectPath)}</div>
+    <div class="gg-tab-bar">
+      <button class="gg-tab gg-tab-active" data-gg-tab="graph">Graph (${commits.length})</button>
+      <button class="gg-tab" data-gg-tab="authors">Authors (${authorStats.length})</button>
+    </div>
+  </div>
+  <div class="gg-panel gg-panel-active" data-gg-panel="graph">
+    <div class="gg-table-wrap">
+      ${graphRows ? `<table class="gg-table"><tbody>${graphRows}</tbody></table>` : `<div class="gg-empty">No commits found.</div>`}
+    </div>
+  </div>
+  <div class="gg-panel" data-gg-panel="authors">
+    ${authorCards ? `<div class="gg-authors-grid">${authorCards}</div>` : `<div class="gg-empty">No author data found.</div>`}
+  </div>
+</article>`;
+
+  editor.openHtmlTab(pagePath, "Git Graph", html);
 }
 
 async function openScmContributionTool(projectPath: string, from?: string, to?: string) {
@@ -2667,9 +2884,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   sourceControl = new SourceControl(
     () => editor.resize(),
     () => appSettings.ai,
-    (projectPath) => {
-      void openScmContributionTool(projectPath);
-    }
+    (projectPath) => { void openScmContributionTool(projectPath); },
+    (projectPath) => { void openGitGraphTool(projectPath); },
   );
 
   // Init code review panel
@@ -2922,6 +3138,16 @@ window.addEventListener("DOMContentLoaded", async () => {
       root?.querySelectorAll<HTMLElement>("[data-extension-page-panel]").forEach((panel) => {
         panel.classList.toggle("hidden", panel.dataset.extensionPagePanel !== tab);
       });
+      return;
+    }
+
+    const ggTab = (event.target as HTMLElement).closest("[data-gg-tab]") as HTMLElement | null;
+    if (ggTab) {
+      event.preventDefault();
+      const root = ggTab.closest(".git-graph-tool");
+      const tab = ggTab.dataset.ggTab;
+      root?.querySelectorAll<HTMLElement>("[data-gg-tab]").forEach(b => b.classList.toggle("gg-tab-active", b.dataset.ggTab === tab));
+      root?.querySelectorAll<HTMLElement>("[data-gg-panel]").forEach(p => p.classList.toggle("gg-panel-active", p.dataset.ggPanel === tab));
       return;
     }
 
