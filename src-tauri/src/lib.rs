@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
-use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
+use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl, WebviewWindowBuilder};
 
 // ── Modules ──
 pub mod network;
@@ -1930,6 +1930,41 @@ fn focus_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+fn open_app_window(app: tauri::AppHandle, project: String) -> Result<(), String> {
+    // Generate a unique label so multiple windows can coexist
+    let label = format!("app-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis());
+
+    let mut encoded = String::with_capacity(project.len() * 3);
+    for b in project.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                encoded.push(b as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    let url = if cfg!(debug_assertions) {
+        let raw = format!("http://localhost:1420/?project={encoded}");
+        WebviewUrl::External(raw.parse().unwrap_or_else(|_| "http://localhost:1420".parse().unwrap()))
+    } else {
+        WebviewUrl::App(format!("index.html?project={encoded}").into())
+    };
+
+    WebviewWindowBuilder::new(&app, &label, url)
+        .title("Athva")
+        .inner_size(900.0, 650.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn close_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label) {
         wv.close().map_err(|e| e.to_string())?;
@@ -2449,6 +2484,7 @@ pub fn run() {
             memory_delete,
             memory_clear,
             memory_stats,
+            open_app_window,
             open_web_window,
             focus_web_window,
             close_web_window,

@@ -1,7 +1,12 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getProjects } from "../store/projects";
 import type { Project } from "../store/projects";
 
 type OnOpen = (path: string) => void;
+
+async function openInNewWindow(path: string) {
+  await invoke("open_app_window", { project: path });
+}
 
 function detectBadge(name: string, path: string): { cls: string; label: string } {
   const s = (name + path).toLowerCase();
@@ -137,6 +142,11 @@ export class ProjectSwitcher {
         this.selectedIdx = parseInt(el.dataset.idx ?? "0", 10);
         this.setActive();
       });
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const idx = parseInt(el.dataset.idx ?? "0", 10);
+        this.showContextMenu(e as MouseEvent, idx);
+      });
     });
   }
 
@@ -164,7 +174,11 @@ export class ProjectSwitcher {
       this.setActive();
     } else if (e.key === "Enter") {
       e.preventDefault();
-      this.confirm(this.selectedIdx);
+      if (e.ctrlKey || e.metaKey) {
+        this.confirmNewWindow(this.selectedIdx);
+      } else {
+        this.confirm(this.selectedIdx);
+      }
     } else if (e.key === "Escape") {
       e.preventDefault();
       this.close();
@@ -176,5 +190,41 @@ export class ProjectSwitcher {
     if (!p) return;
     this.close();
     this.onOpen(p.path);
+  }
+
+  private confirmNewWindow(idx: number) {
+    const p = this.filtered[idx];
+    if (!p) return;
+    this.close();
+    openInNewWindow(p.path);
+  }
+
+  private showContextMenu(e: MouseEvent, idx: number) {
+    document.getElementById("ps-ctx-menu")?.remove();
+
+    const menu = document.createElement("div");
+    menu.id = "ps-ctx-menu";
+    menu.className = "ps-ctx-menu";
+    menu.innerHTML = `
+      <div class="ps-ctx-item" data-action="open">Open</div>
+      <div class="ps-ctx-item" data-action="new-window">Open in New Window <kbd>⌘↵</kbd></div>
+    `;
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    document.body.appendChild(menu);
+
+    const dismiss = () => menu.remove();
+    menu.querySelectorAll<HTMLElement>(".ps-ctx-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        dismiss();
+        if (item.dataset.action === "open") {
+          this.confirm(idx);
+        } else if (item.dataset.action === "new-window") {
+          this.confirmNewWindow(idx);
+        }
+      });
+    });
+
+    setTimeout(() => document.addEventListener("click", dismiss, { once: true }), 0);
   }
 }

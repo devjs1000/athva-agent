@@ -2998,6 +2998,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btn-open-folder").addEventListener("click", handleOpenFolder);
   $("btn-create-project").addEventListener("click", showCreateDialog);
   $("btn-clone-repo").addEventListener("click", showCloneDialog);
+  $("btn-new-window").addEventListener("click", () => invoke("open_app_window", { project: "" }));
   $("btn-browse-clone-dest").addEventListener("click", handleBrowseCloneDest);
   $("btn-cancel-clone").addEventListener("click", hideCloneDialog);
   $("btn-confirm-clone").addEventListener("click", handleConfirmClone);
@@ -3260,6 +3261,13 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    // Ctrl/Cmd + Shift + N → New Window
+    if (isMod && e.shiftKey && e.key === "N") {
+      e.preventDefault();
+      invoke("open_app_window", { project: currentProjectPath || "" });
+      return;
+    }
+
     // Ctrl/Cmd + Shift + F → Global Search
     if (isMod && e.shiftKey && e.key === "F") {
       e.preventDefault();
@@ -3467,8 +3475,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Render welcome ──
   await renderRecentProjects();
 
-  const startupPath = await invoke<string | null>("get_startup_open_path").catch(() => null);
-  if (startupPath) {
-    await openProject(startupPath);
+  const urlProject = new URLSearchParams(window.location.search).get("project");
+  if (urlProject) {
+    await openProject(urlProject);
+  } else {
+    const startupPath = await invoke<string | null>("get_startup_open_path").catch(() => null);
+    if (startupPath) {
+      await openProject(startupPath);
+    }
   }
 });

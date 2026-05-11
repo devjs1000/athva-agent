@@ -781,6 +781,44 @@ body {
   margin-right: 3px;
 }
 
+/* ── Project Switcher Context Menu ── */
+.ps-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: #1e2128;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+}
+
+.ps-ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  color: #d1d5db;
+  cursor: pointer;
+  gap: 16px;
+}
+
+.ps-ctx-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.ps-ctx-item kbd {
+  font-size: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
 /* ── Clone Dialog ── */
 .dialog-clone {
   width: 500px;
