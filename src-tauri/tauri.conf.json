@@ -31,6 +31,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "macOS": {
+      "entitlements": null,
+      "infoPlist": "Info.plist",
+      "frameworks": []
+    },
     "resources": {
       "../src/extension-host/host.cjs": "extension-host/host.cjs",
       "../src/extension-host/ipc.cjs": "extension-host/ipc.cjs",

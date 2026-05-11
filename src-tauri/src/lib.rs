@@ -13,6 +13,10 @@ use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl};
 
+// ── Modules ──
+pub mod network;
+pub mod audio;
+
 // ── Project management ──
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -2306,10 +2310,75 @@ fn memory_stats(project_path: Option<String>) -> Result<MemoryStats, String> {
     })
 }
 
+// ── Voice Call Commands ──
+
+#[tauri::command]
+async fn voice_initiate_call(
+    peer_id: String,
+    state: tauri::State<'_, network::VoiceCallManagerState>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let mgr = state.0.read().await;
+    let call_id = mgr.initiate_call(network::PeerId::from_string(peer_id)).await?;
+    app.emit("voice:call-state-changed", serde_json::json!({
+        "callId": call_id.as_str(),
+        "state": "RINGING"
+    })).ok();
+    Ok(call_id.as_str().to_string())
+}
+
+#[tauri::command]
+async fn voice_accept_call(
+    call_id: String,
+    state: tauri::State<'_, network::VoiceCallManagerState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mgr = state.0.read().await;
+    let cid = network::CallId::from_string(call_id.clone());
+    mgr.accept_call(&cid).await?;
+    app.emit("voice:call-established", serde_json::json!({ "callId": call_id })).ok();
+    Ok(())
+}
+
+#[tauri::command]
+async fn voice_reject_call(
+    call_id: String,
+    state: tauri::State<'_, network::VoiceCallManagerState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mgr = state.0.read().await;
+    let cid = network::CallId::from_string(call_id.clone());
+    mgr.reject_call(&cid).await?;
+    app.emit("voice:call-ended", serde_json::json!({ "callId": call_id, "reason": "rejected" })).ok();
+    Ok(())
+}
+
+#[tauri::command]
+async fn voice_end_call(
+    call_id: String,
+    state: tauri::State<'_, network::VoiceCallManagerState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mgr = state.0.read().await;
+    let cid = network::CallId::from_string(call_id.clone());
+    mgr.end_call(&cid).await?;
+    app.emit("voice:call-ended", serde_json::json!({ "callId": call_id, "reason": "ended" })).ok();
+    Ok(())
+}
+
+#[tauri::command]
+async fn voice_get_peers(
+    state: tauri::State<'_, network::VoiceCallManagerState>,
+) -> Result<Vec<network::Peer>, String> {
+    let mgr = state.0.read().await;
+    mgr.get_peers().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = STARTUP_OPEN_PATH.set(compute_startup_open_path());
     tauri::Builder::default()
+        .manage(network::VoiceCallManagerState::new())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -2389,6 +2458,11 @@ pub fn run() {
             touchid_authenticate,
             touchid_available,
             http_request,
+            voice_initiate_call,
+            voice_accept_call,
+            voice_reject_call,
+            voice_end_call,
+            voice_get_peers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

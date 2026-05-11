@@ -29,6 +29,7 @@ import { setOnSendToChat } from "./modules/ai-completer";
 import { updateStatusBar } from "./modules/token-usage";
 import { SnippetsPanel } from "./modules/snippets-panel";
 import { ApiRequestsPanel } from "./modules/api-requests-panel";
+import { VoiceCallPanel } from "./modules/voice-call-panel";
 import { createTailwindCompleter, setTailwindEnabled } from "./modules/tailwind-completer";
 import { ExportsTracker } from "./modules/exports-tracker";
 import { applyTheme, registerMonacoThemeDefiner, registerMonacoThemeSetter, registerRuntimeThemes, registerTerminalThemeSetter } from "./modules/theme-engine";
@@ -63,6 +64,7 @@ let projectSwitcher!: ProjectSwitcher;
 let chatbot!: Chatbot;
 let snippetsPanel!: SnippetsPanel;
 let apiRequestsPanel!: ApiRequestsPanel;
+let voiceCallPanel!: VoiceCallPanel;
 let exportsTracker!: ExportsTracker;
 let docsWorkspace!: DocsWorkspace;
 let contextManager!: ContextManager;
@@ -1271,6 +1273,7 @@ function syncTopBarActionStates() {
   document.getElementById("btn-toggle-scm")?.classList.toggle("active", sourceControl?.isOpen?.() ?? false);
   document.getElementById("btn-toggle-snippets")?.classList.toggle("active", snippetsPanel?.isVisible?.() ?? false);
   document.getElementById("btn-toggle-api-requests")?.classList.toggle("active", apiRequestsPanel?.isVisible?.() ?? false);
+  document.getElementById("btn-toggle-voice-call")?.classList.toggle("active", voiceCallPanel?.isVisible?.() ?? false);
   document.getElementById("btn-toggle-sidebar")?.classList.toggle("active", !$("sidebar").classList.contains("hidden"));
   document.getElementById("btn-toggle-zen")?.classList.toggle("active", !!appSettings?.appearance?.zenMode);
 }
@@ -2706,6 +2709,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   snippetsPanel = new SnippetsPanel("snippets-panel");
   snippetsPanel.onInsert((snippet) => editor.insertSnippet(snippet));
   apiRequestsPanel = new ApiRequestsPanel("api-requests-panel");
+  voiceCallPanel = new VoiceCallPanel("voice-call-panel");
   const snippetsCompleter = snippetsPanel.getCompleter();
   editor.addCompletionProvider(snippetsCompleter.languages, snippetsCompleter.provider);
   setupWorkspaceActionCustomization();
@@ -3107,6 +3111,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!apiRequestsPanel.isVisible()) closePanelsOnSameSide("api-requests-panel");
     apiRequestsPanel.toggle();
     $("api-requests-resize").classList.toggle("hidden", !apiRequestsPanel.isVisible());
+    syncTopBarActionStates();
+  });
+  $("btn-toggle-voice-call").addEventListener("click", () => {
+    if (!voiceCallPanel.isVisible()) closePanelsOnSameSide("voice-call-panel");
+    if (voiceCallPanel.isVisible()) voiceCallPanel.hide(); else voiceCallPanel.show();
     syncTopBarActionStates();
   });
   $("btn-toggle-scm").addEventListener("click", () => {

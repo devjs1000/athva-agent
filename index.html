@@ -370,6 +370,11 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h11"/><path d="M8 12h11"/><path d="M8 18h11"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
             </button>
             </div>
+            <div class="workspace-action-item" data-action-id="voice-call">
+            <button id="btn-toggle-voice-call" class="btn-icon" title="Voice Call" aria-label="Voice Call">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.18 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.54a16 16 0 0 0 6.07 6.07l.98-.98a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+            </div>
 
             <div class="titlebar-divider"></div>
 
@@ -608,6 +613,40 @@
               </div>
             </div>
             <div class="snippets-list"></div>
+          </div>
+
+          <!-- Voice Call Panel -->
+          <div id="voice-call-panel" class="voice-call-panel hidden">
+            <div class="voice-call-header">
+              <span class="voice-call-header-title">VOICE CALL</span>
+              <button id="btn-close-voice-call" class="btn-icon btn-icon-sm" title="Close">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+              </button>
+            </div>
+            <!-- Active call controls (hidden when idle) -->
+            <div class="voice-call-view hidden">
+              <div class="voice-call-status"></div>
+              <div class="voice-call-timer">00:00</div>
+              <div class="voice-call-controls">
+                <button id="btn-voice-mute" class="btn-icon voice-ctrl-btn" title="Mute">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                </button>
+                <button id="btn-voice-end" class="btn-icon voice-ctrl-btn voice-end-btn" title="End Call">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.42 19.42 0 0 1 3.07 12a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 2 1.18h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L6.3 8.69a16 16 0 0 0 4.38 4.62z"/></svg>
+                </button>
+              </div>
+            </div>
+            <!-- Incoming call modal (hidden by default) -->
+            <div class="voice-incoming-modal hidden">
+              <div class="voice-incoming-label">Incoming call from</div>
+              <div class="voice-incoming-name"></div>
+              <div class="voice-incoming-actions">
+                <button id="btn-voice-accept" class="btn-primary voice-accept-btn">Accept</button>
+                <button id="btn-voice-reject" class="btn-secondary voice-reject-btn">Reject</button>
+              </div>
+            </div>
+            <!-- Peers list -->
+            <div class="voice-peers-list"></div>
           </div>
 
           <!-- API Requests resize handle -->
