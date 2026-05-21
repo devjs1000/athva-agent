@@ -884,6 +884,7 @@ const window = {
       hide() {},
       dispose() { lines.length = 0; },
       // LogOutputChannel-style helpers (used by some extensions)
+      trace(text) { log("trace", text); },
       debug(text) { log("debug", text); },
       info(text) { log("info", text); },
       warn(text) { log("warn", text); },
@@ -1321,48 +1322,83 @@ const vscodeApi = {
   _initDefaults(defaults) { _schemaDefaults = defaults || {}; },
 };
 
-const NOOP_FN = function () { return undefined; };
-const NOOP_PROXY = new Proxy(NOOP_FN, {
-  get(_target, prop) {
-    if (prop === "then") return undefined; // avoid being treated as Promise-like
-    if (prop === "toString") return () => "[AthvaMissingVscodeApi]";
-    return NOOP_PROXY;
-  },
-  apply() {
-    return undefined;
-  },
-  construct() {
-    return NOOP_PROXY;
-  },
-});
+const _missingApiWarned = new Set();
+const _missingApiProxyCache = new Map();
 
-function withApiFallback(obj) {
+function warnMissingApi(path) {
+  if (_missingApiWarned.has(path)) return;
+  _missingApiWarned.add(path);
+  try { console.warn(`[Missing API] Extension accessed: ${path}`); } catch {}
+}
+
+function createMissingApiProxy(path) {
+  if (_missingApiProxyCache.has(path)) return _missingApiProxyCache.get(path);
+  const fallback = function () { return undefined; };
+  const proxy = new Proxy(fallback, {
+    get(target, prop) {
+      if (typeof prop === "symbol") return Reflect.get(target, prop);
+      if (prop === "then") return undefined; // avoid Promise-like behavior
+      if (prop === "toString") return () => `[AthvaMissingVscodeApi:${path}]`;
+      const nextPath = `${path}.${String(prop)}`;
+      warnMissingApi(nextPath);
+      return createMissingApiProxy(nextPath);
+    },
+    apply() {
+      warnMissingApi(`${path}()`);
+      return createMissingApiProxy(`${path}()`);
+    },
+    construct() {
+      warnMissingApi(`new ${path}()`);
+      return createMissingApiProxy(`new ${path}()`);
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
+  _missingApiProxyCache.set(path, proxy);
+  return proxy;
+}
+
+function withApiFallback(obj, rootPath) {
   return new Proxy(obj, {
     get(target, prop, receiver) {
       if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
-      return NOOP_PROXY;
+      if (typeof prop === "symbol") return undefined;
+      const path = `${rootPath}.${String(prop)}`;
+      warnMissingApi(path);
+      return createMissingApiProxy(path);
+    },
+    set(target, prop, value, receiver) {
+      return Reflect.set(target, prop, value, receiver);
     },
   });
 }
 
-vscodeApi.workspace = withApiFallback(workspace);
-vscodeApi.window = withApiFallback(window);
-vscodeApi.commands = withApiFallback(commands);
-vscodeApi.languages = withApiFallback(languages);
-vscodeApi.notebooks = withApiFallback(notebooks);
-vscodeApi.authentication = withApiFallback(authentication);
-vscodeApi.tasks = withApiFallback(tasks);
-vscodeApi.debug = withApiFallback(debug);
-vscodeApi.chat = withApiFallback(chat);
-vscodeApi.lm = withApiFallback(lm);
-vscodeApi.env = withApiFallback(env);
-vscodeApi.l10n = withApiFallback(l10n);
-vscodeApi.extensions = withApiFallback(extensions);
+vscodeApi.workspace = withApiFallback(workspace, "vscode.workspace");
+vscodeApi.window = withApiFallback(window, "vscode.window");
+vscodeApi.commands = withApiFallback(commands, "vscode.commands");
+vscodeApi.languages = withApiFallback(languages, "vscode.languages");
+vscodeApi.notebooks = withApiFallback(notebooks, "vscode.notebooks");
+vscodeApi.authentication = withApiFallback(authentication, "vscode.authentication");
+vscodeApi.tasks = withApiFallback(tasks, "vscode.tasks");
+vscodeApi.debug = withApiFallback(debug, "vscode.debug");
+vscodeApi.chat = withApiFallback(chat, "vscode.chat");
+vscodeApi.lm = withApiFallback(lm, "vscode.lm");
+vscodeApi.env = withApiFallback(env, "vscode.env");
+vscodeApi.l10n = withApiFallback(l10n, "vscode.l10n");
+vscodeApi.extensions = withApiFallback(extensions, "vscode.extensions");
 
 module.exports = new Proxy(vscodeApi, {
   get(target, prop, receiver) {
     if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
-    return NOOP_PROXY;
+    if (typeof prop === "symbol") return undefined;
+    const path = `vscode.${String(prop)}`;
+    warnMissingApi(path);
+    return createMissingApiProxy(path);
+  },
+  set(target, prop, value, receiver) {
+    return Reflect.set(target, prop, value, receiver);
   },
 });
 

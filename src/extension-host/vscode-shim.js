@@ -536,6 +536,7 @@ const window = {
       show() {},
       hide() {},
       dispose() { lines.length = 0; },
+      trace(text) { log("trace", text); },
       debug(text) { log("debug", text); },
       info(text) { log("info", text); },
       warn(text) { log("warn", text); },
@@ -767,22 +768,55 @@ async function handleMessage(msg) {
   }
 }
 
-const NOOP_FN = function () { return undefined; };
-const NOOP_PROXY = new Proxy(NOOP_FN, {
-  get(_target, prop) {
-    if (prop === "then") return undefined;
-    if (prop === "toString") return () => "[AthvaMissingVscodeApi]";
-    return NOOP_PROXY;
-  },
-  apply() { return undefined; },
-  construct() { return NOOP_PROXY; },
-});
+const _missingApiWarned = new Set();
+const _missingApiProxyCache = new Map();
 
-function withApiFallback(obj) {
+function warnMissingApi(path) {
+  if (_missingApiWarned.has(path)) return;
+  _missingApiWarned.add(path);
+  try { console.warn(`[Missing API] Extension accessed: ${path}`); } catch {}
+}
+
+function createMissingApiProxy(path) {
+  if (_missingApiProxyCache.has(path)) return _missingApiProxyCache.get(path);
+  const fallback = function () { return undefined; };
+  const proxy = new Proxy(fallback, {
+    get(target, prop) {
+      if (typeof prop === "symbol") return Reflect.get(target, prop);
+      if (prop === "then") return undefined;
+      if (prop === "toString") return () => `[AthvaMissingVscodeApi:${path}]`;
+      const nextPath = `${path}.${String(prop)}`;
+      warnMissingApi(nextPath);
+      return createMissingApiProxy(nextPath);
+    },
+    apply() {
+      warnMissingApi(`${path}()`);
+      return createMissingApiProxy(`${path}()`);
+    },
+    construct() {
+      warnMissingApi(`new ${path}()`);
+      return createMissingApiProxy(`new ${path}()`);
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
+  _missingApiProxyCache.set(path, proxy);
+  return proxy;
+}
+
+function withApiFallback(obj, rootPath) {
   return new Proxy(obj, {
     get(target, prop, receiver) {
       if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
-      return NOOP_PROXY;
+      if (typeof prop === "symbol") return undefined;
+      const path = `${rootPath}.${String(prop)}`;
+      warnMissingApi(path);
+      return createMissingApiProxy(path);
+    },
+    set(target, prop, value, receiver) {
+      return Reflect.set(target, prop, value, receiver);
     },
   });
 }
@@ -797,14 +831,14 @@ const vscodeApi = {
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace: withApiFallback(workspace),
-  window: withApiFallback(window),
-  commands: withApiFallback(commands),
-  languages: withApiFallback(languages),
-  notebooks: withApiFallback(notebooks),
-  env: withApiFallback(env),
-  l10n: withApiFallback(l10n),
-  extensions: withApiFallback(extensions),
+  workspace: withApiFallback(workspace, "vscode.workspace"),
+  window: withApiFallback(window, "vscode.window"),
+  commands: withApiFallback(commands, "vscode.commands"),
+  languages: withApiFallback(languages, "vscode.languages"),
+  notebooks: withApiFallback(notebooks, "vscode.notebooks"),
+  env: withApiFallback(env, "vscode.env"),
+  l10n: withApiFallback(l10n, "vscode.l10n"),
+  extensions: withApiFallback(extensions, "vscode.extensions"),
   version,
   // internal
   _handleMessage: handleMessage,
@@ -813,7 +847,13 @@ const vscodeApi = {
 module.exports = new Proxy(vscodeApi, {
   get(target, prop, receiver) {
     if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
-    return NOOP_PROXY;
+    if (typeof prop === "symbol") return undefined;
+    const path = `vscode.${String(prop)}`;
+    warnMissingApi(path);
+    return createMissingApiProxy(path);
+  },
+  set(target, prop, value, receiver) {
+    return Reflect.set(target, prop, value, receiver);
   },
 });
 
