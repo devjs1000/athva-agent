@@ -142,6 +142,36 @@ function getExtensionDiagnostics(identifier: string): ExtensionDiagnostic[] {
   return extensionDiagnosticsByIdentifier.get(identifier) ?? [];
 }
 
+function inferUnsupportedVscodeApis(message: string, stack?: string): string[] {
+  const haystack = `${message || ""}\n${stack || ""}`.toLowerCase();
+  const add = new Set<string>();
+  const mark = (api: string, needles: string[]) => {
+    if (needles.some((needle) => haystack.includes(needle))) add.add(api);
+  };
+
+  mark("`vscode.LogLevel`", ["reading 'info'", "loglevel"]);
+  mark("`vscode.chat`", ["createchatparticipant", "chatparticipant"]);
+  mark("`vscode.lm`", ["registerlanguagemodelchatprovider", "selectchatmodels", ".lm."]);
+  mark("`vscode.authentication`", ["registerauthenticationprovider", "getsession", "authentication"]);
+  mark("`vscode.debug`", ["registerdebugconfigurationprovider", "startdebugging", "debugadapter"]);
+  mark("`vscode.tasks`", ["registertaskprovider", "executetask", "fetchtasks"]);
+  mark("`vscode.window.showQuickPick`", ["showquickpick"]);
+  mark("`vscode.window.showInputBox`", ["showinputbox"]);
+  mark("`vscode.workspace.findFiles`", ["findfiles", "relativepattern"]);
+  mark("`vscode.languages` provider APIs", ["registerhoverprovider", "registerdefinitionprovider", "registerrenameprovider", "registersignaturehelpprovider", "registerinlayhintsprovider", "registerdocumentsemantictokensprovider"]);
+
+  if (!add.size && haystack.includes("reading 'bind'")) {
+    add.add("Unknown VS Code API object (extension called `.bind` on an undefined API value)");
+  }
+  return [...add];
+}
+
+function withUnsupportedApiHint(message: string, stack?: string): string {
+  const inferred = inferUnsupportedVscodeApis(message, stack);
+  if (!inferred.length) return message;
+  return `${message}\nLikely unsupported/missing VS Code APIs: ${inferred.join(", ")}`;
+}
+
 const ACTION_PLACEMENT_LABELS: Record<WorkspaceActionPlacement, string> = {
   "top-left": "Top Left",
   "top-center": "Top Center",
@@ -1665,10 +1695,11 @@ function ensureRuntimeCompletionProvider() {
           configuration: {},
           onStatus: () => {},
           onHostError: (message, stack) => {
+            const hinted = withUnsupportedApiHint(message, stack);
             recordExtensionDiagnostic(snapshot.identifier, {
               source: "extension-host",
               title: "Completion runtime error",
-              message,
+              message: hinted,
               stack,
             });
           },
@@ -1952,25 +1983,27 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
       const el = document.getElementById("ext-view-panel-body");
       if (!el) return;
       if (status === "error") {
+        const hinted = withUnsupportedApiHint(msg ?? "Unknown error");
         recordExtensionDiagnostic(vc.extensionIdentifier, {
           source: "extension-host",
           title: "Runtime error",
-          message: msg ?? "Unknown error",
+          message: hinted,
         });
-        el.innerHTML = renderExtViewError(snapshot.displayName, msg ?? "Unknown error");
+        el.innerHTML = renderExtViewError(snapshot.displayName, hinted);
       }
     },
     onHostError: (message, stack) => {
+      const hinted = withUnsupportedApiHint(message, stack);
       recordExtensionDiagnostic(vc.extensionIdentifier, {
         source: "extension-host",
         title: "Host error",
-        message,
+        message: hinted,
         stack,
       });
       if (activeVcId !== vc.id) return;
       const el = document.getElementById("ext-view-panel-body");
       if (!el) return;
-      el.innerHTML = renderExtViewError(snapshot.displayName, message, stack);
+      el.innerHTML = renderExtViewError(snapshot.displayName, hinted, stack);
     },
     onViewRegistered: (viewId, viewType) => {
       if (activeVcId !== vc.id) return;

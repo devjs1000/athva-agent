@@ -106,6 +106,7 @@ const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
 const StatusBarAlignment = { Left: 1, Right: 2 };
 const ViewColumn = { One: 1, Two: 2, Three: 3, Active: -1, Beside: -2 };
 const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Info: 2, Hint: 3 };
+const LogLevel = { Trace: 1, Debug: 2, Info: 3, Warning: 4, Error: 5, Off: 6 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
@@ -851,7 +852,6 @@ const window = {
 
   createTextEditorDecorationType() { return ensureDisposable({ dispose() {} }); },
   withProgress(options, task) { return task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event }); },
-  showQuickPick: () => Promise.resolve(undefined),
   showQuickPick: (items, options) => {
     const list = Array.isArray(items) ? items : [];
     if (!list.length) return Promise.resolve(undefined);
@@ -1040,6 +1040,34 @@ const authentication = {
   registerAuthenticationProvider: () => new Disposable(() => {}),
 };
 
+const tasks = {
+  fetchTasks: async () => [],
+  executeTask: async () => undefined,
+  registerTaskProvider: () => new Disposable(() => {}),
+  onDidStartTask: new EventEmitter().event,
+  onDidEndTask: new EventEmitter().event,
+  onDidStartTaskProcess: new EventEmitter().event,
+  onDidEndTaskProcess: new EventEmitter().event,
+};
+
+const debug = {
+  startDebugging: async () => false,
+  stopDebugging: async () => undefined,
+  registerDebugConfigurationProvider: () => new Disposable(() => {}),
+  registerDebugAdapterDescriptorFactory: () => new Disposable(() => {}),
+  onDidStartDebugSession: new EventEmitter().event,
+  onDidTerminateDebugSession: new EventEmitter().event,
+};
+
+const chat = {
+  createChatParticipant: () => ensureDisposable({ dispose() {} }),
+};
+
+const lm = {
+  registerLanguageModelChatProvider: () => new Disposable(() => {}),
+  selectChatModels: async () => [],
+};
+
 // ── env ───────────────────────────────────────────────────────────────────────
 
 const env = {
@@ -1215,21 +1243,43 @@ async function handleMessage(msg) {
   }
 }
 
-module.exports = {
+const vscodeApi = {
   // value types
   Uri, RelativePattern, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
   CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
   TextDocument, TextEditor,
-  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
+  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, LogLevel,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, notebooks, authentication, env, l10n, extensions,
+  workspace, window, commands, languages, notebooks, authentication, tasks, debug, chat, lm, env, l10n, extensions,
   version,
   // internal
   _handleMessage: handleMessage,
   _initDefaults(defaults) { _schemaDefaults = defaults || {}; },
 };
+
+const NOOP_FN = function () { return undefined; };
+const NOOP_PROXY = new Proxy(NOOP_FN, {
+  get(_target, prop) {
+    if (prop === "then") return undefined; // avoid being treated as Promise-like
+    if (prop === "toString") return () => "[AthvaMissingVscodeApi]";
+    return NOOP_PROXY;
+  },
+  apply() {
+    return undefined;
+  },
+  construct() {
+    return NOOP_PROXY;
+  },
+});
+
+module.exports = new Proxy(vscodeApi, {
+  get(target, prop, receiver) {
+    if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
+    return NOOP_PROXY;
+  },
+});
 
 function _offsetAt(content, position) {
   const lines = String(content).split("\n");

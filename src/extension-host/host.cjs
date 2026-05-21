@@ -48,7 +48,6 @@ try {
 } catch {}
 
 const [,, extMain, extId, installPath] = process.argv;
-const normalizedExtId = String(extId || "").toLowerCase();
 
 if (!extMain) {
   send({ type: "error", message: "host.cjs requires <extensionMainPath> as first arg" });
@@ -188,16 +187,6 @@ function extractConfigDefaults(packageJSON) {
 // Load and activate the extension
 async function main() {
   try {
-    // Known-incompatible extension runtimes should fail with an explicit reason
-    // instead of surfacing opaque JS inheritance/type errors.
-    if (normalizedExtId === "github.copilot-chat") {
-      send({
-        type: "error",
-        message: "GitHub Copilot Chat is not supported in Athva's extension host yet (requires VS Code APIs/runtime features not fully implemented).",
-      });
-      return;
-    }
-
     const extensionRoot = fs.existsSync(path.join(installPath, "extension", "package.json"))
       ? path.join(installPath, "extension")
       : installPath;
@@ -284,13 +273,7 @@ async function main() {
     send({ type: "activated", extensionId: extId });
   } catch (e) {
     flushQueue();
-    let msg = e && typeof e.message === "string" ? e.message : String(e);
-    if (
-      normalizedExtId === "github.copilot-chat" &&
-      /Class extends value undefined is not a constructor or null/i.test(msg)
-    ) {
-      msg = "GitHub Copilot Chat failed due to unsupported runtime/API surface in Athva. Disable this extension in Athva and use GitHub Copilot (completion) or run Copilot Chat in full VS Code.";
-    }
+    const msg = e && typeof e.message === "string" ? e.message : String(e);
     const stack = e && typeof e.stack === "string"
       ? e.stack.split("\n").slice(0, 25).join("\n")
       : "";
