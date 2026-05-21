@@ -338,6 +338,21 @@ const workspace = {
     // fire once so extensions initialize; real config-change events not yet supported
     return { dispose: () => {} };
   },
+  asRelativePath(pathOrUri, includeWorkspaceFolder) {
+    const inputPath = typeof pathOrUri === "string"
+      ? pathOrUri
+      : (pathOrUri?.fsPath || pathOrUri?.path || String(pathOrUri || ""));
+    if (!inputPath) return "";
+    for (const folder of _workspaceFolders) {
+      const root = folder?.uri?.fsPath;
+      if (!root) continue;
+      const rel = path.relative(root, inputPath).replace(/\\/g, "/");
+      if (!rel.startsWith("..") && !path.isAbsolute(rel)) {
+        return includeWorkspaceFolder ? `${folder.name}/${rel || path.basename(inputPath)}` : (rel || path.basename(inputPath));
+      }
+    }
+    return (path.basename(inputPath) || inputPath).replace(/\\/g, "/");
+  },
 
   findFiles(include, exclude, maxResults) {
     // Bridge to renderer for actual file search
@@ -480,6 +495,9 @@ const workspace = {
 // ── window ────────────────────────────────────────────────────────────────────
 
 const window = {
+  tabGroups: { all: [] },
+  onDidChangeWindowState: new EventEmitter().event,
+  onDidChangeTerminalShellIntegration: new EventEmitter().event,
   createTreeView(viewId, options) {
     const provider = options.treeDataProvider;
     treeProviders.set(viewId, { provider });
@@ -585,6 +603,17 @@ const window = {
   },
   registerWebviewViewProvider: () => new Disposable(() => {}),
   registerCustomEditorProvider: () => new Disposable(() => {}),
+  createTerminal(optionsOrName) {
+    const terminal = {
+      name: typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal"),
+      shellIntegration: {},
+      sendText() {},
+      show() {},
+      hide() {},
+      dispose() {},
+    };
+    return terminal;
+  },
 };
 
 // ── commands ──────────────────────────────────────────────────────────────────

@@ -654,6 +654,22 @@ const workspace = {
   onDidChangeConfiguration(listener) {
     return onDidChangeConfigurationEmitter.event(listener);
   },
+  asRelativePath(pathOrUri, includeWorkspaceFolder) {
+    const inputPath = typeof pathOrUri === "string"
+      ? pathOrUri
+      : (pathOrUri?.fsPath || pathOrUri?.path || String(pathOrUri || ""));
+    if (!inputPath) return "";
+    for (const folder of _workspaceFolders) {
+      const root = folder?.uri?.fsPath;
+      if (!root) continue;
+      const rel = path.relative(root, inputPath);
+      if (!rel.startsWith("..") && !path.isAbsolute(rel)) {
+        const out = toPosix(rel || path.basename(inputPath));
+        return includeWorkspaceFolder ? `${folder.name}/${out}` : out;
+      }
+    }
+    return toPosix(path.basename(inputPath) || inputPath);
+  },
 
   findFiles(include, exclude, maxResults) {
     const includePattern = normalizeGlobPattern(include);
@@ -827,6 +843,9 @@ const workspace = {
 // ── window ────────────────────────────────────────────────────────────────────
 
 const window = {
+  tabGroups: { all: [] },
+  onDidChangeWindowState: new EventEmitter().event,
+  onDidChangeTerminalShellIntegration: new EventEmitter().event,
   createTreeView(viewId, options) {
     const provider = options.treeDataProvider;
     treeProviders.set(viewId, { provider });
@@ -978,6 +997,17 @@ const window = {
     });
   },
   registerCustomEditorProvider: () => new Disposable(() => {}),
+  createTerminal(optionsOrName) {
+    const terminal = {
+      name: typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal"),
+      shellIntegration: {},
+      sendText() {},
+      show() {},
+      hide() {},
+      dispose() {},
+    };
+    return ensureDisposable(terminal);
+  },
 };
 
 // ── commands ──────────────────────────────────────────────────────────────────
@@ -1125,6 +1155,12 @@ const chat = {
 };
 
 const lm = {
+  isModelProxyAvailable: false,
+  onDidChangeModelProxyAvailability: new EventEmitter().event,
+  getModelProxy: async () => ({
+    uri: "athva://lm/proxy",
+    dispose() {},
+  }),
   registerLanguageModelChatProvider: () => new Disposable(() => {}),
   selectChatModels: async () => [],
 };
