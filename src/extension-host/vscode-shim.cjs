@@ -110,16 +110,32 @@ const LogLevel = { Trace: 1, Debug: 2, Info: 3, Warning: 4, Error: 5, Off: 6 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
+class CodeActionKindValue {
+  constructor(value = "") { this.value = String(value); }
+  append(part) {
+    const suffix = String(part || "");
+    return new CodeActionKindValue(this.value ? `${this.value}.${suffix}` : suffix);
+  }
+  contains(other) {
+    const candidate = other instanceof CodeActionKindValue ? other.value : String(other?.value ?? other ?? "");
+    return candidate === this.value || candidate.startsWith(`${this.value}.`);
+  }
+  intersects(other) {
+    const candidate = other instanceof CodeActionKindValue ? other.value : String(other?.value ?? other ?? "");
+    return this.contains(candidate) || String(this.value).startsWith(`${candidate}.`);
+  }
+  toString() { return this.value; }
+}
 const CodeActionKind = {
-  Empty: "",
-  QuickFix: "quickfix",
-  Refactor: "refactor",
-  RefactorExtract: "refactor.extract",
-  RefactorInline: "refactor.inline",
-  RefactorRewrite: "refactor.rewrite",
-  Source: "source",
-  SourceFixAll: "source.fixAll",
-  Notebook: "notebook",
+  Empty: new CodeActionKindValue(""),
+  QuickFix: new CodeActionKindValue("quickfix"),
+  Refactor: new CodeActionKindValue("refactor"),
+  RefactorExtract: new CodeActionKindValue("refactor.extract"),
+  RefactorInline: new CodeActionKindValue("refactor.inline"),
+  RefactorRewrite: new CodeActionKindValue("refactor.rewrite"),
+  Source: new CodeActionKindValue("source"),
+  SourceFixAll: new CodeActionKindValue("source.fixAll"),
+  Notebook: new CodeActionKindValue("notebook"),
 };
 
 function makeFsError(message, code) {
@@ -787,6 +803,15 @@ const workspace = {
       try { require("fs").unlinkSync(uri.fsPath); } catch {}
       return Promise.resolve();
     },
+    rename: (oldUri, newUri, _options) => {
+      try { require("fs").renameSync(oldUri.fsPath, newUri.fsPath); } catch {}
+      return Promise.resolve();
+    },
+    copy: (source, destination, _options) => {
+      try { require("fs").copyFileSync(source.fsPath, destination.fsPath); } catch {}
+      return Promise.resolve();
+    },
+    isWritableFileSystem: () => true,
   },
 };
 
