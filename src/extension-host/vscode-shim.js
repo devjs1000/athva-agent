@@ -295,6 +295,9 @@ const workspaceFoldersEmitter = new EventEmitter();
 
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
+  get name() { return _workspaceFolders[0]?.name || ""; },
+  get rootPath() { return _workspaceFolders[0]?.uri?.fsPath || undefined; },
+  get workspaceFile() { return undefined; },
   get textDocuments() { return textDocuments; },
   get notebookDocuments() { return notebookDocuments; },
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
@@ -811,6 +814,12 @@ function createMissingApiProxy(path) {
   const fallback = function () { return undefined; };
   const proxy = new Proxy(fallback, {
     get(target, prop) {
+      if (prop === Symbol.iterator) {
+        return function* emptyIterator() {};
+      }
+      if (prop === Symbol.asyncIterator) {
+        return async function* emptyAsyncIterator() {};
+      }
       if (typeof prop === "symbol") return Reflect.get(target, prop);
       if (prop === "then") return undefined;
       if (prop === "toString") return () => `[AthvaMissingVscodeApi:${path}]`;
