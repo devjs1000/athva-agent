@@ -110,6 +110,32 @@ const LogLevel = { Trace: 1, Debug: 2, Info: 3, Warning: 4, Error: 5, Off: 6 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
+const CodeActionKind = {
+  Empty: "",
+  QuickFix: "quickfix",
+  Refactor: "refactor",
+  RefactorExtract: "refactor.extract",
+  RefactorInline: "refactor.inline",
+  RefactorRewrite: "refactor.rewrite",
+  Source: "source",
+  SourceFixAll: "source.fixAll",
+  Notebook: "notebook",
+};
+
+function makeFsError(message, code) {
+  const err = new Error(message);
+  err.name = "FileSystemError";
+  err.code = code;
+  return err;
+}
+const FileSystemError = {
+  FileNotFound: (uri) => makeFsError(`File not found: ${uri?.fsPath || uri || ""}`, "FileNotFound"),
+  FileExists: (uri) => makeFsError(`File exists: ${uri?.fsPath || uri || ""}`, "FileExists"),
+  FileNotADirectory: (uri) => makeFsError(`Not a directory: ${uri?.fsPath || uri || ""}`, "FileNotADirectory"),
+  FileIsADirectory: (uri) => makeFsError(`Is a directory: ${uri?.fsPath || uri || ""}`, "FileIsADirectory"),
+  NoPermissions: (uri) => makeFsError(`No permissions: ${uri?.fsPath || uri || ""}`, "NoPermissions"),
+  Unavailable: (uri) => makeFsError(`Unavailable: ${uri?.fsPath || uri || ""}`, "Unavailable"),
+};
 
 class EventEmitter {
   constructor() {
@@ -1248,8 +1274,9 @@ const vscodeApi = {
   Uri, RelativePattern, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
   CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
   TextDocument, TextEditor,
-  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, LogLevel,
+  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, LogLevel, CodeActionKind,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
+  FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
   workspace, window, commands, languages, notebooks, authentication, tasks, debug, chat, lm, env, l10n, extensions,

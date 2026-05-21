@@ -47,6 +47,19 @@ try {
   }
 } catch {}
 
+// Some extensions assume browser-like File is available in the runtime.
+try {
+  if (typeof globalThis.File === "undefined" && typeof globalThis.Blob !== "undefined") {
+    globalThis.File = class File extends Blob {
+      constructor(parts, name, options = {}) {
+        super(parts, options);
+        this.name = String(name || "");
+        this.lastModified = Number(options.lastModified || Date.now());
+      }
+    };
+  }
+} catch {}
+
 const [,, extMain, extId, installPath] = process.argv;
 
 if (!extMain) {
