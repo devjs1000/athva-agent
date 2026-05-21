@@ -53,6 +53,13 @@ class Uri {
   }
 }
 
+class RelativePattern {
+  constructor(base, pattern) {
+    this.baseUri = typeof base === "string" ? Uri.file(base) : base;
+    this.pattern = String(pattern || "");
+  }
+}
+
 class Range {
   constructor(startLine, startChar, endLine, endChar) {
     this.start = { line: startLine, character: startChar };
@@ -536,6 +543,7 @@ const onDidChangeTextDocumentEmitter = new EventEmitter();
 const onDidOpenNotebookDocumentEmitter = new EventEmitter();
 const onDidCloseNotebookDocumentEmitter = new EventEmitter();
 const onDidChangeNotebookDocumentEmitter = new EventEmitter();
+const onDidChangeConfigurationEmitter = new EventEmitter();
 
 function _getConfigValue(section, key) {
   // Check explicit config first, then schema defaults
@@ -595,13 +603,32 @@ const workspace = {
   },
 
   onDidChangeConfiguration(listener) {
-    // fire once so extensions initialize; real config-change events not yet supported
-    return ensureDisposable({ dispose: () => {} });
+    return onDidChangeConfigurationEmitter.event(listener);
   },
 
   findFiles(include, exclude, maxResults) {
-    // Bridge to renderer for actual file search
-    return Promise.resolve([]);
+    const includePattern = normalizeGlobPattern(include);
+    const excludePattern = normalizeGlobPattern(exclude);
+    const limit = Number.isFinite(Number(maxResults)) && Number(maxResults) > 0 ? Number(maxResults) : 10_000;
+    const results = [];
+    const seen = new Set();
+
+    for (const folder of _workspaceFolders) {
+      const root = folder?.uri?.fsPath;
+      if (!root || !fs.existsSync(root)) continue;
+      walkFiles(root, (filePath) => {
+        if (results.length >= limit) return false;
+        const rel = toPosix(path.relative(root, filePath));
+        if (!globMatch(rel, includePattern)) return true;
+        if (excludePattern && globMatch(rel, excludePattern)) return true;
+        if (seen.has(filePath)) return true;
+        seen.add(filePath);
+        results.push(Uri.file(filePath));
+        return true;
+      });
+      if (results.length >= limit) break;
+    }
+    return Promise.resolve(results);
   },
 
   openTextDocument(pathOrUri) {
@@ -825,7 +852,20 @@ const window = {
   createTextEditorDecorationType() { return ensureDisposable({ dispose() {} }); },
   withProgress(options, task) { return task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event }); },
   showQuickPick: () => Promise.resolve(undefined),
-  showInputBox: () => Promise.resolve(undefined),
+  showQuickPick: (items, options) => {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return Promise.resolve(undefined);
+    if (options?.canPickMany) return Promise.resolve([list[0]]);
+    return Promise.resolve(list[0]);
+  },
+  showInputBox: (options = {}) => {
+    const defaultValue = typeof options.value === "string"
+      ? options.value
+      : typeof options.prompt === "string" && options.prompt.trim()
+        ? options.prompt
+        : "";
+    return Promise.resolve(defaultValue);
+  },
   showTextDocument: async (documentOrUri, _columnOrOptions, _preserveFocus) => {
     let doc = documentOrUri;
     if (typeof documentOrUri === "string" || documentOrUri?.scheme || documentOrUri?.fsPath) {
@@ -885,7 +925,10 @@ const registeredCommands = new Map();
 
 const commands = {
   registerCommand(id, handler, thisArg) {
-    registeredCommands.set(id, thisArg ? handler.bind(thisArg) : handler);
+    const safeHandler = typeof handler === "function"
+      ? (thisArg ? handler.bind(thisArg) : handler)
+      : (() => undefined);
+    registeredCommands.set(id, safeHandler);
     return new Disposable(() => registeredCommands.delete(id));
   },
   executeCommand(id, ...args) {
@@ -1085,11 +1128,23 @@ async function handleMessage(msg) {
   }
 
   if (msg.type === "setWorkspace") {
+    const prevConfig = JSON.stringify(_configuration || {});
     _workspaceFolders = (msg.folders || []).map((f, i) => ({
       index: i, name: require("path").basename(f), uri: Uri.file(f),
     }));
     _configuration = msg.configuration || {};
     workspaceFoldersEmitter.fire({ added: _workspaceFolders, removed: [] });
+    const nextConfig = JSON.stringify(_configuration || {});
+    if (prevConfig !== nextConfig) {
+      onDidChangeConfigurationEmitter.fire({
+        affectsConfiguration: (section) => {
+          if (!section) return prevConfig !== nextConfig;
+          const beforeSection = JSON.stringify((JSON.parse(prevConfig || "{}") || {})[section] ?? null);
+          const afterSection = JSON.stringify((_configuration || {})[section] ?? null);
+          return beforeSection !== afterSection;
+        },
+      });
+    }
   }
 
   if (msg.type === "executeCommand") {
@@ -1162,7 +1217,7 @@ async function handleMessage(msg) {
 
 module.exports = {
   // value types
-  Uri, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
+  Uri, RelativePattern, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
   CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
@@ -1182,4 +1237,47 @@ function _offsetAt(content, position) {
   let offset = 0;
   for (let i = 0; i < targetLine; i += 1) offset += lines[i].length + 1;
   return offset + Math.max(0, Math.min(lines[targetLine].length, position.character || 0));
+}
+
+function walkFiles(root, onFile) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === ".git" || entry.name === "node_modules") continue;
+      walkFiles(full, onFile);
+      continue;
+    }
+    const keepWalking = onFile(full);
+    if (keepWalking === false) return;
+  }
+}
+
+function toPosix(value) {
+  return String(value || "").replace(/\\/g, "/");
+}
+
+function normalizeGlobPattern(pattern) {
+  if (!pattern) return "**/*";
+  if (typeof pattern === "string") return pattern;
+  if (typeof pattern?.pattern === "string") return pattern.pattern;
+  return "**/*";
+}
+
+function globMatch(file, pattern) {
+  const normalizedFile = toPosix(file);
+  const normalizedPattern = toPosix(String(pattern || "**/*"));
+  const escaped = normalizedPattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "__DOUBLE_STAR__")
+    .replace(/\*/g, "[^/]*")
+    .replace(/__DOUBLE_STAR__/g, ".*")
+    .replace(/\?/g, ".");
+  const re = new RegExp(`^${escaped}$`);
+  return re.test(normalizedFile);
 }
