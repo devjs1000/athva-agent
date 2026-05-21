@@ -91,6 +91,9 @@ const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Info: 2, Hint
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
+const InlineCompletionEndOfLifeReasonKind = { Accepted: 1, Rejected: 2, Ignored: 3 };
+const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitCancel: 2 };
+const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
 
 class EventEmitter {
   constructor() {
@@ -286,11 +289,14 @@ const notebookChangeEmitter = new EventEmitter();
 let _workspaceFolders = [];
 let _configuration = {};
 const _fsProviders = new Map();
+const textDocuments = [];
 
 const workspaceFoldersEmitter = new EventEmitter();
 
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
+  get textDocuments() { return textDocuments; },
+  get notebookDocuments() { return notebookDocuments; },
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
 
   getConfiguration(section) {
@@ -342,7 +348,9 @@ const workspace = {
     const fspath = typeof pathOrUri === "string" ? pathOrUri : pathOrUri?.fsPath ?? "";
     try {
       const content = require("fs").readFileSync(fspath, "utf8");
-      return Promise.resolve(new TextDocument(Uri.file(fspath), content));
+      const doc = new TextDocument(Uri.file(fspath), content);
+      textDocuments.push(doc);
+      return Promise.resolve(doc);
     } catch {
       return Promise.reject(new Error(`Cannot open ${fspath}`));
     }
@@ -759,20 +767,55 @@ async function handleMessage(msg) {
   }
 }
 
-module.exports = {
+const NOOP_FN = function () { return undefined; };
+const NOOP_PROXY = new Proxy(NOOP_FN, {
+  get(_target, prop) {
+    if (prop === "then") return undefined;
+    if (prop === "toString") return () => "[AthvaMissingVscodeApi]";
+    return NOOP_PROXY;
+  },
+  apply() { return undefined; },
+  construct() { return NOOP_PROXY; },
+});
+
+function withApiFallback(obj) {
+  return new Proxy(obj, {
+    get(target, prop, receiver) {
+      if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
+      return NOOP_PROXY;
+    },
+  });
+}
+
+const vscodeApi = {
   // value types
   Uri, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
   CancellationTokenSource, CancellationToken, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, Diagnostic,
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn,
+  InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, notebooks, env, l10n, extensions,
+  workspace: withApiFallback(workspace),
+  window: withApiFallback(window),
+  commands: withApiFallback(commands),
+  languages: withApiFallback(languages),
+  notebooks: withApiFallback(notebooks),
+  env: withApiFallback(env),
+  l10n: withApiFallback(l10n),
+  extensions: withApiFallback(extensions),
   version,
   // internal
   _handleMessage: handleMessage,
 };
+
+module.exports = new Proxy(vscodeApi, {
+  get(target, prop, receiver) {
+    if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
+    return NOOP_PROXY;
+  },
+});
 
 function _offsetAt(content, position) {
   const lines = String(content).split("\n");

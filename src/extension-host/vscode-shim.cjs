@@ -110,6 +110,9 @@ const LogLevel = { Trace: 1, Debug: 2, Info: 3, Warning: 4, Error: 5, Off: 6 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
+const InlineCompletionEndOfLifeReasonKind = { Accepted: 1, Rejected: 2, Ignored: 3 };
+const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitCancel: 2 };
+const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
 class CodeActionKindValue {
   constructor(value = "") { this.value = String(value); }
   append(part) {
@@ -587,6 +590,7 @@ const onDidOpenNotebookDocumentEmitter = new EventEmitter();
 const onDidCloseNotebookDocumentEmitter = new EventEmitter();
 const onDidChangeNotebookDocumentEmitter = new EventEmitter();
 const onDidChangeConfigurationEmitter = new EventEmitter();
+const textDocuments = [];
 
 function _getConfigValue(section, key) {
   // Check explicit config first, then schema defaults
@@ -600,6 +604,8 @@ function _getConfigValue(section, key) {
 
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
+  get textDocuments() { return textDocuments; },
+  get notebookDocuments() { return notebookDocuments; },
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
   onDidSaveTextDocument: onDidSaveTextDocumentEmitter.event,
   onDidOpenTextDocument: onDidOpenTextDocumentEmitter.event,
@@ -678,7 +684,10 @@ const workspace = {
     const fspath = typeof pathOrUri === "string" ? pathOrUri : pathOrUri?.fsPath ?? "";
     try {
       const content = require("fs").readFileSync(fspath, "utf8");
-      return Promise.resolve(new TextDocument(Uri.file(fspath), content));
+      const doc = new TextDocument(Uri.file(fspath), content);
+      textDocuments.push(doc);
+      onDidOpenTextDocumentEmitter.fire(doc);
+      return Promise.resolve(doc);
     } catch {
       return Promise.reject(new Error(`Cannot open ${fspath}`));
     }
@@ -1300,6 +1309,7 @@ const vscodeApi = {
   CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, LogLevel, CodeActionKind,
+  InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind,
   DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
   FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
@@ -1325,6 +1335,29 @@ const NOOP_PROXY = new Proxy(NOOP_FN, {
     return NOOP_PROXY;
   },
 });
+
+function withApiFallback(obj) {
+  return new Proxy(obj, {
+    get(target, prop, receiver) {
+      if (Reflect.has(target, prop)) return Reflect.get(target, prop, receiver);
+      return NOOP_PROXY;
+    },
+  });
+}
+
+vscodeApi.workspace = withApiFallback(workspace);
+vscodeApi.window = withApiFallback(window);
+vscodeApi.commands = withApiFallback(commands);
+vscodeApi.languages = withApiFallback(languages);
+vscodeApi.notebooks = withApiFallback(notebooks);
+vscodeApi.authentication = withApiFallback(authentication);
+vscodeApi.tasks = withApiFallback(tasks);
+vscodeApi.debug = withApiFallback(debug);
+vscodeApi.chat = withApiFallback(chat);
+vscodeApi.lm = withApiFallback(lm);
+vscodeApi.env = withApiFallback(env);
+vscodeApi.l10n = withApiFallback(l10n);
+vscodeApi.extensions = withApiFallback(extensions);
 
 module.exports = new Proxy(vscodeApi, {
   get(target, prop, receiver) {

@@ -67,6 +67,26 @@ if (!extMain) {
   process.exit(1);
 }
 
+// Prevent extensions from terminating the host process directly.
+const _hostProcessExit = process.exit.bind(process);
+process.exit = function patchedProcessExit(code = 0) {
+  const numericCode = Number(code || 0);
+  if (numericCode === 0) return;
+  throw new Error(`Extension requested process.exit(${numericCode})`);
+};
+
+process.on("uncaughtException", (err) => {
+  const msg = err && typeof err.message === "string" ? err.message : String(err);
+  const stack = err && typeof err.stack === "string" ? err.stack.split("\n").slice(0, 25).join("\n") : "";
+  send({ type: "error", message: msg, stack });
+});
+
+process.on("unhandledRejection", (reason) => {
+  const msg = reason && typeof reason.message === "string" ? reason.message : String(reason);
+  const stack = reason && typeof reason.stack === "string" ? reason.stack.split("\n").slice(0, 25).join("\n") : "";
+  send({ type: "error", message: msg, stack });
+});
+
 // Some VSIX bundles ship a Linux-only native Claude binary. On macOS this throws
 // spawn "Unknown system error -8" (exec format). Reroute to user's installed
 // `claude` CLI when we detect that specific bundled path.
