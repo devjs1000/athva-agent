@@ -13,6 +13,14 @@ export interface TreeNode {
   command?: { command: string; title: string };
 }
 
+export interface RuntimeCompletionItem {
+  label: string;
+  insertText?: string;
+  detail?: string;
+  documentation?: string;
+  kind?: number;
+}
+
 export type RuntimeStatus = "stopped" | "starting" | "active" | "error";
 
 export interface ExtensionRuntimeOptions {
@@ -43,6 +51,7 @@ export class ExtensionRuntime {
   private opts: ExtensionRuntimeOptions;
   private msgBuffer = "";
   private pendingChildren = new Map<string, (nodes: TreeNode[]) => void>();
+  private pendingCompletions = new Map<string, (items: RuntimeCompletionItem[]) => void>();
   private registeredViews = new Set<string>();
   private webviewViews = new Set<string>();
   private webviewHtml = new Map<string, string>();
@@ -122,6 +131,7 @@ export class ExtensionRuntime {
     this.webviewViews.clear();
     this.webviewHtml.clear();
     this.pendingChildren.clear();
+    this.pendingCompletions.clear();
   }
 
   async getChildren(viewId: string, elementId?: string): Promise<TreeNode[]> {
@@ -151,6 +161,36 @@ export class ExtensionRuntime {
         resolve(result);
       });
       this.send({ type: "executeCommand", id, command, args });
+    });
+  }
+
+  async provideCompletions(input: {
+    filePath: string;
+    content: string;
+    lineNumber: number;
+    column: number;
+    languageId?: string;
+  }): Promise<RuntimeCompletionItem[]> {
+    if (!this.process || this.status !== "active") return [];
+    const id = Math.random().toString(36).slice(2);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingCompletions.delete(id);
+        resolve([]);
+      }, 2500);
+      this.pendingCompletions.set(id, (items) => {
+        clearTimeout(timer);
+        resolve(items);
+      });
+      this.send({
+        type: "provideCompletions",
+        id,
+        filePath: input.filePath,
+        content: input.content,
+        lineNumber: input.lineNumber,
+        column: input.column,
+        languageId: input.languageId ?? "",
+      });
     });
   }
 
@@ -233,6 +273,17 @@ export class ExtensionRuntime {
         if (resolve) {
           this.pendingChildren.delete(key);
           (resolve as any)(msg.result);
+        }
+        break;
+      }
+
+      case "completionResult": {
+        const id = String(msg.id ?? "");
+        const resolve = this.pendingCompletions.get(id);
+        if (resolve) {
+          this.pendingCompletions.delete(id);
+          const items = Array.isArray(msg.items) ? (msg.items as RuntimeCompletionItem[]) : [];
+          resolve(items);
         }
         break;
       }

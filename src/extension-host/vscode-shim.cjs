@@ -1101,6 +1101,57 @@ async function handleMessage(msg) {
     }
   }
 
+  if (msg.type === "provideCompletions") {
+    try {
+      const filePath = String(msg.filePath || "");
+      const content = typeof msg.content === "string" ? msg.content : "";
+      const lineNumber = Number(msg.lineNumber || 1);
+      const column = Number(msg.column || 1);
+      const languageId = String(msg.languageId || "plaintext");
+      const uri = Uri.file(filePath || "");
+      const doc = new TextDocument(uri, content, languageId, 1);
+      const position = new Position(Math.max(0, lineNumber - 1), Math.max(0, column - 1));
+      const token = CancellationToken.None;
+
+      const merged = [];
+      for (const provider of languages._completionProviders) {
+        if (!provider || typeof provider.provideCompletionItems !== "function") continue;
+        let provided;
+        try {
+          provided = await provider.provideCompletionItems(doc, position, token, { triggerKind: 0 });
+        } catch {
+          continue;
+        }
+        const items = Array.isArray(provided)
+          ? provided
+          : Array.isArray(provided?.items)
+            ? provided.items
+            : [];
+        for (const item of items) {
+          if (!item) continue;
+          const label = typeof item.label === "string"
+            ? item.label
+            : (item.label?.label || "");
+          if (!label) continue;
+          merged.push({
+            label,
+            insertText: typeof item.insertText === "string" ? item.insertText : undefined,
+            detail: typeof item.detail === "string" ? item.detail : undefined,
+            documentation: typeof item.documentation === "string"
+              ? item.documentation
+              : typeof item.documentation?.value === "string"
+                ? item.documentation.value
+                : undefined,
+            kind: typeof item.kind === "number" ? item.kind : undefined,
+          });
+        }
+      }
+      send({ type: "completionResult", id: msg.id, items: merged.slice(0, 200) });
+    } catch (e) {
+      send({ type: "completionResult", id: msg.id, items: [], error: e && e.message ? e.message : String(e) });
+    }
+  }
+
   if (msg.type === "webviewMessage") {
     const channel = webviewChannels.get(msg.viewId);
     if (channel) {

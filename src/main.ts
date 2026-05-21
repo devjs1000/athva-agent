@@ -37,7 +37,7 @@ import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./
 import { setExtensionSnippets } from "./modules/snippet-store";
 import { loadInstalledExtensionSupport, type ExtensionCompatibilityIssue, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
-import { getOrCreateRuntime, type ExtensionRuntime, type TreeNode } from "./modules/extension-runtime";
+import { getOrCreateRuntime, type ExtensionRuntime, type RuntimeCompletionItem, type TreeNode } from "./modules/extension-runtime";
 import { ProjectSwitcher } from "./modules/project-switcher";
 import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
@@ -85,6 +85,7 @@ let inlineWebviewAssetBridgeReady = false;
 const webviewBridgeRuntimeById = new Map<string, ExtensionRuntime>();
 const webviewBridgeViewIdById = new Map<string, string>();
 const webviewBridgeIframeSelectorById = new Map<string, string>();
+let runtimeCompletionProviderRegistered = false;
 
 interface GitContributionDay {
   date: string;
@@ -1632,6 +1633,89 @@ async function reloadInstalledExtensionSupport() {
   if (shouldSaveSettings) {
     await saveSettings(appSettings);
   }
+  ensureRuntimeCompletionProvider();
+}
+
+function ensureRuntimeCompletionProvider() {
+  if (runtimeCompletionProviderRegistered) return;
+  runtimeCompletionProviderRegistered = true;
+  editor.addCompletionProvider(["typescript", "javascript", "typescriptreact", "javascriptreact"], {
+    triggerCharacters: ["/", ".", "\"", "'", "-"],
+    provideCompletionItems: async (model, position) => {
+      const line = model.getLineContent(position.lineNumber);
+      const before = line.slice(0, Math.max(0, position.column - 1));
+      if (!/['"`][^'"`]*$/.test(before)) return { suggestions: [] };
+
+      const runtimeExtensions = [...extensionSupportByIdentifier.values()].filter((item) => item.hasRuntime);
+      if (!runtimeExtensions.length) return { suggestions: [] };
+
+      const filePath = decodeURIComponent(model.uri.path || "");
+      const content = model.getValue();
+      const suggestions: any[] = [];
+      const monacoRef = (window as any).monaco;
+
+      for (const snapshot of runtimeExtensions) {
+        const installed = findInstalledRecord(snapshot.identifier);
+        if (!installed) continue;
+        const runtime = getOrCreateRuntime({
+          extensionId: snapshot.identifier,
+          installPath: installed.install_path,
+          mainPath: resolveExtMainPath(installed.install_path, snapshot),
+          workspaceFolders: currentProjectPath ? [currentProjectPath] : [],
+          configuration: {},
+          onStatus: () => {},
+          onHostError: (message, stack) => {
+            recordExtensionDiagnostic(snapshot.identifier, {
+              source: "extension-host",
+              title: "Completion runtime error",
+              message,
+              stack,
+            });
+          },
+        });
+        if (runtime.getStatus() === "stopped" || runtime.getStatus() === "error") {
+          try {
+            await runtime.start();
+          } catch {
+            continue;
+          }
+        }
+        const items = await runtime.provideCompletions({
+          filePath,
+          content,
+          lineNumber: position.lineNumber,
+          column: position.column,
+          languageId: model.getLanguageId(),
+        });
+        for (const item of items) {
+          suggestions.push(mapRuntimeCompletionToMonaco(item, position, monacoRef));
+        }
+      }
+      return { suggestions: suggestions.slice(0, 200) };
+    },
+  });
+}
+
+function mapRuntimeCompletionToMonaco(
+  item: RuntimeCompletionItem,
+  position: { lineNumber: number; column: number },
+  monacoRef: any,
+) {
+  const kind = monacoRef?.languages?.CompletionItemKind?.File ?? 17;
+  return {
+    label: item.label,
+    kind: Number.isFinite(item.kind as number) ? item.kind : kind,
+    insertText: item.insertText || item.label,
+    detail: item.detail || "",
+    documentation: item.documentation || "",
+    range: {
+      startLineNumber: position.lineNumber,
+      endLineNumber: position.lineNumber,
+      startColumn: position.column,
+      endColumn: position.column,
+    },
+    sortText: `1:${item.label}`,
+  };
 }
 
 async function checkExtensionUpdates(silent = true): Promise<ExtensionUpdateInfo[]> {
@@ -3021,7 +3105,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       s.commands.some((c) => c.command === command.command)
     );
     if (ownerSnapshot?.hasRuntime) {
-      showToast(`"${command.title}" requires the VS Code extension runtime — not supported in Athva yet.`, 4000);
+      showToast(`"${command.title}" is runtime-backed. Athva will run it when the extension host supports this command path.`, 4000);
     } else {
       showToast(`Command "${command.title}" has no handler in Athva.`, 3000);
     }

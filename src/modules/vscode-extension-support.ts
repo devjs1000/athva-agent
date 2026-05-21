@@ -194,6 +194,7 @@ export async function loadInstalledExtensionSupport(
     if (iconThemes.length) supportedFeatures.push(`${iconThemes.length} file icon theme${iconThemes.length === 1 ? "" : "s"}`);
     if (extensionSnippets.length) supportedFeatures.push(`${extensionSnippets.length} snippet${extensionSnippets.length === 1 ? "" : "s"}`);
     if (commands.length) supportedFeatures.push(`${commands.length} command${commands.length === 1 ? "" : "s"}`);
+    if (manifest?.main || manifest?.browser) supportedFeatures.push("Runtime execution (beta)");
     if (viewContainers.length) supportedFeatures.push(`${viewContainers.length} activity bar panel${viewContainers.length === 1 ? "" : "s"}`);
     if (languages.length) supportedFeatures.push(`${languages.length} language${languages.length === 1 ? "" : "s"} (metadata)`);
 
@@ -473,23 +474,7 @@ function collectCompatibilityIssues(manifest: any): ExtensionCompatibilityIssue[
   const issues = new Map<string, ExtensionCompatibilityIssue>();
   const contributes = manifest?.contributes ?? {};
 
-  if (manifest?.main || manifest?.browser) {
-    const mainValue = typeof manifest?.main === "string" ? manifest.main : "";
-    const browserValue = typeof manifest?.browser === "string" ? manifest.browser : "";
-    const evidence: string[] = [];
-    if (mainValue) evidence.push(`package.json: main=${mainValue}`);
-    if (browserValue) evidence.push(`package.json: browser=${browserValue}`);
-    issues.set("runtime.executable", {
-      code: "runtime.executable",
-      title: "Extension runtime is not supported",
-      summary: "This extension expects VS Code activation APIs and background execution that Athva does not host yet.",
-      details: [
-        ...evidence,
-        "Entries in the extension main/browser runtime were detected.",
-        "Commands, views, or workflows that depend on activate() will not run inside Athva.",
-      ],
-    });
-  }
+  // Runtime-backed extensions are supported in Athva via the extension host bridge.
   if (Array.isArray(contributes.grammars) && contributes.grammars.length) {
     const grammarCount = contributes.grammars.length;
     issues.set("grammar.textmate", {
