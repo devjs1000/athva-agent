@@ -1169,6 +1169,21 @@ pub struct InstalledExtension {
     pub install_path: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct ExtensionUpdateQuery {
+    pub publisher: String,
+    pub extension_name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ExtensionUpdateInfo {
+    pub identifier: String,
+    pub installed_version: String,
+    pub latest_version: String,
+    pub update_available: bool,
+}
+
 fn extensions_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let data_dir = app
         .path()
@@ -1195,6 +1210,33 @@ fn marketplace_download_url(publisher: &str, extension_name: &str, version: &str
     format!(
         "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{extension_name}/{version}/vspackage"
     )
+}
+
+fn compare_version_parts(installed: &str, latest: &str) -> std::cmp::Ordering {
+    let split = |value: &str| {
+        value
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|part| !part.is_empty())
+            .map(|part| part.to_ascii_lowercase())
+            .collect::<Vec<String>>()
+    };
+    let a = split(installed);
+    let b = split(latest);
+    let len = a.len().max(b.len());
+    for idx in 0..len {
+        let left = a.get(idx).cloned().unwrap_or_else(|| "0".to_string());
+        let right = b.get(idx).cloned().unwrap_or_else(|| "0".to_string());
+        let left_num = left.parse::<u64>();
+        let right_num = right.parse::<u64>();
+        let ord = match (left_num, right_num) {
+            (Ok(l), Ok(r)) => l.cmp(&r),
+            _ => left.cmp(&right),
+        };
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    std::cmp::Ordering::Equal
 }
 
 fn pick_latest_version(extension: &Value) -> Option<&Value> {
@@ -1616,6 +1658,32 @@ fn uninstall_vscode_extension(
     } else {
         Err(format!("Extension not found: {identifier}"))
     }
+}
+
+#[tauri::command]
+fn check_vscode_extension_updates(
+    extensions: Vec<ExtensionUpdateQuery>,
+) -> Result<Vec<ExtensionUpdateInfo>, String> {
+    let mut updates = Vec::new();
+    for ext in extensions {
+        let identifier = format!("{}.{}", ext.publisher, ext.extension_name);
+        let query = format!("{} {}", ext.publisher, ext.extension_name);
+        let results = search_vscode_extensions(query, 25)?;
+        let matched = results
+            .into_iter()
+            .find(|item| item.identifier.eq_ignore_ascii_case(&identifier));
+        let latest_version = matched
+            .map(|item| item.version)
+            .unwrap_or_else(|| ext.version.clone());
+        let update_available = compare_version_parts(&ext.version, &latest_version).is_lt();
+        updates.push(ExtensionUpdateInfo {
+            identifier,
+            installed_version: ext.version,
+            latest_version,
+            update_available,
+        });
+    }
+    Ok(updates)
 }
 
 // ── Embedded web tab (child webview inside main window) ──
@@ -2477,6 +2545,7 @@ pub fn run() {
             list_installed_vscode_extensions,
             install_vscode_extension,
             uninstall_vscode_extension,
+            check_vscode_extension_updates,
             memory_init,
             memory_add,
             memory_search,

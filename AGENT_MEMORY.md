@@ -12,3 +12,4 @@
 - 2026-05-09: User reported Git Blame data arrives from Tauri but can still fail to render in-editor; when touching blame features, verify IPC output, DOM injection, and CSS visibility/stacking together.
 - 2026-05-09: For Git Blame UX, user prefers age-based line coloring with hover details over inline/gutter text overlays.
 - 2026-05-09: User prefers code bookmark workflow directly from editor selection context-menu, with title/description/tag metadata, severity-like color tags, and a project-level bookmarks panel.
+- 2026-05-21: User wants extension lifecycle UX to be explicit: show install/uninstall progress stages, provide in-product update actions, and auto-check extension update status when IDE/project opens with a clear user alert.

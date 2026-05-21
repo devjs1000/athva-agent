@@ -80,6 +80,7 @@ let installedExtensionRecords: InstalledExtensionRecord[] = [];
 let currentBatteryLevel: number | null = null;
 const extensionPreviewPayloads = new Map<string, ExtensionPreviewPayload>();
 const extensionDiagnosticsByIdentifier = new Map<string, ExtensionDiagnostic[]>();
+let extensionUpdatesByIdentifier = new Map<string, ExtensionUpdateInfo>();
 let inlineWebviewAssetBridgeReady = false;
 const webviewBridgeRuntimeById = new Map<string, ExtensionRuntime>();
 const webviewBridgeViewIdById = new Map<string, string>();
@@ -103,6 +104,19 @@ interface GitLogEntryRaw {
 interface GitAuthorStatRaw {
   author: string;
   commits: number;
+}
+
+interface ExtensionUpdateCheckInput {
+  publisher: string;
+  extension_name: string;
+  version: string;
+}
+
+interface ExtensionUpdateInfo {
+  identifier: string;
+  installed_version: string;
+  latest_version: string;
+  update_available: boolean;
 }
 
 async function syncNativeTranslucentMode(enabled: boolean): Promise<void> {
@@ -869,6 +883,7 @@ async function openProject(path: string) {
   void qualityPanel.refresh_if_open();
   void chatbot.setProjectPath(project.path);
   await exportsTracker.onProjectOpen(project.path);
+  await checkAndNotifyExtensionUpdates();
   syncTopBarActionStates();
 }
 
@@ -1617,6 +1632,62 @@ async function reloadInstalledExtensionSupport() {
   if (shouldSaveSettings) {
     await saveSettings(appSettings);
   }
+}
+
+async function checkExtensionUpdates(silent = true): Promise<ExtensionUpdateInfo[]> {
+  if (!installedExtensionRecords.length) {
+    extensionUpdatesByIdentifier = new Map();
+    return [];
+  }
+  try {
+    const inputs: ExtensionUpdateCheckInput[] = installedExtensionRecords.map((ext) => ({
+      publisher: ext.publisher,
+      extension_name: ext.extension_name,
+      version: ext.version,
+    }));
+    const updates = await invoke<ExtensionUpdateInfo[]>("check_vscode_extension_updates", {
+      extensions: inputs,
+    });
+    extensionUpdatesByIdentifier = new Map(updates.map((item) => [item.identifier, item]));
+    return updates;
+  } catch (error) {
+    if (!silent) {
+      const msg = error instanceof Error ? error.message : String(error);
+      showToast(`Extension update check failed: ${msg}`, 4000);
+    }
+    return [];
+  }
+}
+
+function getExtensionUpdateInfo(identifier: string): ExtensionUpdateInfo | null {
+  return extensionUpdatesByIdentifier.get(identifier) ?? null;
+}
+
+async function updateInstalledExtension(identifier: string): Promise<boolean> {
+  const installed = installedExtensionRecords.find((item) => item.identifier === identifier);
+  if (!installed || !currentProjectPath) return false;
+  const updateInfo = extensionUpdatesByIdentifier.get(identifier);
+  if (!updateInfo?.update_available) return false;
+  await invoke("install_vscode_extension", {
+    projectPath: currentProjectPath,
+    publisher: installed.publisher,
+    extensionName: installed.extension_name,
+    version: updateInfo.latest_version,
+    downloadUrl: null,
+  });
+  await reloadInstalledExtensionSupport();
+  await checkExtensionUpdates(false);
+  return true;
+}
+
+async function checkAndNotifyExtensionUpdates() {
+  const updates = await checkExtensionUpdates(false);
+  const pending = updates.filter((item) => item.update_available);
+  if (!pending.length) return;
+  extensionsPanel?.refreshDetail?.();
+  const names = pending.slice(0, 4).map((item) => item.identifier).join(", ");
+  const suffix = pending.length > 4 ? ` and ${pending.length - 4} more` : "";
+  alert(`Extension updates available: ${names}${suffix}. Open Extensions and click Update.`);
 }
 
 function getExtensionSupport(identifier: string): ExtensionSupportSnapshot | null {
@@ -2579,6 +2650,7 @@ function formatExtensionCompatibilityIssuesForClipboard(
 async function installExtensionFromPreview(identifier: string) {
   const payload = extensionPreviewPayloads.get(identifier);
   if (!payload || !currentProjectPath || payload.installed || !payload.downloadUrl) return;
+  showToast(`Installing ${payload.displayName}: downloading package…`, 2500);
   await invoke("install_vscode_extension", {
     projectPath: currentProjectPath,
     publisher: payload.publisher,
@@ -2586,18 +2658,25 @@ async function installExtensionFromPreview(identifier: string) {
     version: payload.version,
     downloadUrl: payload.downloadUrl,
   });
+  showToast(`Installing ${payload.displayName}: refreshing extension support…`, 2500);
   await reloadInstalledExtensionSupport();
+  await checkExtensionUpdates(false);
   await extensionsPanel.refresh();
   openExtensionPreviewPage({ ...payload, installed: true });
+  showToast(`${payload.displayName} installed.`, 2500);
 }
 
 async function uninstallExtensionFromPreview(identifier: string) {
   const payload = extensionPreviewPayloads.get(identifier);
   if (!payload || !payload.installed) return;
+  showToast(`Uninstalling ${payload.displayName}…`, 2500);
   await invoke("uninstall_vscode_extension", { identifier });
+  showToast(`Uninstalling ${payload.displayName}: refreshing extension support…`, 2500);
   await reloadInstalledExtensionSupport();
+  await checkExtensionUpdates(false);
   await extensionsPanel.refresh();
   openExtensionPreviewPage({ ...payload, installed: false });
+  showToast(`${payload.displayName} removed.`, 2500);
 }
 
 async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
@@ -2919,10 +2998,13 @@ window.addEventListener("DOMContentLoaded", async () => {
       openPreviewPage: openExtensionPreviewPage,
       getSupport: getExtensionSupport,
       getDiagnostics: getExtensionDiagnostics,
+      getUpdateInfo: getExtensionUpdateInfo,
+      updateExtension: updateInstalledExtension,
       getSettingsState: getExtensionSettingsState,
       saveSettingsState: saveExtensionSettingsState,
       afterInstallChange: async () => {
         await reloadInstalledExtensionSupport();
+        await checkExtensionUpdates(false);
       },
       applyColorTheme: async (themeId) => {
         await applyExtensionColorTheme(themeId);

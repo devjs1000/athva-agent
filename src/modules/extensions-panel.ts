@@ -25,6 +25,12 @@ interface InstalledExtension {
   version: string;
   install_path: string;
 }
+interface ExtensionUpdateInfo {
+  identifier: string;
+  installed_version: string;
+  latest_version: string;
+  update_available: boolean;
+}
 
 type StatusKind = "idle" | "loading" | "success" | "warning" | "error";
 type ExtensionsTab = "installed" | "recommended" | "search";
@@ -70,6 +76,8 @@ interface ExtensionsPanelOptions {
   getSettingsState?: (identifier: string) => unknown;
   saveSettingsState?: (identifier: string, state: Record<string, unknown>) => Promise<void> | void;
   afterInstallChange?: () => Promise<void> | void;
+  getUpdateInfo?: (identifier: string) => ExtensionUpdateInfo | null;
+  updateExtension?: (identifier: string) => Promise<boolean>;
   applyColorTheme?: (themeId: string) => Promise<void> | void;
   applyFileIconTheme?: (themeId: string) => Promise<void> | void;
 }
@@ -159,6 +167,9 @@ export class ExtensionsPanel {
       } else if (action === "uninstall") {
         const identifier = target.dataset.identifier;
         if (identifier) void this.uninstall(identifier);
+      } else if (action === "update") {
+        const identifier = target.dataset.identifier;
+        if (identifier) void this.update(identifier);
       } else if (action === "select-installed") {
         const identifier = target.dataset.identifier;
         if (identifier) this.selectInstalled(identifier);
@@ -327,7 +338,7 @@ export class ExtensionsPanel {
     if (!projectPath || !extension) return;
 
     this.setBusy(true);
-    this.renderStatus("loading", "Installing extension", `Downloading ${extension.identifier} ${extension.version}.`);
+    this.renderStatus("loading", "Installing extension (1/3)", `Downloading ${extension.identifier} ${extension.version}.`);
     try {
       await invoke<InstalledExtension>("install_vscode_extension", {
         projectPath,
@@ -336,7 +347,9 @@ export class ExtensionsPanel {
         version: extension.version,
         downloadUrl: extension.download_url,
       });
+      this.renderStatus("loading", "Installing extension (2/3)", `Refreshing installed extension list for ${extension.identifier}.`);
       this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      this.renderStatus("loading", "Installing extension (3/3)", `Applying extension support and themes for ${extension.identifier}.`);
       await this.options.afterInstallChange?.();
       this.selectedDetail = { kind: "marketplace", identifier };
       this.renderAllLists();
@@ -356,10 +369,12 @@ export class ExtensionsPanel {
     if (!projectPath) return;
 
     this.setBusy(true);
-    this.renderStatus("loading", "Uninstalling extension", `Removing ${identifier} from Athva.`);
+    this.renderStatus("loading", "Uninstalling extension (1/3)", `Removing ${identifier} from Athva.`);
     try {
       await invoke("uninstall_vscode_extension", { identifier });
+      this.renderStatus("loading", "Uninstalling extension (2/3)", `Refreshing installed extension list for ${identifier}.`);
       this.installed = await invoke<InstalledExtension[]>("list_installed_vscode_extensions", { projectPath });
+      this.renderStatus("loading", "Uninstalling extension (3/3)", `Rebuilding extension support after uninstall.`);
       await this.options.afterInstallChange?.();
       if (this.selectedDetail?.identifier === identifier) {
         const fallbackMarketplace = this.findMarketplace(identifier);
@@ -370,6 +385,27 @@ export class ExtensionsPanel {
       this.renderStatus("success", "Uninstalled", `${identifier} was removed from Athva.`);
     } catch (error) {
       this.renderStatus("error", "Uninstall failed", this.errorMessage(error));
+    } finally {
+      this.setBusy(false);
+      this.renderAllLists();
+      this.renderDetail();
+    }
+  }
+
+  private async update(identifier: string) {
+    this.setBusy(true);
+    this.renderStatus("loading", "Updating extension (1/2)", `Checking latest version for ${identifier}.`);
+    try {
+      const updated = await this.options.updateExtension?.(identifier);
+      if (!updated) {
+        this.renderStatus("warning", "No update available", `${identifier} is already up to date.`);
+        return;
+      }
+      this.renderStatus("loading", "Updating extension (2/2)", `Refreshing extension state for ${identifier}.`);
+      await this.refresh();
+      this.renderStatus("success", "Updated", `${identifier} was updated to the latest available version.`);
+    } catch (error) {
+      this.renderStatus("error", "Update failed", this.errorMessage(error));
     } finally {
       this.setBusy(false);
       this.renderAllLists();
@@ -546,12 +582,17 @@ export class ExtensionsPanel {
     const diagnostics = this.options.getDiagnostics?.(detail.identifier) ?? [];
     const marketplace = this.findMarketplace(detail.identifier);
     const installed = this.isInstalled(detail.identifier);
+    const updateInfo = this.options.getUpdateInfo?.(detail.identifier) ?? null;
+    const hasUpdate = !!(installed && updateInfo?.update_available);
     const iconUrl = marketplace?.icon_url || "";
     const compatibleCount = support?.supportedFeatures.length ?? 0;
     const issueCount = support?.compatibilityIssues.length ?? 0;
     const primaryAction = installed
       ? `<button class="extensions-run-btn extensions-run-btn-muted" data-extension-action="uninstall" data-identifier="${escapeAttribute(detail.identifier)}">Uninstall</button>`
       : `<button class="extensions-run-btn" data-extension-action="install" data-identifier="${escapeAttribute(detail.identifier)}" ${marketplace?.download_url ? "" : "disabled"}>Install</button>`;
+    const updateAction = hasUpdate
+      ? `<button class="extensions-run-btn" data-extension-action="update" data-identifier="${escapeAttribute(detail.identifier)}">Update to ${escapeHtml(updateInfo!.latest_version)}</button>`
+      : "";
     const supportHtml = support
       ? renderCompatibilityBlock(detail.identifier, support.compatibilityIssues, support.supportedFeatures)
       : `
@@ -575,6 +616,7 @@ export class ExtensionsPanel {
             <div class="extensions-detail-stats">
               <span>${escapeHtml(detail.version)}</span>
               <span>${installed ? "Installed in Athva" : "Marketplace package"}</span>
+              ${hasUpdate ? `<span>Update available: ${escapeHtml(updateInfo!.latest_version)}</span>` : ""}
               ${support ? `<span>${compatibleCount} supported</span><span>${issueCount} issue${issueCount === 1 ? "" : "s"}</span>` : ""}
             </div>
           </div>
@@ -582,6 +624,7 @@ export class ExtensionsPanel {
         <p class="extensions-copy">${escapeHtml(detail.description || "No description provided.")}</p>
         <div class="extensions-detail-actions">
           ${primaryAction}
+          ${updateAction}
           <button class="extensions-run-btn extensions-run-btn-muted" data-extension-action="open-marketplace" data-identifier="${escapeAttribute(detail.identifier)}" data-display-name="${escapeAttribute(detail.display_name)}">Open Marketplace</button>
         </div>
         ${supportHtml}
