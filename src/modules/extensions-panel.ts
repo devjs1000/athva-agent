@@ -33,7 +33,7 @@ interface ExtensionUpdateInfo {
 }
 
 type StatusKind = "idle" | "loading" | "success" | "warning" | "error";
-type ExtensionsTab = "installed" | "recommended" | "search";
+type ExtensionsTab = "installed" | "updates" | "recommended" | "search";
 
 interface ExtensionDetailState {
   kind: "installed" | "marketplace";
@@ -92,6 +92,7 @@ export class ExtensionsPanel {
   private closeBtn: HTMLButtonElement;
   private statusEl: HTMLElement;
   private installedEl: HTMLElement;
+  private updatesEl: HTMLElement;
   private recommendedEl: HTMLElement;
   private resultsEl: HTMLElement;
   private detailEl: HTMLElement;
@@ -125,6 +126,7 @@ export class ExtensionsPanel {
     this.closeBtn = document.getElementById("btn-close-extensions") as HTMLButtonElement;
     this.statusEl = document.getElementById("extensions-status")!;
     this.installedEl = document.getElementById("extensions-installed-list")!;
+    this.updatesEl = document.getElementById("extensions-updates-list")!;
     this.recommendedEl = document.getElementById("extensions-recommended-list")!;
     this.resultsEl = document.getElementById("extensions-results-list")!;
     this.detailEl = document.getElementById("extensions-detail")!;
@@ -133,6 +135,7 @@ export class ExtensionsPanel {
     this.listSubtitleEl = document.getElementById("extensions-list-subtitle")!;
     this.tabButtons = {
       installed: document.getElementById("extensions-tab-installed") as HTMLButtonElement,
+      updates: document.getElementById("extensions-tab-updates") as HTMLButtonElement,
       recommended: document.getElementById("extensions-tab-recommended") as HTMLButtonElement,
       search: document.getElementById("extensions-tab-search") as HTMLButtonElement,
     };
@@ -429,6 +432,7 @@ export class ExtensionsPanel {
       this.tabButtons[key].classList.toggle("active", key === tab);
     });
     this.installedEl.classList.toggle("hidden", tab !== "installed");
+    this.updatesEl.classList.toggle("hidden", tab !== "updates");
     this.recommendedEl.classList.toggle("hidden", tab !== "recommended");
     this.resultsEl.classList.toggle("hidden", tab !== "search");
 
@@ -437,6 +441,13 @@ export class ExtensionsPanel {
       this.listSubtitleEl.textContent = "global app store";
       if (!this.selectedDetail && this.installed[0]) {
         this.selectedDetail = { kind: "installed", identifier: this.installed[0].identifier };
+      }
+    } else if (tab === "updates") {
+      this.listTitleEl.textContent = "Updates Available";
+      this.listSubtitleEl.textContent = "installed extensions";
+      const firstUpdatable = this.installed.find((item) => this.options.getUpdateInfo?.(item.identifier)?.update_available);
+      if (!this.selectedDetail && firstUpdatable) {
+        this.selectedDetail = { kind: "installed", identifier: firstUpdatable.identifier };
       }
     } else if (tab === "recommended") {
       this.listTitleEl.textContent = "Recommended";
@@ -457,6 +468,7 @@ export class ExtensionsPanel {
 
   private renderAllLists() {
     this.renderInstalled();
+    this.renderUpdates();
     this.renderRecommended();
     this.renderResults();
   }
@@ -506,6 +518,35 @@ export class ExtensionsPanel {
       selected: this.selectedDetail?.identifier === item.identifier && this.selectedDetail.kind === "marketplace",
       action: "select-marketplace",
     })).join("");
+  }
+
+  private renderUpdates() {
+    const updatable = this.installed.filter((item) => this.options.getUpdateInfo?.(item.identifier)?.update_available);
+    if (!updatable.length) {
+      this.updatesEl.innerHTML = `
+        <div class="extensions-empty-state">
+          <div class="extensions-empty-title">Everything is up to date</div>
+          <div class="extensions-empty-copy">No installed extensions currently require an update.</div>
+        </div>
+      `;
+      return;
+    }
+
+    this.updatesEl.innerHTML = updatable.map((item) => {
+      const updateInfo = this.options.getUpdateInfo?.(item.identifier);
+      const nextVersion = updateInfo?.latest_version ? `→ ${updateInfo.latest_version}` : "update available";
+      return this.renderListCard({
+        kind: "installed",
+        identifier: item.identifier,
+        displayName: item.display_name,
+        version: item.version,
+        description: item.description,
+        subtitle: `${item.identifier} · ${nextVersion}`,
+        iconUrl: "",
+        selected: this.selectedDetail?.identifier === item.identifier,
+        action: "select-installed",
+      });
+    }).join("");
   }
 
   private renderResults() {
