@@ -105,7 +105,10 @@ class TreeItem {
 const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
 const StatusBarAlignment = { Left: 1, Right: 2 };
 const ViewColumn = { One: 1, Two: 2, Three: 3, Active: -1, Beside: -2 };
+const UIKind = { Desktop: 1, Web: 2 };
+const QuickPickItemKind = { Default: 0, Separator: -1 };
 const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Info: 2, Hint: 3 };
+const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 };
 const LogLevel = { Trace: 1, Debug: 2, Info: 3, Warning: 4, Error: 5, Off: 6 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
@@ -113,6 +116,7 @@ const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 const InlineCompletionEndOfLifeReasonKind = { Accepted: 1, Rejected: 2, Ignored: 3 };
 const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitCancel: 2 };
 const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
+const ChatEditingSessionActionOutcome = { Accepted: 1, Rejected: 2, Saved: 3 };
 class CodeActionKindValue {
   constructor(value = "") { this.value = String(value); }
   append(part) {
@@ -220,6 +224,9 @@ class CompletionItem {
     this.label = label;
     this.kind = kind;
   }
+}
+class InlineCompletionList {
+  constructor(items = []) { this.items = Array.isArray(items) ? items : []; }
 }
 
 class CodeAction {
@@ -604,6 +611,7 @@ function _getConfigValue(section, key) {
 
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
+  isTrusted: true,
   get name() { return _workspaceFolders[0]?.name || ""; },
   get rootPath() { return _workspaceFolders[0]?.uri?.fsPath || undefined; },
   get workspaceFile() { return undefined; },
@@ -617,6 +625,7 @@ const workspace = {
   onDidOpenNotebookDocument: onDidOpenNotebookDocumentEmitter.event,
   onDidCloseNotebookDocument: onDidCloseNotebookDocumentEmitter.event,
   onDidChangeNotebookDocument: onDidChangeNotebookDocumentEmitter.event,
+  onDidGrantWorkspaceTrust: new EventEmitter().event,
 
   getConfiguration(section) {
     const sectionData = section ? (_configuration[section] || {}) : _configuration;
@@ -672,6 +681,14 @@ const workspace = {
       }
     }
     return toPosix(path.basename(inputPath) || inputPath);
+  },
+  getWorkspaceFolder(uri) {
+    const target = uri && typeof uri === "object" ? (uri.fsPath || uri.path || "") : String(uri || "");
+    for (const folder of _workspaceFolders) {
+      const root = folder?.uri?.fsPath || "";
+      if (target && root && target.startsWith(root)) return folder;
+    }
+    return _workspaceFolders[0];
   },
 
   findFiles(include, exclude, maxResults) {
@@ -846,7 +863,12 @@ const workspace = {
 // ── window ────────────────────────────────────────────────────────────────────
 
 const window = {
-  tabGroups: { all: [] },
+  tabGroups: {
+    all: [],
+    activeTabGroup: undefined,
+    onDidChangeTabGroups: new EventEmitter().event,
+    onDidChangeTabs: new EventEmitter().event,
+  },
   onDidChangeWindowState: new EventEmitter().event,
   onDidChangeTerminalShellIntegration: new EventEmitter().event,
   createTreeView(viewId, options) {
@@ -1043,6 +1065,8 @@ const languages = {
   _diagnostics: new Map(),
   _completionProviders: new Set(),
   _codeActionProviders: new Set(),
+  inlineCompletionsUnificationState: { expAssignments: [] },
+  onDidChangeCompletionsUnificationState: new EventEmitter().event,
   createDiagnosticCollection(name) {
     const key = String(name || "default");
     const store = new Map();
@@ -1178,6 +1202,22 @@ const env = {
   machineId: "athva-machine",
   sessionId: "athva-session",
   uriScheme: "athva",
+  uiKind: UIKind.Desktop,
+  devDeviceId: "athva-device",
+  isTelemetryEnabled: true,
+  onDidChangeTelemetryEnabled: new EventEmitter().event,
+  createTelemetryLogger: () => {
+    const stateEmitter = new EventEmitter();
+    return ensureDisposable({
+      isUsageEnabled: true,
+      isErrorsEnabled: true,
+      onDidChangeEnableStates: stateEmitter.event,
+      onDidChangeEnablement: stateEmitter.event,
+      logUsage() {},
+      logError() {},
+      dispose() {},
+    });
+  },
   remoteName: undefined,
   shell: process.env.SHELL || "/bin/zsh",
   openExternal: (uri) => { send({ type: "openExternal", uri: uri.toString() }); return Promise.resolve(true); },
@@ -1194,6 +1234,7 @@ function formatL10n(message, args) {
 }
 
 const l10n = {
+  bundle: {},
   t(message, ...args) {
     return formatL10n(message, args);
   },
@@ -1344,13 +1385,16 @@ async function handleMessage(msg) {
 }
 
 const vscodeApi = {
+  __esModule: true,
   // value types
   Uri, RelativePattern, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
   CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
+  InlineCompletionList,
   TextDocument, TextEditor,
-  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, LogLevel, CodeActionKind,
+  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind, LogLevel, CodeActionKind,
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind,
-  DiagnosticSeverity, ConfigurationTarget, ExtensionMode, FileType,
+  ChatEditingSessionActionOutcome,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType,
   FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
