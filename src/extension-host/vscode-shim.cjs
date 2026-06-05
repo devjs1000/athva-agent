@@ -128,6 +128,7 @@ const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitC
 const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
 const ChatEditingSessionActionOutcome = { Accepted: 1, Rejected: 2, Saved: 3 };
 const ExcludeSettingOptions = { None: 0, FilesExclude: 1, SearchAndFilesExclude: 2 };
+const LanguageStatusSeverity = { Information: 0, Warning: 1, Error: 2 };
 class CodeActionKindValue {
   constructor(value = "") { this.value = String(value); }
   append(part) {
@@ -283,6 +284,44 @@ class DocumentLink {
     this.tooltip = undefined;
     this.data = undefined;
   }
+}
+
+class SymbolInformation {
+  constructor(name, kind, containerNameOrRange, locationOrUri, containerName) {
+    this.name = name;
+    this.kind = kind;
+    if (containerNameOrRange instanceof Range) {
+      this.location = new Location(locationOrUri, containerNameOrRange);
+      this.containerName = containerName || "";
+    } else {
+      this.location = locationOrUri || {};
+      this.containerName = containerNameOrRange || "";
+    }
+  }
+}
+
+class CallHierarchyItem {
+  constructor(kind, name, detail, uri, range, selectionRange) {
+    this.kind = kind; this.name = name; this.detail = detail;
+    this.uri = uri; this.range = range; this.selectionRange = selectionRange;
+  }
+}
+
+class TypeHierarchyItem {
+  constructor(kind, name, detail, uri, range, selectionRange) {
+    this.kind = kind; this.name = name; this.detail = detail;
+    this.uri = uri; this.range = range; this.selectionRange = selectionRange;
+  }
+}
+
+class InlayHint {
+  constructor(position, label, kind) {
+    this.position = position; this.label = label; this.kind = kind;
+  }
+}
+
+class CancellationError extends Error {
+  constructor() { super("Cancelled"); this.name = "CancellationError"; }
 }
 
 function makeTextEditor(document) {
@@ -642,6 +681,11 @@ const onDidChangeNotebookDocumentEmitter = new EventEmitter();
 const onDidChangeConfigurationEmitter = new EventEmitter();
 const onDidRenameFilesEmitter = new EventEmitter();
 const onDidDeleteFilesEmitter = new EventEmitter();
+const onWillSaveTextDocumentEmitter = new EventEmitter();
+const onDidCreateFilesEmitter = new EventEmitter();
+const onWillCreateFilesEmitter = new EventEmitter();
+const onWillRenameFilesEmitter = new EventEmitter();
+const onWillDeleteFilesEmitter = new EventEmitter();
 const textDocuments = [];
 const authSessionsEmitter = new EventEmitter();
 const authProviders = new Map();
@@ -707,6 +751,11 @@ const workspace = {
   onDidGrantWorkspaceTrust: new EventEmitter().event,
   onDidRenameFiles: onDidRenameFilesEmitter.event,
   onDidDeleteFiles: onDidDeleteFilesEmitter.event,
+  onWillSaveTextDocument: onWillSaveTextDocumentEmitter.event,
+  onDidCreateFiles: onDidCreateFilesEmitter.event,
+  onWillCreateFiles: onWillCreateFilesEmitter.event,
+  onWillRenameFiles: onWillRenameFilesEmitter.event,
+  onWillDeleteFiles: onWillDeleteFilesEmitter.event,
 
   getConfiguration(section) {
     const sectionData = section ? (_configuration[section] || {}) : _configuration;
@@ -731,15 +780,32 @@ const workspace = {
       },
       update(key, value) { sectionData[key] = value; return Promise.resolve(); },
     };
-    // Proxy so extensions can access config values as direct properties (e.g. config.tagGroups)
+    // Proxy so extensions can access config values as direct properties (e.g. config.tagGroups).
+    // Returns a deep-safe proxy for missing keys so chained access like config["a"]["b"]["c"]
+    // never throws — each missing level returns another safe proxy that returns undefined for
+    // leaf reads and {} for Object.keys() calls.
+    function makeDeepSafeProxy(obj) {
+      if (obj !== null && typeof obj === "object") return obj;
+      const target = Object.create(null);
+      return new Proxy(target, {
+        get(t, prop) {
+          if (typeof prop === "symbol") return undefined;
+          if (prop === "then") return undefined;
+          if (prop === "toString") return () => "";
+          const val = t[prop];
+          return val !== undefined ? val : makeDeepSafeProxy(undefined);
+        },
+      });
+    }
     return new Proxy(api, {
       get(target, prop) {
         if (prop in target) return target[prop];
+        if (typeof prop === "symbol") return undefined;
         // Direct property access: look up the value the same way .get() does
-        const val = _getConfigValue(section, prop);
-        // Return an empty object for missing keys to avoid common crashes like
-        // Object.keys(config.someObject) when defaults are not available.
-        return val !== undefined ? val : {};
+        const val = _getConfigValue(section, String(prop));
+        if (val !== undefined) return val;
+        // Return a deep-safe proxy so chained property access never throws
+        return makeDeepSafeProxy(undefined);
       },
     });
   },
@@ -787,6 +853,33 @@ const workspace = {
         const rel = toPosix(path.relative(root, filePath));
         if (!globMatch(rel, includePattern)) return true;
         if (excludePattern && globMatch(rel, excludePattern)) return true;
+        if (seen.has(filePath)) return true;
+        seen.add(filePath);
+        results.push(Uri.file(filePath));
+        return true;
+      });
+      if (results.length >= limit) break;
+    }
+    return Promise.resolve(results);
+  },
+
+  findFiles2(includes, options) {
+    const patterns = Array.isArray(includes) ? includes : [includes];
+    const limit = Number.isFinite(Number(options?.maxResults)) && Number(options?.maxResults) > 0
+      ? Number(options?.maxResults) : 10_000;
+    const excludePatterns = (options?.exclude || []).map(normalizeGlobPattern).filter(Boolean);
+    const results = [];
+    const seen = new Set();
+
+    for (const folder of _workspaceFolders) {
+      const root = folder?.uri?.fsPath;
+      if (!root || !fs.existsSync(root)) continue;
+      walkFiles(root, (filePath) => {
+        if (results.length >= limit) return false;
+        const rel = toPosix(path.relative(root, filePath));
+        const matchesInclude = patterns.some(p => globMatch(rel, normalizeGlobPattern(p)));
+        if (!matchesInclude) return true;
+        if (excludePatterns.some(ex => globMatch(rel, ex))) return true;
         if (seen.has(filePath)) return true;
         seen.add(filePath);
         results.push(Uri.file(filePath));
@@ -1184,6 +1277,18 @@ const languages = {
       }
     }
     return uri ? (rows[0]?.[1] || []) : rows;
+  },
+  registerTypeDefinitionProvider: () => new Disposable(() => {}),
+  registerImplementationProvider: () => new Disposable(() => {}),
+  registerDeclarationProvider: () => new Disposable(() => {}),
+  createLanguageStatusItem(id, _selector) {
+    const emitter = new EventEmitter();
+    const item = ensureDisposable({
+      id, text: "", detail: "", severity: 0, command: undefined, busy: false,
+      onDidDispose: emitter.event,
+      dispose() { emitter.fire(); },
+    });
+    return item;
   },
   registerHoverProvider: () => new Disposable(() => {}),
   registerCompletionItemProvider(_selector, provider) {
@@ -1644,13 +1749,14 @@ const vscodeApi = {
   __esModule: true,
   // value types
   Uri, RelativePattern, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
-  CancellationTokenSource, CancellationToken, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
+  CancellationTokenSource, CancellationToken, CancellationError, SnippetString, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, CodeLens, DocumentLink, Diagnostic,
+  SymbolInformation, CallHierarchyItem, TypeHierarchyItem, InlayHint,
   InlineCompletionList,
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind, LogLevel, CodeActionKind,
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind,
   ChatEditingSessionActionOutcome,
-  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions, LanguageStatusSeverity,
   FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces

@@ -109,6 +109,7 @@ const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitC
 const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
 const ChatEditingSessionActionOutcome = { Accepted: 1, Rejected: 2, Saved: 3 };
 const ExcludeSettingOptions = { None: 0, FilesExclude: 1, SearchAndFilesExclude: 2 };
+const LanguageStatusSeverity = { Information: 0, Warning: 1, Error: 2 };
 
 class EventEmitter {
   constructor() {
@@ -187,6 +188,44 @@ class Diagnostic {
     this.source = undefined;
     this.code = undefined;
   }
+}
+
+class SymbolInformation {
+  constructor(name, kind, containerNameOrRange, locationOrUri, containerName) {
+    this.name = name;
+    this.kind = kind;
+    if (containerNameOrRange instanceof Range) {
+      this.location = { uri: locationOrUri, range: containerNameOrRange };
+      this.containerName = containerName || "";
+    } else {
+      this.location = locationOrUri || {};
+      this.containerName = containerNameOrRange || "";
+    }
+  }
+}
+
+class CallHierarchyItem {
+  constructor(kind, name, detail, uri, range, selectionRange) {
+    this.kind = kind; this.name = name; this.detail = detail;
+    this.uri = uri; this.range = range; this.selectionRange = selectionRange;
+  }
+}
+
+class TypeHierarchyItem {
+  constructor(kind, name, detail, uri, range, selectionRange) {
+    this.kind = kind; this.name = name; this.detail = detail;
+    this.uri = uri; this.range = range; this.selectionRange = selectionRange;
+  }
+}
+
+class InlayHint {
+  constructor(position, label, kind) {
+    this.position = position; this.label = label; this.kind = kind;
+  }
+}
+
+class CancellationError extends Error {
+  constructor() { super("Cancelled"); this.name = "CancellationError"; }
 }
 
 class CancellationTokenSource {
@@ -308,6 +347,11 @@ const activeDebugSessionEmitter = new EventEmitter();
 const debugCustomEventEmitter = new EventEmitter();
 const onDidRenameFilesEmitter = new EventEmitter();
 const onDidDeleteFilesEmitter = new EventEmitter();
+const onWillSaveTextDocumentEmitter = new EventEmitter();
+const onDidCreateFilesEmitter = new EventEmitter();
+const onWillCreateFilesEmitter = new EventEmitter();
+const onWillRenameFilesEmitter = new EventEmitter();
+const onWillDeleteFilesEmitter = new EventEmitter();
 
 // ── workspace ────────────────────────────────────────────────────────────────
 
@@ -330,6 +374,11 @@ const workspace = {
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
   onDidRenameFiles: onDidRenameFilesEmitter.event,
   onDidDeleteFiles: onDidDeleteFilesEmitter.event,
+  onWillSaveTextDocument: onWillSaveTextDocumentEmitter.event,
+  onDidCreateFiles: onDidCreateFilesEmitter.event,
+  onWillCreateFiles: onWillCreateFilesEmitter.event,
+  onWillRenameFiles: onWillRenameFilesEmitter.event,
+  onWillDeleteFiles: onWillDeleteFilesEmitter.event,
   onDidSaveNotebookDocument: notebookSaveEmitter.event,
   onDidGrantWorkspaceTrust: new EventEmitter().event,
 
@@ -348,16 +397,29 @@ const workspace = {
       update(key, value) { sectionData[key] = value; return Promise.resolve(); },
     };
 
+    function makeDeepSafeProxy(obj) {
+      if (obj !== null && typeof obj === "object") return obj;
+      const t = Object.create(null);
+      return new Proxy(t, {
+        get(_, prop) {
+          if (typeof prop === "symbol" || prop === "then") return undefined;
+          if (prop === "toString") return () => "";
+          return makeDeepSafeProxy(undefined);
+        },
+      });
+    }
+
     // VS Code extensions sometimes (incorrectly) read config values via property access
     // (e.g. getConfiguration('x').someKey). Provide a Proxy to match that behavior.
     return new Proxy(config, {
       get(target, prop) {
         if (prop in target) return target[prop];
+        if (typeof prop === "symbol") return undefined;
         if (typeof prop === "string") {
           const val = sectionData[prop];
           if (val !== undefined) return val;
-          // Common pattern: Object.keys(config.someObject). Default to empty object.
-          return {};
+          // Return a deep-safe proxy so chained property access never throws
+          return makeDeepSafeProxy(undefined);
         }
         return undefined;
       },
@@ -398,6 +460,10 @@ const workspace = {
 
   findFiles(include, exclude, maxResults) {
     // Bridge to renderer for actual file search
+    return Promise.resolve([]);
+  },
+
+  findFiles2(includes, options) {
     return Promise.resolve([]);
   },
 
@@ -724,6 +790,14 @@ const languages = {
     }
     return uri ? (rows[0]?.[1] || []) : rows;
   },
+  registerTypeDefinitionProvider: () => new Disposable(() => {}),
+  registerImplementationProvider: () => new Disposable(() => {}),
+  registerDeclarationProvider: () => new Disposable(() => {}),
+  createLanguageStatusItem(id, _selector) {
+    const emitter = new EventEmitter();
+    return { id, text: "", detail: "", severity: 0, command: undefined, busy: false,
+      onDidDispose: emitter.event, dispose() { emitter.fire(); } };
+  },
   registerHoverProvider: () => new Disposable(() => {}),
   registerCompletionItemProvider: () => new Disposable(() => {}),
   registerDefinitionProvider: () => new Disposable(() => {}),
@@ -1033,11 +1107,12 @@ const vscodeApi = {
   __esModule: true,
   // value types
   Uri, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
-  CancellationTokenSource, CancellationToken, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, Diagnostic, InlineCompletionList,
+  CancellationTokenSource, CancellationToken, CancellationError, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, Diagnostic, InlineCompletionList,
+  SymbolInformation, CallHierarchyItem, TypeHierarchyItem, InlayHint,
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind,
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind, ChatEditingSessionActionOutcome,
-  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions, LanguageStatusSeverity,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
   workspace: withApiFallback(workspace, "vscode.workspace"),
