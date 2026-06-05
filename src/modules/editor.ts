@@ -1517,6 +1517,7 @@ export class Editor {
         }
         const html = renderCSVPreview(content);
         this.svgPreviewEl.innerHTML = html;
+        this.attachSpreadsheetPreviewUI();
         break;
       }
       case "txt": {
@@ -1547,14 +1548,15 @@ export class Editor {
       }
       case "xlsx": {
         this.svgPreviewEl.classList.remove("md-mode");
-        if (content.length > 2_000_000) {
-          this.svgPreviewEl.innerHTML = `<div class="preview-error">File too large to preview (&gt;2MB).</div>`;
-          break;
-        }
         try {
-          const uint8 = new TextEncoder().encode(content);
-          const html = await renderXlsxPreview(uint8.buffer);
+          const bytes = await readFile(tab.path);
+          if (bytes.byteLength > 2_000_000) {
+            this.svgPreviewEl.innerHTML = `<div class="preview-error">File too large to preview (&gt;2MB).</div>`;
+            break;
+          }
+          const html = await renderXlsxPreview(bytes.buffer);
           this.svgPreviewEl.innerHTML = html;
+          this.attachSpreadsheetPreviewUI();
         } catch (e) {
           this.svgPreviewEl.innerHTML = `<div class="preview-error">Failed to render XLSX: ${e}</div>`;
         }
@@ -1680,6 +1682,35 @@ export class Editor {
     }, { passive: false });
 
     applyScale();
+  }
+
+  private attachSpreadsheetPreviewUI() {
+    const tabs = Array.from(this.svgPreviewEl.querySelectorAll<HTMLButtonElement>("[data-sheet-target]"));
+    const panels = Array.from(this.svgPreviewEl.querySelectorAll<HTMLElement>("[data-sheet-panel]"));
+    const activeMeta = this.svgPreviewEl.querySelector<HTMLElement>(".preview-meta-pill:last-child");
+    if (tabs.length === 0 || panels.length === 0) return;
+
+    const activate = (target: string) => {
+      tabs.forEach((tabButton) => {
+        const isActive = tabButton.dataset.sheetTarget === target;
+        tabButton.classList.toggle("active", isActive);
+        tabButton.setAttribute("aria-selected", isActive ? "true" : "false");
+        if (isActive && activeMeta) {
+          const name = tabButton.dataset.sheetName ?? "Sheet";
+          activeMeta.innerHTML = `<strong>Active</strong>${name}`;
+        }
+      });
+
+      panels.forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.sheetPanel === target);
+      });
+    };
+
+    tabs.forEach((tabButton) => {
+      tabButton.addEventListener("click", () => {
+        activate(tabButton.dataset.sheetTarget ?? "0");
+      });
+    });
   }
 
   private async loadMediaPreview(path: string, ext: string, kind: "img" | "video" | "audio") {

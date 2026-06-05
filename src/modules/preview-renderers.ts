@@ -78,35 +78,101 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Render CSV as an HTML table */
-export function renderCSVPreview(csv: string): string {
-  const { headers, rows } = parseCSV(csv);
+function countColumns(headers: string[], rows: string[][]): number {
+  return rows.reduce((max, row) => Math.max(max, row.length), headers.length);
+}
 
-  if (rows.length === 0) {
-    return '<div class="preview-empty">No data</div>';
-  }
+function renderSpreadsheetTable(headers: string[], rows: string[][]): string {
+  const columnCount = countColumns(headers, rows);
+  const normalizedHeaders = Array.from({ length: columnCount }, (_, index) => {
+    const label = headers[index]?.trim();
+    return label && label.length > 0 ? label : `Column ${index + 1}`;
+  });
 
-  const headerRow = headers
-    .map((h) => `<th class="preview-th">${escHtml(h)}</th>`)
-    .join("");
+  const headerRow = `
+    <tr>
+      <th class="preview-row-index preview-row-index-head">#</th>
+      ${normalizedHeaders
+        .map((header) => `<th class="preview-th" title="${escHtml(header)}">${escHtml(header)}</th>`)
+        .join("")}
+    </tr>
+  `;
 
   const dataRows = rows
-    .map(
-      (row) =>
-        `<tr>${row
-          .map((cell) => `<td class="preview-td">${escHtml(cell)}</td>`)
-          .join("")}</tr>`
-    )
+    .map((row, rowIndex) => {
+      const cells = Array.from({ length: columnCount }, (_, columnIndex) => row[columnIndex] ?? "");
+      return `
+        <tr>
+          <td class="preview-row-index">${rowIndex + 1}</td>
+          ${cells
+            .map((cell) => {
+              const value = String(cell ?? "");
+              return `<td class="preview-td" title="${escHtml(value)}">${escHtml(value) || "&nbsp;"}</td>`;
+            })
+            .join("")}
+        </tr>
+      `;
+    })
     .join("");
 
   return `
-    <div class="spreadsheet-container">
+    <div class="preview-grid-wrap">
       <table class="preview-table">
-        <thead><tr>${headerRow}</tr></thead>
+        <thead>${headerRow}</thead>
         <tbody>${dataRows}</tbody>
       </table>
     </div>
   `;
+}
+
+function renderPreviewMeta(items: Array<[string, string]>): string {
+  return items
+    .map(([label, value]) => `<span class="preview-meta-pill"><strong>${escHtml(label)}</strong>${escHtml(value)}</span>`)
+    .join("");
+}
+
+function renderSpreadsheetShell(title: string, subtitle: string, meta: Array<[string, string]>, body: string): string {
+  return `
+    <div class="spreadsheet-container" data-preview-shell="spreadsheet">
+      <div class="preview-shell-header">
+        <div class="preview-shell-copy">
+          <span class="preview-shell-eyebrow">Data Preview</span>
+          <h2 class="preview-shell-title">${escHtml(title)}</h2>
+          <p class="preview-shell-subtitle">${escHtml(subtitle)}</p>
+        </div>
+        <div class="preview-meta-row">
+          ${renderPreviewMeta(meta)}
+        </div>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+interface WorkbookSheetPreview {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  html: string;
+}
+
+/** Render CSV as an HTML table */
+export function renderCSVPreview(csv: string): string {
+  const { headers, rows } = parseCSV(csv);
+
+  if (headers.length === 0 && rows.length === 0) {
+    return '<div class="preview-empty">No data</div>';
+  }
+
+  return renderSpreadsheetShell(
+    "CSV Preview",
+    "Structured table view for comma-separated data.",
+    [
+      ["Rows", String(rows.length)],
+      ["Columns", String(countColumns(headers, rows))],
+    ],
+    renderSpreadsheetTable(headers, rows)
+  );
 }
 
 /** Render mermaid diagram */
@@ -163,7 +229,24 @@ export function renderTextPreview(text: string): string {
     })
     .join("");
 
-  return `<div class="text-document-container">${formatted}</div>`;
+  return `
+    <div class="text-document-container">
+      <div class="preview-shell-header">
+        <div class="preview-shell-copy">
+          <span class="preview-shell-eyebrow">Document Preview</span>
+          <h2 class="preview-shell-title">Text Preview</h2>
+          <p class="preview-shell-subtitle">Readable document layout with link detection and preserved spacing.</p>
+        </div>
+        <div class="preview-meta-row">
+          ${renderPreviewMeta([
+            ["Lines", String(lines.length)],
+            ["Words", String(text.trim() ? text.trim().split(/\s+/).length : 0)],
+          ])}
+        </div>
+      </div>
+      <article class="text-document-paper">${formatted}</article>
+    </div>
+  `;
 }
 
 /** Try to load XLSX file and render as table — requires xlsx lib */
@@ -176,44 +259,71 @@ export async function renderXlsxPreview(arrayBuffer: ArrayBuffer): Promise<strin
     }
 
     const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) return '<div class="preview-empty">Empty workbook</div>';
+    const sheetNames = workbook.SheetNames ?? [];
+    const firstSheetName = sheetNames[0];
+    if (!firstSheetName) return '<div class="preview-empty">Empty workbook</div>';
 
-    const sheet = workbook.Sheets[sheetName];
-    const data: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const sheetPanels: WorkbookSheetPreview[] = sheetNames
+      .map((sheetName: string, index: number) => {
+        const sheet = workbook.Sheets[sheetName];
+        const data: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const [headerRow = [], ...dataRows] = data;
+        const columnCount = countColumns(
+          headerRow.map((cell) => String(cell ?? "")),
+          dataRows.map((row) => (row ?? []).map((cell) => String(cell ?? "")))
+        );
 
-    if (data.length === 0) {
+        return {
+          name: sheetName,
+          rowCount: dataRows.length,
+          columnCount,
+          html: `
+            <section class="sheet-panel${index === 0 ? " active" : ""}" data-sheet-panel="${index}">
+              ${renderSpreadsheetTable(
+                headerRow.map((cell) => String(cell ?? "")),
+                dataRows.map((row) => (row ?? []).map((cell) => String(cell ?? "")))
+              )}
+            </section>
+          `,
+        };
+      });
+
+    if (sheetPanels.length === 0) {
       return '<div class="preview-empty">No data in sheet</div>';
     }
 
-    const [headerRow, ...dataRows] = data;
-    const headerHtml = (headerRow ?? [])
-      .map((h) => `<th class="preview-th">${escHtml(String(h ?? ""))}</th>`)
-      .join("");
-
-    const rowsHtml = dataRows
-      .map(
-        (row) =>
-          `<tr>${(row ?? [])
-            .map((cell) => `<td class="preview-td">${escHtml(String(cell ?? ""))}</td>`)
-            .join("")}</tr>`
-      )
-      .join("");
-
-    return `
-      <div class="spreadsheet-container">
-        <div class="sheet-tabs">
-          ${workbook.SheetNames.map(
-            (name: string, i: number) =>
-              `<button class="sheet-tab${i === 0 ? " active" : ""}">${escHtml(name)}</button>`
-          ).join("")}
+    return renderSpreadsheetShell(
+      "Workbook Preview",
+      "Switch between sheets without leaving the preview surface.",
+      [
+        ["Sheets", String(sheetPanels.length)],
+        ["Active", firstSheetName],
+      ],
+      `
+        <div class="sheet-tabs" role="tablist" aria-label="Workbook sheets">
+          ${sheetPanels
+            .map(
+              (sheet, index) => `
+                <button
+                  type="button"
+                  class="sheet-tab${index === 0 ? " active" : ""}"
+                  data-sheet-target="${index}"
+                  data-sheet-name="${escHtml(sheet.name)}"
+                  role="tab"
+                  aria-selected="${index === 0 ? "true" : "false"}"
+                >
+                  <span class="sheet-tab-name">${escHtml(sheet.name)}</span>
+                  <span class="sheet-tab-meta">${sheet.rowCount}r / ${sheet.columnCount}c</span>
+                </button>
+              `
+            )
+            .join("")}
         </div>
-        <table class="preview-table">
-          <thead><tr>${headerHtml}</tr></thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-      </div>
-    `;
+        <div class="sheet-panels">
+          ${sheetPanels.map((sheet) => sheet.html).join("")}
+        </div>
+      `,
+    );
   } catch (e) {
     return `<div class="preview-error">Failed to parse XLSX: ${escHtml(String(e))}</div>`;
   }
