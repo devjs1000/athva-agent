@@ -118,9 +118,26 @@ export async function renderFlowPreview(mermaidCode: string): Promise<string> {
     }
 
     const id = `mermaid-${Date.now()}`;
-    // Return HTML with mermaid class — will be rendered after DOM insertion
-    // Note: mermaid will process this and render the diagram when mermaid.run() is called
-    return `<div class="mermaid-container"><div id="${id}" class="mermaid">${mermaidCode}</div></div>`;
+    return `
+      <div class="mermaid-container">
+        <div class="mermaid-toolbar">
+          <div class="mermaid-toolbar-copy">
+            <span class="mermaid-toolbar-title">Flow Preview</span>
+            <span class="mermaid-toolbar-subtitle">Zoom with buttons or Cmd/Ctrl + scroll</span>
+          </div>
+          <div class="mermaid-toolbar-actions">
+            <button type="button" class="mermaid-zoom-btn" data-mermaid-zoom="out">-</button>
+            <button type="button" class="mermaid-zoom-btn" data-mermaid-zoom="reset">100%</button>
+            <button type="button" class="mermaid-zoom-btn" data-mermaid-zoom="in">+</button>
+          </div>
+        </div>
+        <div class="mermaid-stage" data-mermaid-stage>
+          <div class="mermaid-scale-wrap" data-mermaid-scale="1">
+            <div id="${id}" class="mermaid">${mermaidCode}</div>
+          </div>
+        </div>
+      </div>
+    `;
   } catch (e) {
     return `<div class="preview-error">Failed to render diagram: ${escHtml(String(e))}</div>`;
   }

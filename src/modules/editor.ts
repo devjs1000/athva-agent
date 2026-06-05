@@ -1541,6 +1541,7 @@ export class Editor {
           } else {
             console.warn("Mermaid not loaded");
           }
+          this.attachFlowPreviewUI();
         }, 0);
         break;
       }
@@ -1602,8 +1603,8 @@ export class Editor {
       progress.max = duration > 0 ? String(duration) : "100";
       progress.value = String(Math.min(current, duration || 100));
       timeEl.textContent = `${this.formatMediaTime(current)} / ${duration > 0 ? this.formatMediaTime(duration) : "--:--"}`;
-      playBtn.textContent = mediaEl.paused ? "Play" : "Pause";
-      muteBtn.textContent = mediaEl.muted ? "Unmute" : "Mute";
+      playBtn.innerHTML = mediaEl.paused ? `<span aria-hidden="true">▶</span><span>Play</span>` : `<span aria-hidden="true">❚❚</span><span>Pause</span>`;
+      muteBtn.innerHTML = mediaEl.muted || mediaEl.volume === 0 ? `<span aria-hidden="true">🔇</span><span>Muted</span>` : `<span aria-hidden="true">🔊</span><span>Sound</span>`;
     };
 
     playBtn.addEventListener("click", () => {
@@ -1647,6 +1648,40 @@ export class Editor {
     syncControls();
   }
 
+  private attachFlowPreviewUI() {
+    const stage = this.svgPreviewEl.querySelector<HTMLElement>("[data-mermaid-stage]");
+    const scaleWrap = this.svgPreviewEl.querySelector<HTMLElement>(".mermaid-scale-wrap");
+    const resetBtn = this.svgPreviewEl.querySelector<HTMLButtonElement>('[data-mermaid-zoom="reset"]');
+    if (!stage || !scaleWrap || !resetBtn) return;
+
+    let scale = Number(scaleWrap.dataset.mermaidScale || "1");
+    const applyScale = () => {
+      scale = Math.max(0.4, Math.min(2.5, scale));
+      scaleWrap.dataset.mermaidScale = String(scale);
+      scaleWrap.style.transform = `scale(${scale})`;
+      resetBtn.textContent = `${Math.round(scale * 100)}%`;
+    };
+
+    this.svgPreviewEl.querySelectorAll<HTMLElement>("[data-mermaid-zoom]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const action = button.dataset.mermaidZoom;
+        if (action === "in") scale += 0.15;
+        if (action === "out") scale -= 0.15;
+        if (action === "reset") scale = 1;
+        applyScale();
+      });
+    });
+
+    stage.addEventListener("wheel", (event) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      scale += event.deltaY < 0 ? 0.12 : -0.12;
+      applyScale();
+    }, { passive: false });
+
+    applyScale();
+  }
+
   private async loadMediaPreview(path: string, ext: string, kind: "img" | "video" | "audio") {
     // Only render if this path is still the active tab
     if (this.activeTab !== path) return;
@@ -1672,6 +1707,7 @@ export class Editor {
               <span class="media-player-name">${fileName}</span>
             </div>
             <div class="media-player-stage">
+              ${kind === "audio" ? `<div class="media-player-audio-art" aria-hidden="true">♪</div>` : ""}
               ${mediaTag}
             </div>
             <div class="media-player-controls">
