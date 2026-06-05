@@ -1163,6 +1163,22 @@
                       <!-- Populated dynamically based on provider -->
                     </select>
                   </div>
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <label for="setting-github-token">GitHub Token (Copilot)</label>
+                      <span class="setting-hint">Stored in macOS Keychain and injected into extension host.</span>
+                    </div>
+                    <input id="setting-github-token" type="password" placeholder="ghp_..." />
+                  </div>
+                  <div class="setting-row">
+                    <div class="setting-label-group">
+                      <span id="setting-github-token-status" class="setting-hint">Not set</span>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                      <button id="btn-setting-github-token-save" class="btn-secondary" type="button">Save Token</button>
+                      <button id="btn-setting-github-token-clear" class="btn-secondary" type="button">Clear</button>
+                    </div>
+                  </div>
                 </div>
               </section>
 

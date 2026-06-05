@@ -29,6 +29,7 @@ export interface ExtensionRuntimeOptions {
   mainPath: string;
   workspaceFolders: string[];
   configuration?: Record<string, unknown>;
+  githubToken?: string;
   onStatus?: (status: RuntimeStatus, message?: string) => void;
   onHostError?: (message: string, stack?: string) => void;
   onViewRegistered?: (viewId: string, viewType: "tree" | "webview") => void;
@@ -109,15 +110,23 @@ export class ExtensionRuntime {
         `fi`,
         `exec "$NODE_BIN" "$@"`,
       ].join("\n");
-      const cmd = Command.create("sh", [
-        "-c",
-        launchScript,
-        "--",
-        hostScript,
-        this.opts.mainPath,
-        this.opts.extensionId,
-        this.opts.installPath,
-      ]);
+      const cmd = Command.create(
+        "sh",
+        [
+          "-c",
+          launchScript,
+          "--",
+          hostScript,
+          this.opts.mainPath,
+          this.opts.extensionId,
+          this.opts.installPath,
+        ],
+        {
+          env: this.opts.githubToken
+            ? { ATHVA_GITHUB_TOKEN: this.opts.githubToken }
+            : {},
+        }
+      );
 
       cmd.stdout.on("data", (line: string) => this.handleOutput(line));
       cmd.stderr.on("data", (line: string) => {
@@ -339,7 +348,10 @@ export class ExtensionRuntime {
       }
 
       case "openExternal":
-        // Let main handle this
+        try {
+          const uri = String(msg.uri ?? "");
+          if (uri) window.open(uri, "_blank", "noopener,noreferrer");
+        } catch {}
         break;
     }
   }

@@ -51,6 +51,16 @@ class Uri {
     const path = require("path");
     return Uri.file(path.join(base.fsPath || base.path, ...segments));
   }
+  static from(components = {}) {
+    const scheme = components.scheme || "file";
+    const authority = components.authority || "";
+    const p = components.path || "";
+    const query = components.query || "";
+    const fragment = components.fragment || "";
+    const u = new Uri(scheme, authority, p, query, fragment);
+    if (scheme === "file") u.fsPath = p;
+    return u;
+  }
 }
 
 class RelativePattern {
@@ -436,11 +446,39 @@ const notebookCloseEmitter = new EventEmitter();
 const notebookChangeEmitter = new EventEmitter();
 const activeNotebookEditorEmitter = new EventEmitter();
 const gitRepositoryEmitter = new EventEmitter();
+const gitStateEmitter = new EventEmitter();
+const gitInputEmitter = new EventEmitter();
+const gitRepoStateEmitter = new EventEmitter();
+const mockGitRepository = {
+  rootUri: Uri.file(""),
+  state: {
+    HEAD: undefined,
+    refs: [],
+    indexChanges: [],
+    workingTreeChanges: [],
+    mergeChanges: [],
+    onDidChange: gitRepoStateEmitter.event,
+  },
+  inputBox: {
+    value: "",
+    placeholder: "",
+    onDidChange: gitInputEmitter.event,
+  },
+  ui: { selected: false },
+  status: async () => {},
+  add: async () => {},
+  commit: async () => {},
+  checkout: async () => {},
+  fetch: async () => {},
+  pull: async () => {},
+  push: async () => {},
+};
 const gitApi = {
-  repositories: [],
+  repositories: [mockGitRepository],
   onDidOpenRepository: gitRepositoryEmitter.event,
   onDidCloseRepository: new EventEmitter().event,
-  getRepository: () => undefined,
+  onDidChangeState: gitStateEmitter.event,
+  getRepository: () => mockGitRepository,
 };
 
 function makeWebviewBridge(viewId) {
@@ -597,7 +635,41 @@ const onDidOpenNotebookDocumentEmitter = new EventEmitter();
 const onDidCloseNotebookDocumentEmitter = new EventEmitter();
 const onDidChangeNotebookDocumentEmitter = new EventEmitter();
 const onDidChangeConfigurationEmitter = new EventEmitter();
+const onDidRenameFilesEmitter = new EventEmitter();
+const onDidDeleteFilesEmitter = new EventEmitter();
 const textDocuments = [];
+const authSessionsEmitter = new EventEmitter();
+const authProviders = new Map();
+
+function resolveGithubToken() {
+  const keys = [
+    "ATHVA_GITHUB_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "COPILOT_GITHUB_TOKEN",
+  ];
+  for (const key of keys) {
+    const val = process.env[key];
+    if (typeof val === "string" && val.trim()) return val.trim();
+  }
+  return "";
+}
+
+function makeGithubSession() {
+  const token = resolveGithubToken();
+  if (!token) return undefined;
+  return {
+    id: "athva-github-session",
+    accessToken: token,
+    account: { id: "athva-user", label: "Athva GitHub" },
+    scopes: ["read:user", "user:email", "repo", "copilot"],
+  };
+}
+
+function getGithubAccount() {
+  const session = makeGithubSession();
+  return session ? session.account : undefined;
+}
 
 function _getConfigValue(section, key) {
   // Check explicit config first, then schema defaults
@@ -612,6 +684,7 @@ function _getConfigValue(section, key) {
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
   isTrusted: true,
+  isAgentSessionsWorkspace: false,
   get name() { return _workspaceFolders[0]?.name || ""; },
   get rootPath() { return _workspaceFolders[0]?.uri?.fsPath || undefined; },
   get workspaceFile() { return undefined; },
@@ -626,6 +699,8 @@ const workspace = {
   onDidCloseNotebookDocument: onDidCloseNotebookDocumentEmitter.event,
   onDidChangeNotebookDocument: onDidChangeNotebookDocumentEmitter.event,
   onDidGrantWorkspaceTrust: new EventEmitter().event,
+  onDidRenameFiles: onDidRenameFilesEmitter.event,
+  onDidDeleteFiles: onDidDeleteFilesEmitter.event,
 
   getConfiguration(section) {
     const sectionData = section ? (_configuration[section] || {}) : _configuration;
@@ -863,6 +938,7 @@ const workspace = {
 // ── window ────────────────────────────────────────────────────────────────────
 
 const window = {
+  state: { focused: true, active: true },
   tabGroups: {
     all: [],
     activeTabGroup: undefined,
@@ -871,6 +947,10 @@ const window = {
   },
   onDidChangeWindowState: new EventEmitter().event,
   onDidChangeTerminalShellIntegration: new EventEmitter().event,
+  onDidChangeTerminalState: new EventEmitter().event,
+  onDidWriteTerminalData: new EventEmitter().event,
+  onDidExecuteTerminalCommand: new EventEmitter().event,
+  onDidCloseTerminal: new EventEmitter().event,
   createTreeView(viewId, options) {
     const provider = options.treeDataProvider;
     treeProviders.set(viewId, { provider });
@@ -900,6 +980,9 @@ const window = {
       reveal: () => Promise.resolve(),
       dispose: () => { treeProviders.delete(viewId); },
     });
+  },
+  registerTreeDataProvider(viewId, provider) {
+    return window.createTreeView(viewId, { treeDataProvider: provider });
   },
 
   createStatusBarItem(alignmentOrId, priority) {
@@ -1022,6 +1105,7 @@ const window = {
     });
   },
   registerCustomEditorProvider: () => new Disposable(() => {}),
+  createChatStatusItem: () => ensureDisposable({ text: "", tooltip: "", command: undefined, show() {}, hide() {}, dispose() {} }),
   createTerminal(optionsOrName) {
     const terminal = {
       name: typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal"),
@@ -1033,6 +1117,8 @@ const window = {
     };
     return ensureDisposable(terminal);
   },
+  registerTerminalLinkProvider: () => new Disposable(() => {}),
+  registerTerminalProfileProvider: () => new Disposable(() => {}),
 };
 
 // ── commands ──────────────────────────────────────────────────────────────────
@@ -1111,6 +1197,7 @@ const languages = {
   registerDocumentSemanticTokensProvider: () => new Disposable(() => {}),
   registerColorProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
+  onDidChangeDiagnostics: new EventEmitter().event,
   getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
 };
@@ -1152,10 +1239,58 @@ const notebooks = {
 };
 
 const authentication = {
-  onDidChangeSessions: new EventEmitter().event,
-  getSession: () => Promise.resolve(undefined),
-  getAccounts: () => Promise.resolve([]),
-  registerAuthenticationProvider: () => new Disposable(() => {}),
+  onDidChangeSessions: authSessionsEmitter.event,
+  async getSession(providerId, scopes, options) {
+    const provider = authProviders.get(providerId);
+    if (provider && typeof provider.getSessions === "function") {
+      try {
+        const sessions = await provider.getSessions(Array.isArray(scopes) ? scopes : []);
+        if (Array.isArray(sessions) && sessions.length > 0) return sessions[0];
+      } catch {}
+    }
+    if (providerId !== "github") return undefined;
+    const session = makeGithubSession();
+    if (session) return session;
+    if (options?.createIfNone) {
+      send({
+        type: "notification",
+        level: "warning",
+        message: "GitHub auth required. Set ATHVA_GITHUB_TOKEN (or GITHUB_TOKEN) and restart Athva.",
+      });
+    }
+    return undefined;
+  },
+  getAccounts(providerId) {
+    if (providerId === "github") {
+      const account = getGithubAccount();
+      return Promise.resolve(account ? [account] : []);
+    }
+    const provider = authProviders.get(providerId);
+    if (provider && typeof provider.getSessions === "function") {
+      return Promise.resolve()
+        .then(() => provider.getSessions([]))
+        .then((sessions) => {
+          if (!Array.isArray(sessions)) return [];
+          const seen = new Set();
+          const accounts = [];
+          for (const session of sessions) {
+            const account = session?.account;
+            if (!account?.id || seen.has(account.id)) continue;
+            seen.add(account.id);
+            accounts.push(account);
+          }
+          return accounts;
+        })
+        .catch(() => []);
+    }
+    return Promise.resolve([]);
+  },
+  registerAuthenticationProvider(id, _label, provider) {
+    if (id && provider && typeof provider === "object") authProviders.set(id, provider);
+    return new Disposable(() => {
+      if (id) authProviders.delete(id);
+    });
+  },
 };
 
 const tasks = {
@@ -1179,6 +1314,44 @@ const debug = {
 
 const chat = {
   createChatParticipant: () => ensureDisposable({ dispose() {} }),
+  onDidDisposeChatSession: new EventEmitter().event,
+  onDidChangeCustomAgents: new EventEmitter().event,
+  onDidChangeInstructions: new EventEmitter().event,
+  onDidChangeSkills: new EventEmitter().event,
+  onDidChangeHooks: new EventEmitter().event,
+  onDidChangePlugins: new EventEmitter().event,
+  registerChatSessionItemProvider: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      enabled: true,
+      isEnabled: true,
+      onDidChangeEnablement: emitter.event,
+      onDidChangeEnableStates: emitter.event,
+      onDidChangeChatSessionItemState: emitter.event,
+      dispose() {},
+    });
+  },
+  registerChatSessionContentProvider: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      enabled: true,
+      isEnabled: true,
+      onDidChangeEnablement: emitter.event,
+      onDidChangeEnableStates: emitter.event,
+      dispose() {},
+    });
+  },
+  registerChatSessionCustomizationProvider: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      enabled: true,
+      isEnabled: true,
+      onDidChangeEnablement: emitter.event,
+      onDidChangeEnableStates: emitter.event,
+      dispose() {},
+    });
+  },
+  getCustomAgents: async () => [],
 };
 
 const lm = {
@@ -1222,6 +1395,28 @@ const env = {
   shell: process.env.SHELL || "/bin/zsh",
   openExternal: (uri) => { send({ type: "openExternal", uri: uri.toString() }); return Promise.resolve(true); },
   clipboard: { readText: () => Promise.resolve(""), writeText: () => Promise.resolve() },
+  getDataChannel: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      onDidReceiveData: emitter.event,
+      append() {},
+      send() {},
+      dispose() {},
+    });
+  },
+  power: {
+    isOnBatteryPower: async () => false,
+    getCurrentThermalState: async () => "nominal",
+    getSystemIdleTime: async () => 0,
+    onDidSuspend: new EventEmitter().event,
+    onDidResume: new EventEmitter().event,
+    onDidChangeOnBatteryPower: new EventEmitter().event,
+    onDidChangeThermalState: new EventEmitter().event,
+    onDidChangeSpeedLimit: new EventEmitter().event,
+    onWillShutdown: new EventEmitter().event,
+    onDidLockScreen: new EventEmitter().event,
+    onDidUnlockScreen: new EventEmitter().event,
+  },
 };
 
 // Report a VS Code-like version so extensions can gate behavior.
@@ -1245,15 +1440,45 @@ const l10n = {
 const extensions = {
   all: [],
   getExtension: (id) => {
+    const ensureEnablementShape = (ext) => {
+      if (!ext || typeof ext !== "object") return ext;
+      if (typeof ext.enabled !== "boolean") ext.enabled = true;
+      if (typeof ext.onDidChangeEnablement !== "function") {
+        const emitter = new EventEmitter();
+        ext.onDidChangeEnablement = emitter.event;
+      }
+      return ext;
+    };
     if (id === "vscode.git") {
-      const exports = { getAPI: () => gitApi };
-      return {
+      const enablementEmitter = new EventEmitter();
+      const exports = {
+        enabled: true,
+        onDidChangeEnablement: enablementEmitter.event,
+        getAPI: () => gitApi,
+      };
+      return ensureEnablementShape({
         id: "vscode.git",
         isActive: true,
+        enabled: true,
+        onDidChangeEnablement: enablementEmitter.event,
         exports,
         activate: () => Promise.resolve(exports),
         packageJSON: { name: "git", publisher: "vscode", version: "1.0.0" },
+      });
+    }
+    if (id === "vscode.github-authentication") {
+      const exports = {
+        getSession: (...args) => authentication.getSession("github", ...(args || [])),
       };
+      return ensureEnablementShape({
+        id: "vscode.github-authentication",
+        isActive: true,
+        enabled: true,
+        onDidChangeEnablement: new EventEmitter().event,
+        exports,
+        activate: () => Promise.resolve(exports),
+        packageJSON: { name: "github-authentication", publisher: "vscode", version: "1.0.0" },
+      });
     }
     return undefined;
   },

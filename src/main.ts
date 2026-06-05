@@ -86,6 +86,16 @@ const webviewBridgeRuntimeById = new Map<string, ExtensionRuntime>();
 const webviewBridgeViewIdById = new Map<string, string>();
 const webviewBridgeIframeSelectorById = new Map<string, string>();
 let runtimeCompletionProviderRegistered = false;
+let extensionHostGithubToken = "";
+
+async function refreshExtensionHostGithubToken() {
+  try {
+    const token = await invoke<string | null>("get_secret", { key: "github_token" });
+    extensionHostGithubToken = typeof token === "string" ? token.trim() : "";
+  } catch {
+    extensionHostGithubToken = "";
+  }
+}
 
 interface GitContributionDay {
   date: string;
@@ -1693,6 +1703,7 @@ function ensureRuntimeCompletionProvider() {
           mainPath: resolveExtMainPath(installed.install_path, snapshot),
           workspaceFolders: currentProjectPath ? [currentProjectPath] : [],
           configuration: {},
+          githubToken: extensionHostGithubToken,
           onStatus: () => {},
           onHostError: (message, stack) => {
             const hinted = withUnsupportedApiHint(message, stack);
@@ -1978,6 +1989,7 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     mainPath: resolveExtMainPath(installed.install_path, snapshot),
     workspaceFolders: currentProjectPath ? [currentProjectPath] : [],
     configuration: {},
+    githubToken: extensionHostGithubToken,
     onStatus: (status, msg) => {
       if (activeVcId !== vc.id) return;
       const el = document.getElementById("ext-view-panel-body");
@@ -2886,6 +2898,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   initIdeLogsCapture();
   // Load settings
   appSettings = await loadSettings();
+  await refreshExtensionHostGithubToken();
+  window.addEventListener("athva:github-token-changed", () => { void refreshExtensionHostGithubToken(); });
   void syncNativeTranslucentMode(!!appSettings.appearance.translucentMode);
   refreshSecuritySession(appSettings);
 

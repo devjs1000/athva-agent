@@ -40,6 +40,16 @@ class Uri {
     const path = require("path");
     return Uri.file(path.join(base.fsPath || base.path, ...segments));
   }
+  static from(components = {}) {
+    const scheme = components.scheme || "file";
+    const authority = components.authority || "";
+    const p = components.path || "";
+    const query = components.query || "";
+    const fragment = components.fragment || "";
+    const u = new Uri(scheme, authority, p, query, fragment);
+    if (scheme === "file") u.fsPath = p;
+    return u;
+  }
 }
 
 class Range {
@@ -290,6 +300,8 @@ const notebookSerializers = new Map();
 const notebookOpenEmitter = new EventEmitter();
 const notebookCloseEmitter = new EventEmitter();
 const notebookChangeEmitter = new EventEmitter();
+const onDidRenameFilesEmitter = new EventEmitter();
+const onDidDeleteFilesEmitter = new EventEmitter();
 
 // ── workspace ────────────────────────────────────────────────────────────────
 
@@ -303,12 +315,15 @@ const workspaceFoldersEmitter = new EventEmitter();
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
   isTrusted: true,
+  isAgentSessionsWorkspace: false,
   get name() { return _workspaceFolders[0]?.name || ""; },
   get rootPath() { return _workspaceFolders[0]?.uri?.fsPath || undefined; },
   get workspaceFile() { return undefined; },
   get textDocuments() { return textDocuments; },
   get notebookDocuments() { return notebookDocuments; },
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
+  onDidRenameFiles: onDidRenameFilesEmitter.event,
+  onDidDeleteFiles: onDidDeleteFilesEmitter.event,
   onDidGrantWorkspaceTrust: new EventEmitter().event,
 
   getConfiguration(section) {
@@ -523,6 +538,10 @@ const window = {
   },
   onDidChangeWindowState: new EventEmitter().event,
   onDidChangeTerminalShellIntegration: new EventEmitter().event,
+  onDidChangeTerminalState: new EventEmitter().event,
+  onDidWriteTerminalData: new EventEmitter().event,
+  onDidExecuteTerminalCommand: new EventEmitter().event,
+  onDidCloseTerminal: new EventEmitter().event,
   createTreeView(viewId, options) {
     const provider = options.treeDataProvider;
     treeProviders.set(viewId, { provider });
@@ -552,6 +571,9 @@ const window = {
       reveal: () => Promise.resolve(),
       dispose: () => { treeProviders.delete(viewId); },
     };
+  },
+  registerTreeDataProvider(viewId, provider) {
+    return window.createTreeView(viewId, { treeDataProvider: provider });
   },
 
   createStatusBarItem(alignmentOrId, priority) {
@@ -628,6 +650,7 @@ const window = {
   },
   registerWebviewViewProvider: () => new Disposable(() => {}),
   registerCustomEditorProvider: () => new Disposable(() => {}),
+  createChatStatusItem: () => ensureDisposable({ text: "", tooltip: "", command: undefined, show() {}, hide() {}, dispose() {} }),
   createTerminal(optionsOrName) {
     const terminal = {
       name: typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal"),
@@ -639,6 +662,8 @@ const window = {
     };
     return terminal;
   },
+  registerTerminalLinkProvider: () => new Disposable(() => {}),
+  registerTerminalProfileProvider: () => new Disposable(() => {}),
 };
 
 // ── commands ──────────────────────────────────────────────────────────────────
@@ -694,6 +719,7 @@ const languages = {
   registerDefinitionProvider: () => new Disposable(() => {}),
   registerCodeActionsProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
+  onDidChangeDiagnostics: new EventEmitter().event,
   getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
 };
@@ -762,6 +788,28 @@ const env = {
   shell: process.env.SHELL || "/bin/zsh",
   openExternal: (uri) => { send({ type: "openExternal", uri: uri.toString() }); return Promise.resolve(true); },
   clipboard: { readText: () => Promise.resolve(""), writeText: () => Promise.resolve() },
+  getDataChannel: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      onDidReceiveData: emitter.event,
+      append() {},
+      send() {},
+      dispose() {},
+    });
+  },
+  power: {
+    isOnBatteryPower: async () => false,
+    getCurrentThermalState: async () => "nominal",
+    getSystemIdleTime: async () => 0,
+    onDidSuspend: new EventEmitter().event,
+    onDidResume: new EventEmitter().event,
+    onDidChangeOnBatteryPower: new EventEmitter().event,
+    onDidChangeThermalState: new EventEmitter().event,
+    onDidChangeSpeedLimit: new EventEmitter().event,
+    onWillShutdown: new EventEmitter().event,
+    onDidLockScreen: new EventEmitter().event,
+    onDidUnlockScreen: new EventEmitter().event,
+  },
 };
 
 const version = "1.106.0";
@@ -783,7 +831,35 @@ const l10n = {
 
 const extensions = {
   all: [],
-  getExtension: () => undefined,
+  getExtension: (id) => {
+    const ensureEnablementShape = (ext) => {
+      if (!ext || typeof ext !== "object") return ext;
+      if (typeof ext.enabled !== "boolean") ext.enabled = true;
+      if (typeof ext.onDidChangeEnablement !== "function") {
+        const emitter = new EventEmitter();
+        ext.onDidChangeEnablement = emitter.event;
+      }
+      return ext;
+    };
+    if (id === "vscode.git") {
+      const enablementEmitter = new EventEmitter();
+      const exports = {
+        enabled: true,
+        onDidChangeEnablement: enablementEmitter.event,
+        getAPI: () => ({ repositories: [] }),
+      };
+      return ensureEnablementShape({
+        id: "vscode.git",
+        isActive: true,
+        enabled: true,
+        onDidChangeEnablement: enablementEmitter.event,
+        exports,
+        activate: () => Promise.resolve(exports),
+        packageJSON: { name: "git", publisher: "vscode", version: "1.0.0" },
+      });
+    }
+    return undefined;
+  },
   onDidChange: new EventEmitter().event,
 };
 

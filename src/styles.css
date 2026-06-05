@@ -3902,6 +3902,11 @@ body {
   display: none;
 }
 
+body.split-pane-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .editor-protected-banner {
   position: absolute;
   top: 10px;

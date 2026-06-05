@@ -13,6 +13,7 @@ import { ContextManager } from "./context-manager";
 import { renderCSVPreview, renderFlowPreview, renderTextPreview, renderXlsxPreview } from "./preview-renderers";
 import { ColorHighlighter } from "./color-highlighter";
 import { ErrorLens } from "./error-lens";
+import { clampSplitLeftWidth, computeSplitLeftWidthFromPointer } from "./split-layout";
 import type { AISettings } from "./settings";
 import * as prettier from "prettier/standalone";
 import * as prettierBabel from "prettier/plugins/babel";
@@ -256,6 +257,8 @@ export class Editor {
   private rightMonacoEditor: monaco.editor.IStandaloneCodeEditor | null = null;
   private splitDividerEl: HTMLElement = document.createElement("div");
   private splitLeftWidth = 50;
+  private splitLayoutFrame: number | null = null;
+  private pendingSplitLeftWidth: number | null = null;
   private webPlaceholderEl: HTMLElement = document.createElement("div");
   private webResizeObserver: ResizeObserver | null = null;
   private mediaPreviewEl: HTMLElement = document.createElement("div");
@@ -3187,24 +3190,54 @@ export class Editor {
     const el = this.splitDividerEl;
     el.addEventListener("mousedown", (startEvt) => {
       startEvt.preventDefault();
-      const container = this.editorEl.parentElement!;
-      const containerRect = container.getBoundingClientRect();
+      const container = this.editorEl.parentElement;
+      if (!container) return;
       el.classList.add("dragging");
+      document.body.classList.add("split-pane-dragging");
       const onMove = (e: MouseEvent) => {
-        const pct = Math.min(80, Math.max(20, ((e.clientX - containerRect.left) / containerRect.width) * 100));
-        this.splitLeftWidth = pct;
-        container.style.setProperty("--split-left-width", `${pct}%`);
-        this.monacoEditor.layout();
-        this.rightMonacoEditor?.layout();
+        const containerRect = container.getBoundingClientRect();
+        const nextWidth = computeSplitLeftWidthFromPointer(
+          containerRect.left,
+          containerRect.width,
+          e.clientX,
+          this.splitLeftWidth,
+        );
+        this.scheduleSplitLayout(container, nextWidth);
       };
       const onUp = () => {
         el.classList.remove("dragging");
+        document.body.classList.remove("split-pane-dragging");
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
+        this.flushPendingSplitLayout(container);
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     });
+  }
+
+  private scheduleSplitLayout(container: HTMLElement, nextWidth: number) {
+    const clampedWidth = clampSplitLeftWidth(nextWidth, this.splitLeftWidth);
+    if (Math.abs(clampedWidth - this.splitLeftWidth) < 0.1 && this.pendingSplitLeftWidth === null) {
+      return;
+    }
+
+    this.pendingSplitLeftWidth = clampedWidth;
+    if (this.splitLayoutFrame !== null) return;
+
+    this.splitLayoutFrame = window.requestAnimationFrame(() => {
+      this.splitLayoutFrame = null;
+      this.flushPendingSplitLayout(container);
+    });
+  }
+
+  private flushPendingSplitLayout(container: HTMLElement) {
+    if (this.pendingSplitLeftWidth === null) return;
+    this.splitLeftWidth = clampSplitLeftWidth(this.pendingSplitLeftWidth, this.splitLeftWidth);
+    this.pendingSplitLeftWidth = null;
+    container.style.setProperty("--split-left-width", `${this.splitLeftWidth}%`);
+    this.monacoEditor.layout();
+    this.rightMonacoEditor?.layout();
   }
 
   private splitTab(path: string, pane: "left" | "right") {
@@ -3236,6 +3269,7 @@ export class Editor {
     this.rightEditorEl.classList.toggle("hidden", !enabled);
     this.splitDividerEl.classList.toggle("hidden", !enabled);
     if (enabled) {
+      this.splitLeftWidth = clampSplitLeftWidth(this.splitLeftWidth);
       container.style.setProperty("--split-left-width", `${this.splitLeftWidth}%`);
     } else {
       container.style.removeProperty("--split-left-width");

@@ -1116,6 +1116,77 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+fn set_secret(key: String, value: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let service = "com.devjs1000.athva-agent";
+        let status = Command::new("security")
+            .args([
+                "add-generic-password",
+                "-U",
+                "-s",
+                service,
+                "-a",
+                key.as_str(),
+                "-w",
+                value.as_str(),
+            ])
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(format!("security command failed with status {}", status));
+    }
+    #[allow(unreachable_code)]
+    Err("Secure secret storage is not supported on this platform yet".to_string())
+}
+
+#[tauri::command]
+fn get_secret(key: String) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let service = "com.devjs1000.athva-agent";
+        let out = Command::new("security")
+            .args(["find-generic-password", "-s", service, "-a", key.as_str(), "-w"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(value));
+        }
+        return Ok(None);
+    }
+    #[allow(unreachable_code)]
+    Ok(None)
+}
+
+#[tauri::command]
+fn delete_secret(key: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let service = "com.devjs1000.athva-agent";
+        let out = Command::new("security")
+            .args(["delete-generic-password", "-s", service, "-a", key.as_str()])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if stderr.contains("could not be found") {
+            return Ok(());
+        }
+        return Err(format!("security delete failed: {}", stderr.trim()));
+    }
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[tauri::command]
 fn set_window_translucent_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -2540,6 +2611,9 @@ pub fn run() {
             git_blame_file,
             load_settings,
             save_settings,
+            set_secret,
+            get_secret,
+            delete_secret,
             set_window_translucent_mode,
             search_vscode_extensions,
             list_installed_vscode_extensions,

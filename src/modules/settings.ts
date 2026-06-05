@@ -289,6 +289,10 @@ export class SettingsUI {
   private providerEl: HTMLSelectElement;
   private apiKeyEl: HTMLInputElement;
   private modelEl: HTMLSelectElement;
+  private githubTokenEl: HTMLInputElement;
+  private githubTokenStatusEl: HTMLElement;
+  private githubTokenSaveBtnEl: HTMLButtonElement;
+  private githubTokenClearBtnEl: HTMLButtonElement;
 
   // Agent access elements
   private accessFileReadEl: HTMLInputElement;
@@ -370,6 +374,10 @@ export class SettingsUI {
     this.providerEl = document.getElementById("setting-ai-provider") as HTMLSelectElement;
     this.apiKeyEl = document.getElementById("setting-ai-api-key") as HTMLInputElement;
     this.modelEl = document.getElementById("setting-ai-model") as HTMLSelectElement;
+    this.githubTokenEl = document.getElementById("setting-github-token") as HTMLInputElement;
+    this.githubTokenStatusEl = document.getElementById("setting-github-token-status") as HTMLElement;
+    this.githubTokenSaveBtnEl = document.getElementById("btn-setting-github-token-save") as HTMLButtonElement;
+    this.githubTokenClearBtnEl = document.getElementById("btn-setting-github-token-clear") as HTMLButtonElement;
 
     this.accessFileReadEl = document.getElementById("setting-access-file-read") as HTMLInputElement;
     this.accessFileWriteEl = document.getElementById("setting-access-file-write") as HTMLInputElement;
@@ -440,6 +448,7 @@ export class SettingsUI {
     this.populateFromSettings();
     this.bindEvents();
     this.applyFilters();
+    void this.loadGithubTokenSecret();
   }
 
   updateSettings(settings: AppSettings) {
@@ -734,6 +743,8 @@ export class SettingsUI {
       const provider = this.providerEl.value;
       this.populateModelDropdown(provider, "");
     });
+    this.githubTokenSaveBtnEl.addEventListener("click", () => void this.saveGithubTokenSecret());
+    this.githubTokenClearBtnEl.addEventListener("click", () => void this.clearGithubTokenSecret());
 
     this.searchEl.addEventListener("input", () => this.applyFilters());
 
@@ -950,6 +961,44 @@ export class SettingsUI {
       await saveSettings(this.settings);
       this.showSavedToast();
     });
+  }
+
+  private async loadGithubTokenSecret() {
+    try {
+      const token = await invoke<string | null>("get_secret", { key: "github_token" });
+      const hasToken = typeof token === "string" && token.trim().length > 0;
+      this.githubTokenEl.value = "";
+      this.githubTokenStatusEl.textContent = hasToken ? "Saved in Keychain" : "Not set";
+    } catch {
+      this.githubTokenStatusEl.textContent = "Keychain unavailable";
+    }
+  }
+
+  private async saveGithubTokenSecret() {
+    const token = this.githubTokenEl.value.trim();
+    if (!token) {
+      this.githubTokenStatusEl.textContent = "Enter a token first";
+      return;
+    }
+    try {
+      await invoke("set_secret", { key: "github_token", value: token });
+      this.githubTokenEl.value = "";
+      this.githubTokenStatusEl.textContent = "Saved in Keychain";
+      window.dispatchEvent(new CustomEvent("athva:github-token-changed"));
+    } catch {
+      this.githubTokenStatusEl.textContent = "Failed to save token";
+    }
+  }
+
+  private async clearGithubTokenSecret() {
+    try {
+      await invoke("delete_secret", { key: "github_token" });
+      this.githubTokenEl.value = "";
+      this.githubTokenStatusEl.textContent = "Not set";
+      window.dispatchEvent(new CustomEvent("athva:github-token-changed"));
+    } catch {
+      this.githubTokenStatusEl.textContent = "Failed to clear token";
+    }
   }
 
   private applyFilters() {
