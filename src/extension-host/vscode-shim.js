@@ -108,6 +108,7 @@ const InlineCompletionEndOfLifeReasonKind = { Accepted: 1, Rejected: 2, Ignored:
 const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitCancel: 2 };
 const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
 const ChatEditingSessionActionOutcome = { Accepted: 1, Rejected: 2, Saved: 3 };
+const ExcludeSettingOptions = { None: 0, FilesExclude: 1, SearchAndFilesExclude: 2 };
 
 class EventEmitter {
   constructor() {
@@ -1036,7 +1037,7 @@ const vscodeApi = {
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind,
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind, ChatEditingSessionActionOutcome,
-  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
   workspace: withApiFallback(workspace, "vscode.workspace"),

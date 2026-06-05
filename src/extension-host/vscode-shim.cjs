@@ -127,6 +127,7 @@ const InlineCompletionEndOfLifeReasonKind = { Accepted: 1, Rejected: 2, Ignored:
 const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitCancel: 2 };
 const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
 const ChatEditingSessionActionOutcome = { Accepted: 1, Rejected: 2, Saved: 3 };
+const ExcludeSettingOptions = { None: 0, FilesExclude: 1, SearchAndFilesExclude: 2 };
 class CodeActionKindValue {
   constructor(value = "") { this.value = String(value); }
   append(part) {
@@ -1649,7 +1650,7 @@ const vscodeApi = {
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind, LogLevel, CodeActionKind,
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind,
   ChatEditingSessionActionOutcome,
-  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions,
   FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
