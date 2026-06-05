@@ -199,6 +199,16 @@ export class ExtensionsPanel {
         if (identifier) void this.copyDiagnostics(identifier);
       }
     });
+    this.panelEl.addEventListener("keydown", (event) => {
+      const target = (event.target as HTMLElement).closest("[data-extension-action]") as HTMLElement | null;
+      if (!target) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      target.click();
+    });
+
+    this.statusEl.setAttribute("role", "status");
+    this.statusEl.setAttribute("aria-live", "polite");
 
     this.renderStatus("idle", "Ready", "Search the Visual Studio Marketplace or review installed extensions.");
     this.setActiveTab("installed");
@@ -585,7 +595,7 @@ export class ExtensionsPanel {
     action: "select-installed" | "select-marketplace";
   }): string {
     return `
-      <article class="extensions-list-card${input.selected ? " selected" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}">
+      <article class="extensions-list-card${input.selected ? " selected" : ""}" data-extension-action="${input.action}" data-identifier="${escapeHtml(input.identifier)}" role="button" tabindex="0" aria-pressed="${input.selected ? "true" : "false"}" aria-label="${escapeHtml(input.displayName)}">
         <div class="extensions-result-head">
           ${input.iconUrl ? `<img class="extensions-icon" src="${escapeAttribute(input.iconUrl)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />` : `<div class="extensions-icon extensions-icon-placeholder"></div>`}
           <div class="extensions-result-copy">

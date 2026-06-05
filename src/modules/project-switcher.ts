@@ -48,6 +48,7 @@ function escapeHtml(s: string): string {
 
 export class ProjectSwitcher {
   private overlay: HTMLElement;
+  private dialog: HTMLElement;
   private input: HTMLInputElement;
   private list: HTMLElement;
   private onOpen: OnOpen;
@@ -59,10 +60,14 @@ export class ProjectSwitcher {
 
   constructor(onOpen: OnOpen) {
     this.overlay = document.getElementById("project-switcher-overlay")!;
+    this.dialog = this.overlay.querySelector(".project-switcher") as HTMLElement;
     this.input   = document.getElementById("project-switcher-input") as HTMLInputElement;
     this.list    = document.getElementById("project-switcher-list")!;
     this.onOpen  = onOpen;
     this.starred = new Set(JSON.parse(localStorage.getItem("athva-starred") ?? "[]") as string[]);
+    this.list.id = "project-switcher-list";
+    this.input.setAttribute("aria-controls", this.list.id);
+    this.input.setAttribute("aria-autocomplete", "list");
 
     this.input.addEventListener("input",   () => this.render());
     this.input.addEventListener("keydown", (e) => this.onKey(e));
@@ -84,6 +89,8 @@ export class ProjectSwitcher {
     this.input.value = "";
     this.selectedIdx = 0;
     this.overlay.classList.remove("hidden");
+    this.overlay.setAttribute("aria-modal", "true");
+    this.dialog.setAttribute("aria-busy", "false");
     this.render();
     requestAnimationFrame(() => this.input.focus());
   }
@@ -110,17 +117,22 @@ export class ProjectSwitcher {
     if (this.selectedIdx >= this.filtered.length) this.selectedIdx = 0;
 
     if (this.filtered.length === 0) {
-      this.list.innerHTML = `<div class="ps-empty">No matching projects</div>`;
+      this.list.removeAttribute("aria-activedescendant");
+      this.input.setAttribute("aria-expanded", "false");
+      this.list.innerHTML = `<div class="ps-empty" role="status">No matching projects</div>`;
       return;
     }
+
+    this.input.setAttribute("aria-expanded", "true");
 
     this.list.innerHTML = this.filtered
       .map((p, i) => {
         const badge = detectBadge(p.name, p.path);
         const isStarred = this.starred.has(p.path);
         const active = i === this.selectedIdx ? " active" : "";
+        const optionId = `project-switcher-option-${i}`;
         return `
-          <div class="ps-item${active}" data-idx="${i}" role="option" aria-selected="${i === this.selectedIdx}">
+          <div id="${optionId}" class="ps-item${active}" data-idx="${i}" role="option" aria-selected="${i === this.selectedIdx}">
             <span class="ps-badge ${badge.cls}">${badge.label}</span>
             <div class="ps-info">
               <span class="ps-name">${highlight(p.name, q)}</span>
@@ -155,6 +167,11 @@ export class ProjectSwitcher {
       el.classList.toggle("active", i === this.selectedIdx);
       el.setAttribute("aria-selected", String(i === this.selectedIdx));
     });
+    const activeEl = this.list.querySelector<HTMLElement>(".ps-item.active");
+    if (activeEl?.id) {
+      this.list.setAttribute("aria-activedescendant", activeEl.id);
+      this.input.setAttribute("aria-activedescendant", activeEl.id);
+    }
     this.scrollActive();
   }
 

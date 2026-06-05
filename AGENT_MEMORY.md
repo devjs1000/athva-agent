@@ -14,3 +14,4 @@
 - 2026-05-09: User prefers code bookmark workflow directly from editor selection context-menu, with title/description/tag metadata, severity-like color tags, and a project-level bookmarks panel.
 - 2026-05-21: User wants extension lifecycle UX to be explicit: show install/uninstall progress stages, provide in-product update actions, and auto-check extension update status when IDE/project opens with a clear user alert.
 - 2026-06-06: User is sensitive to split-pane drag quality; regressions to watch for are layout thrash during drag, delayed divider response, and pane widths collapsing into blank editor states.
+- 2026-06-06: When the user asks to improve UI in this repo, treat it as a combined UI and UX pass on shared surfaces first, with keyboard/focus behavior and panel clarity included alongside visual changes.

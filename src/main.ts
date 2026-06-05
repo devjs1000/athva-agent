@@ -846,7 +846,7 @@ async function renderRecentProjects() {
       const isStarred = starredProjects.has(p.path);
       const time = relativeTime(p.last_opened);
       return `
-        <div class="recent-item" data-path="${escapeHtml(p.path)}">
+        <div class="recent-item" data-path="${escapeHtml(p.path)}" role="button" tabindex="0" aria-label="Open project ${escapeHtml(p.name)}">
           <span class="recent-item-badge ${badge.cls}">${badge.label}</span>
           <div class="recent-item-info">
             <span class="recent-item-name">${escapeHtml(p.name)}</span>
@@ -870,6 +870,14 @@ async function renderRecentProjects() {
     el.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
       if (t.closest(".recent-item-remove") || t.closest(".recent-item-star")) return;
+      openProject((el as HTMLElement).dataset.path!);
+    });
+    el.addEventListener("keydown", (e) => {
+      const keyEvent = e as KeyboardEvent;
+      if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+      const t = keyEvent.target as HTMLElement;
+      if (t.closest(".recent-item-remove") || t.closest(".recent-item-star")) return;
+      keyEvent.preventDefault();
       openProject((el as HTMLElement).dataset.path!);
     });
   });
