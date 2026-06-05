@@ -914,6 +914,7 @@ async function openProject(path: string) {
   const project = await addProject(path);
   currentProjectPath = project.path;
   $("workspace-project-name").textContent = project.name;
+  $("workspace-project-path").textContent = project.path;
   showPage("workspace");
 
   await editor.closeAllTabs();
