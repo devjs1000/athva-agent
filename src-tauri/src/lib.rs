@@ -1778,6 +1778,40 @@ fn emit_web_media_state(app: &tauri::AppHandle, label: &str, is_playing: bool) {
     );
 }
 
+fn build_web_media_stop_script() -> &'static str {
+    r#"(function () {
+  try {
+    Array.from(document.querySelectorAll("audio,video")).forEach((media) => {
+      try {
+        media.pause();
+        media.muted = true;
+        if (typeof media.currentTime === "number" && Number.isFinite(media.duration)) {
+          media.currentTime = 0;
+        }
+      } catch (_) {}
+    });
+
+    const monitor = window.__ATHVA_MEDIA_MONITOR__;
+    if (monitor && typeof monitor.cleanup === "function") {
+      try { monitor.cleanup(); } catch (_) {}
+    }
+
+    const contexts = Array.isArray(window.__ATHVA_AUDIO_CONTEXTS__) ? window.__ATHVA_AUDIO_CONTEXTS__ : [];
+    contexts.forEach((ctx) => {
+      try {
+        if (ctx && typeof ctx.suspend === "function") ctx.suspend();
+        if (ctx && typeof ctx.close === "function") ctx.close();
+      } catch (_) {}
+    });
+    window.__ATHVA_AUDIO_CONTEXTS__ = [];
+
+    if (navigator.mediaSession) {
+      try { navigator.mediaSession.playbackState = "none"; } catch (_) {}
+    }
+  } catch (_) {}
+})();"#
+}
+
 fn build_web_media_observer_script(label: &str) -> String {
     let label_json = serde_json::to_string(label).unwrap_or_else(|_| "\"\"".to_string());
     r#"(function () {
@@ -1790,6 +1824,45 @@ fn build_web_media_observer_script(label: &str) -> String {
     window[storeKey].cleanup();
   }
   window[storeKey] = { last: undefined };
+
+  const audioStoreKey = "__ATHVA_AUDIO_CONTEXTS__";
+  if (!Array.isArray(window[audioStoreKey])) {
+    window[audioStoreKey] = [];
+  }
+  const rememberAudioContext = (ctx) => {
+    if (!ctx) return ctx;
+    const list = window[audioStoreKey];
+    if (Array.isArray(list) && !list.includes(ctx)) {
+      list.push(ctx);
+    }
+    return ctx;
+  };
+
+  if (!window.__ATHVA_AUDIO_CONTEXT_PATCHED__) {
+    window.__ATHVA_AUDIO_CONTEXT_PATCHED__ = true;
+    try {
+      const NativeAudioContext = window.AudioContext;
+      if (NativeAudioContext) {
+        window.AudioContext = class AthvaAudioContext extends NativeAudioContext {
+          constructor(...args) {
+            super(...args);
+            rememberAudioContext(this);
+          }
+        };
+      }
+    } catch (_) {}
+    try {
+      const NativeWebkitAudioContext = window.webkitAudioContext;
+      if (NativeWebkitAudioContext) {
+        window.webkitAudioContext = class AthvaWebkitAudioContext extends NativeWebkitAudioContext {
+          constructor(...args) {
+            super(...args);
+            rememberAudioContext(this);
+          }
+        };
+      }
+    } catch (_) {}
+  }
 
   const reportState = () => {
     let isPlaying = false;
@@ -2106,6 +2179,8 @@ fn open_app_window(app: tauri::AppHandle, project: String) -> Result<(), String>
 #[tauri::command]
 fn close_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label) {
+        let _ = wv.eval(build_web_media_stop_script());
+        emit_web_media_state(&app, &label, false);
         wv.close().map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -2114,6 +2189,8 @@ fn close_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> 
 #[tauri::command]
 fn hide_web_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label) {
+        let _ = wv.eval(build_web_media_stop_script());
+        emit_web_media_state(&app, &label, false);
         wv.hide().map_err(|e| e.to_string())?;
     }
     Ok(())

@@ -977,6 +977,7 @@ export class Editor {
     this.tabPane.delete(path);
 
     if (this.activeTab === path) {
+      this.stopActiveMediaPreview(true);
       if (this.tabs.length > 0) {
         const newIdx = Math.min(idx, this.tabs.length - 1);
         this.switchToTab(this.tabs[newIdx].path);
@@ -1235,6 +1236,7 @@ export class Editor {
     if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
 
     this.emptyEl.style.display = "none";
+    this.stopActiveMediaPreview();
 
     if (tab.kind === "web") {
       this.editorEl.style.display = "none";
@@ -1584,6 +1586,39 @@ export class Editor {
     return `${m}:${String(rem).padStart(2, "0")}`;
   }
 
+  private stopActiveMediaPreview(resetPlayhead = false) {
+    const mediaEl = this.mediaPreviewEl.querySelector<HTMLMediaElement>("audio, video");
+    if (!mediaEl) return;
+    try {
+      mediaEl.pause();
+      mediaEl.muted = true;
+      if (resetPlayhead) {
+        mediaEl.currentTime = 0;
+        if (this.activeTab) this.mediaPlayhead.delete(this.activeTab);
+      }
+      mediaEl.removeAttribute("src");
+      mediaEl.load();
+    } catch {
+      // Ignore teardown failures during view switches.
+    }
+  }
+
+  private renderMediaButtonIcon(kind: "play" | "pause" | "mute" | "sound" | "fullscreen"): string {
+    switch (kind) {
+      case "pause":
+        return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3.5h2.5v9H4zm5.5 0H12v9H9.5z"/></svg>`;
+      case "mute":
+        return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6H5l3-2.5v9L5 10H2.5z"/><path d="M10.5 6l3 3m0-3-3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+      case "sound":
+        return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6H5l3-2.5v9L5 10H2.5z"/><path d="M10.3 5.2a4 4 0 0 1 0 5.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11.9 3.9a6 6 0 0 1 0 8.2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+      case "fullscreen":
+        return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      case "play":
+      default:
+        return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3.3 12 8l-7.5 4.7z"/></svg>`;
+    }
+  }
+
   private attachMediaPlayerUI(path: string, mediaEl: HTMLMediaElement, kind: "video" | "audio") {
     const playBtn = this.mediaPreviewEl.querySelector<HTMLButtonElement>(".media-player-btn-play");
     const muteBtn = this.mediaPreviewEl.querySelector<HTMLButtonElement>(".media-player-btn-mute");
@@ -1605,8 +1640,12 @@ export class Editor {
       progress.max = duration > 0 ? String(duration) : "100";
       progress.value = String(Math.min(current, duration || 100));
       timeEl.textContent = `${this.formatMediaTime(current)} / ${duration > 0 ? this.formatMediaTime(duration) : "--:--"}`;
-      playBtn.innerHTML = mediaEl.paused ? `<span aria-hidden="true">▶</span><span>Play</span>` : `<span aria-hidden="true">❚❚</span><span>Pause</span>`;
-      muteBtn.innerHTML = mediaEl.muted || mediaEl.volume === 0 ? `<span aria-hidden="true">🔇</span><span>Muted</span>` : `<span aria-hidden="true">🔊</span><span>Sound</span>`;
+      playBtn.innerHTML = mediaEl.paused
+        ? `${this.renderMediaButtonIcon("play")}<span>Play</span>`
+        : `${this.renderMediaButtonIcon("pause")}<span>Pause</span>`;
+      muteBtn.innerHTML = mediaEl.muted || mediaEl.volume === 0
+        ? `${this.renderMediaButtonIcon("mute")}<span>Muted</span>`
+        : `${this.renderMediaButtonIcon("sound")}<span>Sound</span>`;
     };
 
     playBtn.addEventListener("click", () => {
@@ -1635,6 +1674,7 @@ export class Editor {
       fullBtn.addEventListener("click", () => {
         mediaEl.requestFullscreen?.().catch(() => {});
       });
+      fullBtn.innerHTML = `${this.renderMediaButtonIcon("fullscreen")}<span>Fullscreen</span>`;
     } else if (fullBtn) {
       fullBtn.classList.add("hidden");
     }
@@ -1737,20 +1777,30 @@ export class Editor {
               <span class="media-player-kind">${kind.toUpperCase()}</span>
               <span class="media-player-name">${fileName}</span>
             </div>
-            <div class="media-player-stage">
-              ${kind === "audio" ? `<div class="media-player-audio-art" aria-hidden="true">♪</div>` : ""}
-              ${mediaTag}
+            <div class="media-player-body media-player-body-${kind}">
+              <div class="media-player-stage">
+                <div class="media-player-stage-frame">
+                  ${kind === "audio" ? `<div class="media-player-audio-art" aria-hidden="true"><span></span><span></span><span></span><span></span></div>` : ""}
+                  ${mediaTag}
+                </div>
+              </div>
+              <aside class="media-player-info">
+                <span class="media-player-kicker">${kind === "audio" ? "Listening view" : "Preview view"}</span>
+                <h3 class="media-player-title">${fileName}</h3>
+                <p class="media-player-summary">${kind === "audio" ? "Focused playback controls with preserved position and faster stop behavior." : "Larger framed playback with cleaner spacing for quick in-editor review."}</p>
+                <div class="media-player-tip">Built for dark theme previews without stealing space from the editor.</div>
+              </aside>
             </div>
             <div class="media-player-controls">
-              <button class="media-player-btn media-player-btn-play" type="button">Play</button>
-              <button class="media-player-btn media-player-btn-mute" type="button">Mute</button>
+              <button class="media-player-btn media-player-btn-play" type="button">${this.renderMediaButtonIcon("play")}<span>Play</span></button>
+              <button class="media-player-btn media-player-btn-mute" type="button">${this.renderMediaButtonIcon("sound")}<span>Sound</span></button>
               <input class="media-player-progress" type="range" min="0" max="100" value="0" />
               <span class="media-player-time">0:00 / --:--</span>
               <label class="media-player-volume-wrap">
                 Vol
                 <input class="media-player-volume" type="range" min="0" max="1" step="0.01" value="1" />
               </label>
-              <button class="media-player-btn media-player-btn-full" type="button">Fullscreen</button>
+              <button class="media-player-btn media-player-btn-full" type="button">${this.renderMediaButtonIcon("fullscreen")}<span>Fullscreen</span></button>
             </div>
           </div>
         `;
