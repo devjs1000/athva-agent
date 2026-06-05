@@ -444,7 +444,11 @@ const notebookControllers = new Map();
 const notebookOpenEmitter = new EventEmitter();
 const notebookCloseEmitter = new EventEmitter();
 const notebookChangeEmitter = new EventEmitter();
+const notebookSaveEmitter = new EventEmitter();
 const activeNotebookEditorEmitter = new EventEmitter();
+const visibleNotebookEditorsEmitter = new EventEmitter();
+const activeDebugSessionEmitter = new EventEmitter();
+const debugCustomEventEmitter = new EventEmitter();
 const gitRepositoryEmitter = new EventEmitter();
 const gitStateEmitter = new EventEmitter();
 const gitInputEmitter = new EventEmitter();
@@ -698,6 +702,7 @@ const workspace = {
   onDidOpenNotebookDocument: onDidOpenNotebookDocumentEmitter.event,
   onDidCloseNotebookDocument: onDidCloseNotebookDocumentEmitter.event,
   onDidChangeNotebookDocument: onDidChangeNotebookDocumentEmitter.event,
+  onDidSaveNotebookDocument: notebookSaveEmitter.event,
   onDidGrantWorkspaceTrust: new EventEmitter().event,
   onDidRenameFiles: onDidRenameFilesEmitter.event,
   onDidDeleteFiles: onDidDeleteFilesEmitter.event,
@@ -1071,6 +1076,7 @@ const window = {
   activeNotebookEditor: undefined,
   visibleNotebookEditors: [],
   onDidChangeActiveNotebookEditor: activeNotebookEditorEmitter.event,
+  onDidChangeVisibleNotebookEditors: visibleNotebookEditorsEmitter.event,
   showNotebookDocument: async (notebookOrUri, _options) => {
     const document = notebookOrUri?.notebookType
       ? notebookOrUri
@@ -1079,6 +1085,7 @@ const window = {
     window.activeNotebookEditor = editor;
     window.visibleNotebookEditors = [editor];
     activeNotebookEditorEmitter.fire(editor);
+    visibleNotebookEditorsEmitter.fire(window.visibleNotebookEditors);
     return editor;
   },
   registerWebviewViewProvider(viewId, provider, _options) {
@@ -1197,6 +1204,7 @@ const languages = {
   registerDocumentSemanticTokensProvider: () => new Disposable(() => {}),
   registerColorProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
+  registerFoldingRangeProvider: () => new Disposable(() => {}),
   onDidChangeDiagnostics: new EventEmitter().event,
   getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
@@ -1231,6 +1239,24 @@ const notebooks = {
   },
   registerNotebookCellStatusBarItemProvider() {
     return new Disposable(() => {});
+  },
+  createNotebookControllerDetectionTask() {
+    return ensureDisposable({
+      dispose() {},
+    });
+  },
+  registerKernelSourceActionProvider() {
+    return new Disposable(() => {});
+  },
+  createRendererMessaging() {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      onDidReceiveMessage: emitter.event,
+      postMessage: async () => true,
+      dispose() {
+        emitter.dispose();
+      },
+    });
   },
   get notebookDocuments() { return notebookDocuments; },
   onDidOpenNotebookDocument: notebookOpenEmitter.event,
@@ -1308,8 +1334,11 @@ const debug = {
   stopDebugging: async () => undefined,
   registerDebugConfigurationProvider: () => new Disposable(() => {}),
   registerDebugAdapterDescriptorFactory: () => new Disposable(() => {}),
+  registerDebugAdapterTrackerFactory: () => new Disposable(() => {}),
   onDidStartDebugSession: new EventEmitter().event,
   onDidTerminateDebugSession: new EventEmitter().event,
+  onDidChangeActiveDebugSession: activeDebugSessionEmitter.event,
+  onDidReceiveDebugSessionCustomEvent: debugCustomEventEmitter.event,
 };
 
 const chat = {
@@ -1362,6 +1391,7 @@ const lm = {
     dispose() {},
   }),
   registerLanguageModelChatProvider: () => new Disposable(() => {}),
+  registerTool: () => new Disposable(() => {}),
   selectChatModels: async () => [],
 };
 

@@ -300,6 +300,11 @@ const notebookSerializers = new Map();
 const notebookOpenEmitter = new EventEmitter();
 const notebookCloseEmitter = new EventEmitter();
 const notebookChangeEmitter = new EventEmitter();
+const notebookSaveEmitter = new EventEmitter();
+const activeNotebookEditorEmitter = new EventEmitter();
+const visibleNotebookEditorsEmitter = new EventEmitter();
+const activeDebugSessionEmitter = new EventEmitter();
+const debugCustomEventEmitter = new EventEmitter();
 const onDidRenameFilesEmitter = new EventEmitter();
 const onDidDeleteFilesEmitter = new EventEmitter();
 
@@ -324,6 +329,7 @@ const workspace = {
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
   onDidRenameFiles: onDidRenameFilesEmitter.event,
   onDidDeleteFiles: onDidDeleteFilesEmitter.event,
+  onDidSaveNotebookDocument: notebookSaveEmitter.event,
   onDidGrantWorkspaceTrust: new EventEmitter().event,
 
   getConfiguration(section) {
@@ -638,7 +644,8 @@ const window = {
   onDidChangeTextEditorSelection: new EventEmitter().event,
   activeNotebookEditor: undefined,
   visibleNotebookEditors: [],
-  onDidChangeActiveNotebookEditor: new EventEmitter().event,
+  onDidChangeActiveNotebookEditor: activeNotebookEditorEmitter.event,
+  onDidChangeVisibleNotebookEditors: visibleNotebookEditorsEmitter.event,
   showNotebookDocument: async (notebookOrUri) => {
     const document = notebookOrUri?.notebookType
       ? notebookOrUri
@@ -646,6 +653,8 @@ const window = {
     const editor = { notebook: document, selection: new NotebookRange(0, 0), selections: [], visibleRanges: [] };
     window.activeNotebookEditor = editor;
     window.visibleNotebookEditors = [editor];
+    activeNotebookEditorEmitter.fire(editor);
+    visibleNotebookEditorsEmitter.fire(window.visibleNotebookEditors);
     return editor;
   },
   registerWebviewViewProvider: () => new Disposable(() => {}),
@@ -719,6 +728,7 @@ const languages = {
   registerDefinitionProvider: () => new Disposable(() => {}),
   registerCodeActionsProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
+  registerFoldingRangeProvider: () => new Disposable(() => {}),
   onDidChangeDiagnostics: new EventEmitter().event,
   getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
@@ -752,10 +762,52 @@ const notebooks = {
   registerNotebookCellStatusBarItemProvider() {
     return new Disposable(() => {});
   },
+  createNotebookControllerDetectionTask() {
+    return ensureDisposable({
+      dispose() {},
+    });
+  },
+  registerKernelSourceActionProvider() {
+    return new Disposable(() => {});
+  },
+  createRendererMessaging() {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      onDidReceiveMessage: emitter.event,
+      postMessage: async () => true,
+      dispose() {
+        emitter.dispose();
+      },
+    });
+  },
   get notebookDocuments() { return notebookDocuments; },
   onDidOpenNotebookDocument: notebookOpenEmitter.event,
   onDidCloseNotebookDocument: notebookCloseEmitter.event,
   onDidChangeNotebookDocument: notebookChangeEmitter.event,
+};
+
+const debug = {
+  startDebugging: async () => false,
+  stopDebugging: async () => undefined,
+  registerDebugConfigurationProvider: () => new Disposable(() => {}),
+  registerDebugAdapterDescriptorFactory: () => new Disposable(() => {}),
+  registerDebugAdapterTrackerFactory: () => new Disposable(() => {}),
+  onDidStartDebugSession: new EventEmitter().event,
+  onDidTerminateDebugSession: new EventEmitter().event,
+  onDidChangeActiveDebugSession: activeDebugSessionEmitter.event,
+  onDidReceiveDebugSessionCustomEvent: debugCustomEventEmitter.event,
+};
+
+const lm = {
+  isModelProxyAvailable: false,
+  onDidChangeModelProxyAvailability: new EventEmitter().event,
+  getModelProxy: async () => ({
+    uri: "athva://lm/proxy",
+    dispose() {},
+  }),
+  registerLanguageModelChatProvider: () => new Disposable(() => {}),
+  registerTool: () => new Disposable(() => {}),
+  selectChatModels: async () => [],
 };
 
 // ── env ───────────────────────────────────────────────────────────────────────
@@ -992,6 +1044,8 @@ const vscodeApi = {
   commands: withApiFallback(commands, "vscode.commands"),
   languages: withApiFallback(languages, "vscode.languages"),
   notebooks: withApiFallback(notebooks, "vscode.notebooks"),
+  debug: withApiFallback(debug, "vscode.debug"),
+  lm: withApiFallback(lm, "vscode.lm"),
   env: withApiFallback(env, "vscode.env"),
   l10n: withApiFallback(l10n, "vscode.l10n"),
   extensions: withApiFallback(extensions, "vscode.extensions"),

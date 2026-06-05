@@ -46,6 +46,14 @@ async function getHostScript(): Promise<string> {
   return _hostScript;
 }
 
+function shouldIgnoreExtensionStderr(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  if (trimmed.includes("[DEP0040] DeprecationWarning: The `punycode` module is deprecated.")) return true;
+  if (trimmed.includes("Use `node --trace-deprecation ...` to show where the warning was created")) return true;
+  return false;
+}
+
 export class ExtensionRuntime {
   private process: Child | null = null;
   private status: RuntimeStatus = "stopped";
@@ -130,7 +138,8 @@ export class ExtensionRuntime {
 
       cmd.stdout.on("data", (line: string) => this.handleOutput(line));
       cmd.stderr.on("data", (line: string) => {
-        if (line.trim()) console.warn(`[ExtHost:${this.opts.extensionId}] stderr:`, line.trim());
+        if (shouldIgnoreExtensionStderr(line)) return;
+        console.warn(`[ExtHost:${this.opts.extensionId}] stderr:`, line.trim());
       });
       cmd.on("close", (data) => {
         this.process = null;
