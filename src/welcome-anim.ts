@@ -173,6 +173,7 @@ function animateIn() {
   }
 
   const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+  const recentItems = document.querySelectorAll<HTMLElement>(".recent-item");
 
   tl.fromTo(".welcome-container", { opacity: 0 }, { opacity: 1, duration: 0.01 })
     .fromTo(
@@ -197,13 +198,16 @@ function animateIn() {
       { opacity: 0, x: 24 },
       { opacity: 1, x: 0, duration: 0.55 },
       "-=0.5"
-    )
-    .fromTo(
-      ".recent-item",
+    );
+
+  if (recentItems.length > 0) {
+    tl.fromTo(
+      recentItems,
       { opacity: 0, x: 16 },
       { opacity: 1, x: 0, duration: 0.35, stagger: 0.055 },
       "-=0.3"
     );
+  }
 }
 
 // ── 3D tilt on brand icon ────────────────────────────────────────────────────

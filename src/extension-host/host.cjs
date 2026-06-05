@@ -217,12 +217,80 @@ function extractConfigDefaults(packageJSON) {
   return defaults;
 }
 
+function ensurePlatformBinaryFallback(extensionRoot) {
+  if (process.platform !== "darwin" || process.arch !== "arm64") return;
+
+  const binRoot = path.join(extensionRoot, "bin");
+  const nativeDir = path.join(binRoot, "macos-aarch64");
+  const x64Dir = path.join(binRoot, "macos-x86_64");
+
+  if (fs.existsSync(nativeDir) || !fs.existsSync(x64Dir)) return;
+
+  try {
+    fs.symlinkSync(x64Dir, nativeDir, "dir");
+    return;
+  } catch {}
+
+  try {
+    fs.mkdirSync(nativeDir, { recursive: true });
+    for (const entry of fs.readdirSync(x64Dir, { withFileTypes: true })) {
+      const sourcePath = path.join(x64Dir, entry.name);
+      const targetPath = path.join(nativeDir, entry.name);
+      if (fs.existsSync(targetPath)) continue;
+      if (entry.isDirectory()) {
+        fs.cpSync(sourcePath, targetPath, { recursive: true });
+      } else {
+        fs.copyFileSync(sourcePath, targetPath);
+        try {
+          const stat = fs.statSync(sourcePath);
+          fs.chmodSync(targetPath, stat.mode);
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
+function ensureExecutableBits(extensionRoot) {
+  const binRoot = path.join(extensionRoot, "bin");
+  if (!fs.existsSync(binRoot)) return;
+
+  const visit = (dirPath) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      try {
+        const stat = fs.statSync(entryPath);
+        const execMask = 0o111;
+        if ((stat.mode & execMask) === execMask) continue;
+        fs.chmodSync(entryPath, stat.mode | 0o755);
+      } catch {}
+    }
+  };
+
+  visit(binRoot);
+}
+
 // Load and activate the extension
 async function main() {
   try {
     const extensionRoot = fs.existsSync(path.join(installPath, "extension", "package.json"))
       ? path.join(installPath, "extension")
       : installPath;
+
+    ensurePlatformBinaryFallback(extensionRoot);
+    ensureExecutableBits(extensionRoot);
 
     // Read package.json for metadata and schema defaults
     let packageJSON = {};

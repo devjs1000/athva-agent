@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::thread;
@@ -1552,6 +1552,91 @@ fn extract_vsix(vsix_path: &PathBuf, destination: &PathBuf) -> Result<(), String
     }
 }
 
+fn normalize_extension_bundle(install_dir: &Path) -> Result<(), String> {
+    ensure_extension_bin_permissions(install_dir)?;
+    ensure_extension_webview_source_maps(install_dir)?;
+    Ok(())
+}
+
+fn ensure_extension_webview_source_maps(install_dir: &Path) -> Result<(), String> {
+    let assets_dir = install_dir.join("extension").join("webview").join("assets");
+    if !assets_dir.exists() {
+        return Ok(());
+    }
+    let placeholder_map = b"{\"version\":3,\"sources\":[],\"names\":[],\"mappings\":\"\"}\n";
+
+    let source_map_pattern = regex::Regex::new(r"(?m)^//# sourceMappingURL=(?P<name>[^\r\n]+\.map)\s*$")
+        .map_err(|e| e.to_string())?;
+
+    for entry in fs::read_dir(&assets_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if ext != "js" {
+            continue;
+        }
+        let Ok(contents) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for captures in source_map_pattern.captures_iter(&contents) {
+            let Some(name) = captures.name("name").map(|value| value.as_str()) else {
+                continue;
+            };
+            let map_path = assets_dir.join(name);
+            if map_path.exists() {
+                if fs::read(&map_path).map(|bytes| bytes == b"{}\n" || bytes == b"{}").unwrap_or(false) {
+                    fs::write(&map_path, placeholder_map).map_err(|e| e.to_string())?;
+                }
+                continue;
+            }
+            fs::write(&map_path, placeholder_map).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_extension_bin_permissions(install_dir: &Path) -> Result<(), String> {
+    let bin_dir = install_dir.join("extension").join("bin");
+    if !bin_dir.exists() {
+        return Ok(());
+    }
+    set_exec_bits_recursive(&bin_dir)?;
+    Ok(())
+}
+
+fn set_exec_bits_recursive(dir: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+        if file_type.is_dir() {
+            set_exec_bits_recursive(&path)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
+            let mut permissions = metadata.permissions();
+            let mode = permissions.mode();
+            if mode & 0o111 != 0o111 {
+                permissions.set_mode(mode | 0o755);
+                fs::set_permissions(&path, permissions).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn search_vscode_extensions(
     query: String,
@@ -1661,6 +1746,7 @@ fn list_installed_vscode_extensions(
         if !path.is_dir() {
             continue;
         }
+        let _ = normalize_extension_bundle(&path);
         if let Some(extension) = read_installed_extension(path) {
             installed.push(extension);
         }
@@ -1711,6 +1797,7 @@ fn install_vscode_extension(
     let extract_result = extract_vsix(&temp_vsix, &install_dir);
     let _ = fs::remove_file(&temp_vsix);
     extract_result?;
+    normalize_extension_bundle(&install_dir)?;
 
     read_installed_extension(install_dir).ok_or_else(|| {
         "Extension was downloaded, but its manifest could not be read after extraction.".to_string()
