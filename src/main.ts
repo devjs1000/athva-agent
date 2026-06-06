@@ -3704,6 +3704,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     const startupPath = await invoke<string | null>("get_startup_open_path").catch(() => null);
     if (startupPath) {
       await openProject(startupPath);
+    } else {
+      const store = await getProjects().catch(() => null);
+      const mostRecentProject = store?.projects
+        ?.slice()
+        ?.sort((a, b) => b.last_opened - a.last_opened)
+        ?.find((project) => !!project?.path);
+      if (mostRecentProject?.path) {
+        await openProject(mostRecentProject.path);
+      }
     }
   }
 });

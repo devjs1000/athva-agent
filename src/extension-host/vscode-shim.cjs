@@ -1066,6 +1066,9 @@ const workspace = {
     const configTree = buildConfigTree(section);
     const api = {
       get(key, defaultValue) {
+        if (!section && typeof key === "string" && key in configTree) {
+          return configTree[key];
+        }
         const val = _getConfigValue(section, key);
         return val !== undefined ? val : defaultValue;
       },
