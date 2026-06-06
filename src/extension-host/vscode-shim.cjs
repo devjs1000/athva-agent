@@ -730,6 +730,43 @@ function _getConfigValue(section, key) {
   return undefined;
 }
 
+function setDeepValue(target, pathParts, value) {
+  let cursor = target;
+  for (let i = 0; i < pathParts.length - 1; i += 1) {
+    const part = pathParts[i];
+    if (!part) continue;
+    if (cursor[part] == null || typeof cursor[part] !== "object") cursor[part] = {};
+    cursor = cursor[part];
+  }
+  const leaf = pathParts[pathParts.length - 1];
+  if (leaf) cursor[leaf] = value;
+}
+
+function buildConfigTree(section) {
+  const tree = {};
+  const prefix = section ? `${section}.` : "";
+  const sectionData = section ? (_configuration[section] || {}) : _configuration;
+
+  for (const [key, value] of Object.entries(_schemaDefaults || {})) {
+    if (!prefix) {
+      setDeepValue(tree, String(key).split("."), value);
+      continue;
+    }
+    if (!String(key).startsWith(prefix)) continue;
+    setDeepValue(tree, String(key).slice(prefix.length).split("."), value);
+  }
+
+  for (const [key, value] of Object.entries(sectionData || {})) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      tree[key] = { ...(tree[key] && typeof tree[key] === "object" ? tree[key] : {}), ...value };
+    } else {
+      tree[key] = value;
+    }
+  }
+
+  return tree;
+}
+
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
   isTrusted: true,
@@ -759,6 +796,7 @@ const workspace = {
 
   getConfiguration(section) {
     const sectionData = section ? (_configuration[section] || {}) : _configuration;
+    const configTree = buildConfigTree(section);
     const api = {
       get(key, defaultValue) {
         const val = _getConfigValue(section, key);
@@ -780,32 +818,15 @@ const workspace = {
       },
       update(key, value) { sectionData[key] = value; return Promise.resolve(); },
     };
-    // Proxy so extensions can access config values as direct properties (e.g. config.tagGroups).
-    // Returns a deep-safe proxy for missing keys so chained access like config["a"]["b"]["c"]
-    // never throws — each missing level returns another safe proxy that returns undefined for
-    // leaf reads and {} for Object.keys() calls.
-    function makeDeepSafeProxy(obj) {
-      if (obj !== null && typeof obj === "object") return obj;
-      const target = Object.create(null);
-      return new Proxy(target, {
-        get(t, prop) {
-          if (typeof prop === "symbol") return undefined;
-          if (prop === "then") return undefined;
-          if (prop === "toString") return () => "";
-          const val = t[prop];
-          return val !== undefined ? val : makeDeepSafeProxy(undefined);
-        },
-      });
-    }
     return new Proxy(api, {
       get(target, prop) {
         if (prop in target) return target[prop];
         if (typeof prop === "symbol") return undefined;
-        // Direct property access: look up the value the same way .get() does
-        const val = _getConfigValue(section, String(prop));
-        if (val !== undefined) return val;
-        // Return a deep-safe proxy so chained property access never throws
-        return makeDeepSafeProxy(undefined);
+        return configTree[String(prop)];
+      },
+      has(target, prop) {
+        if (prop in target) return true;
+        return typeof prop === "string" ? prop in configTree : false;
       },
     });
   },

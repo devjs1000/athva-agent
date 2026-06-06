@@ -357,10 +357,56 @@ const onWillDeleteFilesEmitter = new EventEmitter();
 
 let _workspaceFolders = [];
 let _configuration = {};
+let _schemaDefaults = {};
 const _fsProviders = new Map();
 const textDocuments = [];
 
 const workspaceFoldersEmitter = new EventEmitter();
+
+function _getConfigValue(section, key) {
+  const sectionData = section ? (_configuration[section] || {}) : _configuration;
+  if (key in sectionData) return sectionData[key];
+  const flatKey = section ? `${section}.${key}` : key;
+  if (_schemaDefaults && flatKey in _schemaDefaults) return _schemaDefaults[flatKey];
+  return undefined;
+}
+
+function setDeepValue(target, pathParts, value) {
+  let cursor = target;
+  for (let i = 0; i < pathParts.length - 1; i += 1) {
+    const part = pathParts[i];
+    if (!part) continue;
+    if (cursor[part] == null || typeof cursor[part] !== "object") cursor[part] = {};
+    cursor = cursor[part];
+  }
+  const leaf = pathParts[pathParts.length - 1];
+  if (leaf) cursor[leaf] = value;
+}
+
+function buildConfigTree(section) {
+  const tree = {};
+  const prefix = section ? `${section}.` : "";
+  const sectionData = section ? (_configuration[section] || {}) : _configuration;
+
+  for (const [key, value] of Object.entries(_schemaDefaults || {})) {
+    if (!prefix) {
+      setDeepValue(tree, String(key).split("."), value);
+      continue;
+    }
+    if (!String(key).startsWith(prefix)) continue;
+    setDeepValue(tree, String(key).slice(prefix.length).split("."), value);
+  }
+
+  for (const [key, value] of Object.entries(sectionData || {})) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      tree[key] = { ...(tree[key] && typeof tree[key] === "object" ? tree[key] : {}), ...value };
+    } else {
+      tree[key] = value;
+    }
+  }
+
+  return tree;
+}
 
 const workspace = {
   get workspaceFolders() { return _workspaceFolders; },
@@ -383,31 +429,24 @@ const workspace = {
   onDidGrantWorkspaceTrust: new EventEmitter().event,
 
   getConfiguration(section) {
-    // Ensure section objects exist so direct property access doesn't crash on undefined.
-    if (section && !_configuration[section]) _configuration[section] = {};
-    const sectionData = section ? _configuration[section] : _configuration;
+    const sectionData = section ? (_configuration[section] || {}) : _configuration;
+    const configTree = buildConfigTree(section);
 
     const config = {
       get(key, defaultValue) {
-        const val = sectionData[key];
+        const val = _getConfigValue(section, key);
         return val !== undefined ? val : defaultValue;
       },
-      has(key) { return key in sectionData; },
-      inspect(key) { return { key, defaultValue: undefined, globalValue: sectionData[key] }; },
+      has(key) {
+        const flatKey = section ? `${section}.${key}` : key;
+        return key in sectionData || flatKey in (_schemaDefaults || {});
+      },
+      inspect(key) {
+        const flatKey = section ? `${section}.${key}` : key;
+        return { key: flatKey, defaultValue: (_schemaDefaults || {})[flatKey], globalValue: sectionData[key] };
+      },
       update(key, value) { sectionData[key] = value; return Promise.resolve(); },
     };
-
-    function makeDeepSafeProxy(obj) {
-      if (obj !== null && typeof obj === "object") return obj;
-      const t = Object.create(null);
-      return new Proxy(t, {
-        get(_, prop) {
-          if (typeof prop === "symbol" || prop === "then") return undefined;
-          if (prop === "toString") return () => "";
-          return makeDeepSafeProxy(undefined);
-        },
-      });
-    }
 
     // VS Code extensions sometimes (incorrectly) read config values via property access
     // (e.g. getConfiguration('x').someKey). Provide a Proxy to match that behavior.
@@ -415,17 +454,11 @@ const workspace = {
       get(target, prop) {
         if (prop in target) return target[prop];
         if (typeof prop === "symbol") return undefined;
-        if (typeof prop === "string") {
-          const val = sectionData[prop];
-          if (val !== undefined) return val;
-          // Return a deep-safe proxy so chained property access never throws
-          return makeDeepSafeProxy(undefined);
-        }
-        return undefined;
+        return typeof prop === "string" ? configTree[prop] : undefined;
       },
       has(_target, prop) {
         if (prop in config) return true;
-        return typeof prop === "string" ? prop in sectionData : false;
+        return typeof prop === "string" ? prop in configTree : false;
       },
     });
   },
