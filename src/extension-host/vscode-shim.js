@@ -1708,7 +1708,7 @@ const vscodeApi = {
   TextDocument, TextEditor,
   TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind, QuickInputButtons, LogLevel, TerminalProfile, TerminalLocation, TabInputInteractiveWindow,
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind, InlineCompletionTriggerKind, DecorationRangeBehavior, ChatEditingSessionActionOutcome,
-  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, EndOfLine, ExcludeSettingOptions, LanguageStatusSeverity, ProgressLocation, SettingsSearchResultKind, TextDocumentChangeReason, CompletionTriggerKind,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionKind, ExtensionMode, FileType, EndOfLine, ExcludeSettingOptions, LanguageStatusSeverity, ProgressLocation, SettingsSearchResultKind, TextDocumentChangeReason, CompletionTriggerKind,
   DocumentHighlight, DocumentHighlightKind, DocumentSymbol, FoldingRange, FoldingRangeKind, Hover, PortAttributes, PortAutoForwardAction, TextDocumentSaveReason, TextEditorRevealType,
   TestResultState, TestRunProfileKind, TestMessage,
   Event, EventEmitter, Disposable, MarkdownString,

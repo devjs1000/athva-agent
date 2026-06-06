@@ -227,6 +227,7 @@ const DiagnosticTag = { Unnecessary: 1, Deprecated: 2 };
 const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 };
 const LogLevel = { Trace: 1, Debug: 2, Info: 3, Warning: 4, Error: 5, Off: 6 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
+const ExtensionKind = { UI: 1, Workspace: 2 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 const CompletionTriggerKind = { Invoke: 0, TriggerCharacter: 1, TriggerForIncompleteCompletions: 2 };
@@ -785,7 +786,7 @@ function makeWebviewBridge(viewId) {
   const webview = {
     get html() { return _html; },
     set html(value) {
-      _html = inlineFileAssetUris(String(value ?? ""));
+      _html = String(value ?? "");
       send({ type: "webviewHtml", viewId, html: _html });
     },
     options: {},
@@ -798,19 +799,7 @@ function makeWebviewBridge(viewId) {
     asWebviewUri: (uri) => {
       const fsPath = uri && typeof uri === "object" ? (uri.fsPath || uri.path || "") : String(uri || "");
       if (!fsPath) return uri;
-      const data = encodeDataUri(fsPath);
-      if (!data) return uri;
-      const dataUriObj = {
-        scheme: "data",
-        authority: "",
-        path: data,
-        query: "",
-        fragment: "",
-        fsPath: data,
-        toString: () => data,
-        with: () => dataUriObj,
-      };
-      return dataUriObj;
+      return Uri.file(fsPath);
     },
   };
   return { webview, dispose: () => webviewChannels.delete(viewId) };
@@ -2280,6 +2269,7 @@ const vscodeApi = {
   InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind, InlineCompletionTriggerKind, DecorationRangeBehavior,
   ChatEditingSessionActionOutcome, TextDocumentSaveReason, TextEditorRevealType,
   DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, EndOfLine, ExcludeSettingOptions, LanguageStatusSeverity, ProgressLocation, SettingsSearchResultKind, TextDocumentChangeReason, CompletionTriggerKind,
+  ExtensionKind,
   DocumentHighlight, DocumentHighlightKind, DocumentSymbol, FoldingRange, FoldingRangeKind, Hover, PortAttributes, PortAutoForwardAction,
   FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
