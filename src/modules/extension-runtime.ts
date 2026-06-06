@@ -128,6 +128,7 @@ export class ExtensionRuntime {
           this.opts.mainPath,
           this.opts.extensionId,
           this.opts.installPath,
+          JSON.stringify(this.opts.workspaceFolders || []),
         ],
         {
           env: this.opts.githubToken

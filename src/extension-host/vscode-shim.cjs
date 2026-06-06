@@ -1506,7 +1506,8 @@ const window = {
     return editor;
   },
   activeTextEditor: makeTextEditor({ uri: Uri.file(""), fileName: "", languageId: "plaintext", getText: () => "" }),
-  visibleTextEditors: [],
+  get visibleTextEditors() { return []; },
+  set visibleTextEditors(_editors) {},
   onDidChangeActiveTextEditor: new EventEmitter().event,
   onDidChangeVisibleTextEditors: new EventEmitter().event,
   onDidChangeTextEditorSelection: new EventEmitter().event,
@@ -1775,7 +1776,7 @@ const notebooks = {
       },
     });
   },
-  get notebookDocuments() { return notebookDocuments; },
+  get notebookDocuments() { return notebookDocuments.filter(Boolean); },
   onDidOpenNotebookDocument: notebookOpenEmitter.event,
   onDidCloseNotebookDocument: notebookCloseEmitter.event,
   onDidChangeNotebookDocument: notebookChangeEmitter.event,

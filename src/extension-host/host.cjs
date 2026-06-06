@@ -3,7 +3,7 @@
 // Athva Extension Host — runs as a child Node.js process.
 // Loads a single VS Code extension and bridges it to the renderer over stdio IPC.
 //
-// argv: node host.cjs <extensionMainPath> <extensionId> <installPath>
+// argv: node host.cjs <extensionMainPath> <extensionId> <installPath> [workspaceFoldersJson]
 
 const path = require("path");
 const os = require("os");
@@ -60,11 +60,21 @@ try {
   }
 } catch {}
 
-const [,, extMain, extId, installPath] = process.argv;
+const [,, extMain, extId, installPath, workspaceFoldersJson] = process.argv;
 
 if (!extMain) {
   send({ type: "error", message: "host.cjs requires <extensionMainPath> as first arg" });
   process.exit(1);
+}
+
+function parseInitialWorkspaceFolders() {
+  if (!workspaceFoldersJson) return [];
+  try {
+    const folders = JSON.parse(workspaceFoldersJson);
+    return Array.isArray(folders) ? folders.filter((item) => typeof item === "string" && item.trim()) : [];
+  } catch {
+    return [];
+  }
 }
 
 // Prevent extensions from terminating the host process directly.
@@ -282,6 +292,32 @@ function ensureExecutableBits(extensionRoot) {
   visit(binRoot);
 }
 
+function patchSafeArraySearchMethods() {
+  if (globalThis.__athvaSafeArraySearchPatched) return;
+  globalThis.__athvaSafeArraySearchPatched = true;
+
+  const patch = (name) => {
+    const original = Array.prototype[name];
+    if (typeof original !== "function") return;
+    Object.defineProperty(Array.prototype, name, {
+      configurable: true,
+      writable: true,
+      value(callback, thisArg) {
+        if (typeof callback !== "function") return original.call(this, callback, thisArg);
+        return original.call(this, (value, index, array) => {
+          if (value == null) return false;
+          return callback.call(thisArg, value, index, array);
+        });
+      },
+    });
+  };
+
+  patch("find");
+  patch("findIndex");
+  patch("findLast");
+  patch("findLastIndex");
+}
+
 // Load and activate the extension
 async function main() {
   try {
@@ -311,6 +347,15 @@ async function main() {
       configDefaults["chat.allowAnonymousAccess"] = true;
     }
     vscode._initDefaults(configDefaults);
+    const initialWorkspaceFolders = parseInitialWorkspaceFolders();
+    if (initialWorkspaceFolders.length > 0) {
+      vscode._handleMessage({
+        type: "setWorkspace",
+        folders: initialWorkspaceFolders,
+        configuration: {},
+      });
+    }
+    patchSafeArraySearchMethods();
 
     const ext = require(path.resolve(extMain));
     if (!ext || typeof ext.activate !== "function") {
