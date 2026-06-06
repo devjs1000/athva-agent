@@ -615,6 +615,13 @@ let activeTerminal = {
 };
 const activeColorTheme = { kind: ColorThemeKind.Dark, backgroundColor: undefined, foregroundColor: undefined };
 const activeTabGroupState = { activeTab: undefined, viewColumn: ViewColumn.One, tabs: [] };
+let activeNotebookEditorState = {
+  notebook: { uri: Uri.file(""), cellCount: 0, getCells: () => [] },
+  selection: new NotebookRange(0, 0),
+  selections: [],
+  visibleRanges: [],
+};
+let visibleNotebookEditorsState = [];
 const onDidChangeTextEditorVisibleRangesEmitter = new EventEmitter();
 
 function setActiveTab(input, label, viewColumn = ViewColumn.One) {
@@ -686,8 +693,8 @@ const workspace = {
   get name() { return _workspaceFolders[0]?.name || ""; },
   get rootPath() { return _workspaceFolders[0]?.uri?.fsPath || undefined; },
   get workspaceFile() { return undefined; },
-  get textDocuments() { return textDocuments; },
-  get notebookDocuments() { return notebookDocuments; },
+  get textDocuments() { return textDocuments.filter(Boolean); },
+  get notebookDocuments() { return notebookDocuments.filter(Boolean); },
   onDidChangeWorkspaceFolders: workspaceFoldersEmitter.event,
   onDidRenameFiles: onDidRenameFilesEmitter.event,
   onDidDeleteFiles: onDidDeleteFilesEmitter.event,
@@ -1090,13 +1097,26 @@ const window = {
   onDidChangeActiveTextEditor: new EventEmitter().event,
   onDidChangeVisibleTextEditors: new EventEmitter().event,
   onDidChangeTextEditorSelection: new EventEmitter().event,
-  activeNotebookEditor: {
-    notebook: { uri: Uri.file(""), cellCount: 0 },
-    selection: new NotebookRange(0, 0),
-    selections: [],
-    visibleRanges: [],
+  get activeNotebookEditor() { return activeNotebookEditorState; },
+  set activeNotebookEditor(editor) {
+    activeNotebookEditorState = editor && typeof editor === "object"
+      ? {
+          ...editor,
+          notebook: editor.notebook && typeof editor.notebook === "object"
+            ? { ...editor.notebook, uri: editor.notebook.uri ?? Uri.file(""), getCells: editor.notebook.getCells || (() => []) }
+            : { uri: Uri.file(""), cellCount: 0, getCells: () => [] },
+        }
+      : {
+          notebook: { uri: Uri.file(""), cellCount: 0, getCells: () => [] },
+          selection: new NotebookRange(0, 0),
+          selections: [],
+          visibleRanges: [],
+        };
   },
-  visibleNotebookEditors: [],
+  get visibleNotebookEditors() { return visibleNotebookEditorsState.filter(Boolean); },
+  set visibleNotebookEditors(editors) {
+    visibleNotebookEditorsState = Array.isArray(editors) ? editors.filter(Boolean) : [];
+  },
   onDidChangeActiveNotebookEditor: activeNotebookEditorEmitter.event,
   onDidChangeVisibleNotebookEditors: visibleNotebookEditorsEmitter.event,
   showNotebookDocument: async (notebookOrUri) => {

@@ -307,6 +307,9 @@ async function main() {
     // System binaries (e.g. ripgrep) are resolved and merged in so extensions
     // that require them work without manual user configuration.
     const configDefaults = { ...extractConfigDefaults(packageJSON), ...resolveSystemBinaries() };
+    if (extId === "GitHub.copilot-chat") {
+      configDefaults["chat.allowAnonymousAccess"] = true;
+    }
     vscode._initDefaults(configDefaults);
 
     const ext = require(path.resolve(extMain));
