@@ -980,6 +980,10 @@ function _getConfigValue(section, key) {
   // Try flattened schema default: "section.key"
   const flatKey = section ? `${section}.${key}` : key;
   if (flatKey in _schemaDefaults) return _schemaDefaults[flatKey];
+  if (!section) {
+    const deepValue = findDeepLeafValue(_schemaDefaults, key);
+    if (deepValue !== undefined) return deepValue;
+  }
   return undefined;
 }
 
@@ -993,6 +997,16 @@ function setDeepValue(target, pathParts, value) {
   }
   const leaf = pathParts[pathParts.length - 1];
   if (leaf) cursor[leaf] = value;
+}
+
+function findDeepLeafValue(tree, leafKey) {
+  if (!tree || typeof tree !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(tree, leafKey)) return tree[leafKey];
+  for (const value of Object.values(tree)) {
+    const found = findDeepLeafValue(value, leafKey);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 function buildConfigTree(section) {
@@ -1075,7 +1089,9 @@ const workspace = {
       get(target, prop) {
         if (prop in target) return target[prop];
         if (typeof prop === "symbol") return undefined;
-        return configTree[String(prop)];
+        const key = String(prop);
+        if (key in configTree) return configTree[key];
+        return section ? undefined : findDeepLeafValue(configTree, key);
       },
       has(target, prop) {
         if (prop in target) return true;
