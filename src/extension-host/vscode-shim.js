@@ -87,6 +87,110 @@ class ThemeColor {
   constructor(id) { this.id = id; }
 }
 
+class TabInputText {
+  constructor(uri) { this.uri = uri; }
+}
+
+class TabInputTextDiff {
+  constructor(original, modified) {
+    this.original = original;
+    this.modified = modified;
+  }
+}
+
+class TabInputNotebook {
+  constructor(uri) { this.uri = uri; }
+}
+
+class TabInputNotebookDiff {
+  constructor(original, modified) {
+    this.original = original;
+    this.modified = modified;
+  }
+}
+
+class TabInputCustom {
+  constructor(uri) { this.uri = uri; }
+}
+
+class LanguageModelChat {}
+
+class LanguageModelTextPart {
+  constructor(value) { this.value = String(value ?? ""); this.kind = "text"; }
+}
+
+class LanguageModelTextPart2 extends LanguageModelTextPart {}
+
+class LanguageModelDataPart {
+  constructor(data, mimeType) {
+    this.data = data;
+    this.mimeType = mimeType;
+    this.kind = "data";
+  }
+}
+
+class LanguageModelDataPart2 extends LanguageModelDataPart {}
+
+class LanguageModelThinkingPart {
+  constructor(value, id = "", metadata = {}) {
+    this.value = String(value ?? "");
+    this.id = id;
+    this.metadata = metadata;
+    this.kind = "thinking";
+  }
+}
+
+class LanguageModelToolCallPart {
+  constructor(id, name, input) {
+    this.callId = id;
+    this.id = id;
+    this.name = name;
+    this.input = input;
+    this.kind = "tool_call";
+  }
+}
+
+class LanguageModelToolResultPart {
+  constructor(toolCallId, content = []) {
+    this.toolCallId = toolCallId;
+    this.content = content;
+    this.kind = "tool_result";
+  }
+}
+
+class LanguageModelToolResultPart2 extends LanguageModelToolResultPart {}
+
+class LanguageModelToolResult extends LanguageModelToolResultPart {}
+
+class LanguageModelPromptTsxPart {
+  constructor(value = "") {
+    this.value = String(value ?? "");
+    this.kind = "prompt_tsx";
+  }
+}
+
+class LanguageModelError extends Error {
+  constructor(message = "") { super(String(message ?? "")); this.name = "LanguageModelError"; }
+}
+
+function _toLanguageModelContent(content) {
+  if (Array.isArray(content)) return content;
+  if (content == null) return [];
+  return [new LanguageModelTextPart(content)];
+}
+
+class LanguageModelChatMessage {
+  static User(content, name = "") {
+    return { role: "user", name, content: _toLanguageModelContent(content) };
+  }
+  static Assistant(content, name = "") {
+    return { role: "assistant", name, content: _toLanguageModelContent(content) };
+  }
+  static System(content, name = "") {
+    return { role: "system", name, content: _toLanguageModelContent(content) };
+  }
+}
+
 class TreeItem {
   constructor(label, collapsibleState) {
     this.label = typeof label === "string" ? label : label?.label ?? "";
@@ -99,17 +203,107 @@ const StatusBarAlignment = { Left: 1, Right: 2 };
 const ViewColumn = { One: 1, Two: 2, Three: 3, Active: -1, Beside: -2 };
 const UIKind = { Desktop: 1, Web: 2 };
 const QuickPickItemKind = { Default: 0, Separator: -1 };
+const QuickInputButtons = { Back: { tooltip: "Back" } };
 const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Info: 2, Hint: 3 };
+const DiagnosticTag = { Unnecessary: 1, Deprecated: 2 };
 const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 };
 const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
+const CompletionTriggerKind = { Invoke: 0, TriggerCharacter: 1, TriggerForIncompleteCompletions: 2 };
+const CompletionItemTag = { Deprecated: 1 };
+const CodeActionTriggerKind = { Invoke: 1, Automatic: 2 };
+const TextDocumentSaveReason = { Manual: 1, AfterDelay: 2, FocusOut: 3 };
+const TextEditorRevealType = { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 };
+const DecorationRangeBehavior = { OpenOpen: 0, OpenClosed: 1, ClosedOpen: 2, ClosedClosed: 3 };
+const EndOfLine = { LF: 1, CRLF: 2 };
+const DebugAdapterInlineImplementation = class {};
 const InlineCompletionEndOfLifeReasonKind = { Accepted: 1, Rejected: 2, Ignored: 3 };
 const InlineCompletionsDisposeReasonKind = { Unknown: 0, Automatic: 1, ExplicitCancel: 2 };
 const InlineCompletionDisplayLocationKind = { Label: 1, Code: 2 };
+const InlineCompletionTriggerKind = { Invoke: 0, Automatic: 1 };
+const CompletionList = class { constructor(items = [], isIncomplete = false) { this.items = items; this.isIncomplete = isIncomplete; } };
+const Color = class { constructor(red = 0, green = 0, blue = 0, alpha = 1) { this.red = red; this.green = green; this.blue = blue; this.alpha = alpha; } };
+const ColorInformation = class { constructor(range, color) { this.range = range; this.color = color; } };
+const ColorPresentation = class { constructor(label = "") { this.label = label; this.textEdit = undefined; this.additionalTextEdits = []; } };
+const DiagnosticRelatedInformation = class { constructor(location, message) { this.location = location; this.message = String(message ?? ""); } };
+class DocumentHighlight { constructor(range, kind) { this.range = range; this.kind = kind; } }
+const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };
+class DocumentSymbol { constructor(name = "", detail = "", kind = 0, range = undefined, selectionRange = undefined) { this.name = name; this.detail = detail; this.kind = kind; this.range = range; this.selectionRange = selectionRange; this.children = []; } }
+class FoldingRange { constructor(start, end, kind) { this.start = start; this.end = end; this.kind = kind; } }
+const FoldingRangeKind = { Comment: "comment", Imports: "imports", Region: "region" };
+class Hover { constructor(contents = [], range = undefined) { this.contents = contents; this.range = range; } }
+class InlayHintLabelPart { constructor(value = "") { this.value = String(value); this.tooltip = undefined; this.location = undefined; this.command = undefined; } }
+class InlineValueEvaluatableExpression { constructor(range, expression) { this.range = range; this.expression = expression; } }
+class InlineValueText { constructor(range, text) { this.range = range; this.text = text; } }
+class InlineValueVariableLookup { constructor(range, variableName, caseSensitiveLookup) { this.range = range; this.variableName = variableName; this.caseSensitiveLookup = !!caseSensitiveLookup; } }
+class LinkedEditingRanges { constructor(ranges = [], wordPattern = undefined) { this.ranges = ranges; this.wordPattern = wordPattern; } }
+class ParameterInformation { constructor(label, documentation) { this.label = label; this.documentation = documentation; } }
+class SelectionRange { constructor(range, parent = undefined) { this.range = range; this.parent = parent; } }
+class SemanticTokens { constructor(data = []) { this.data = data; } }
+class SemanticTokensEdit { constructor(start, deleteCount, data = []) { this.start = start; this.deleteCount = deleteCount; this.data = data; } }
+class SemanticTokensEdits { constructor(edits = [], resultId = undefined) { this.edits = edits; this.resultId = resultId; } }
+class SignatureHelp { constructor() { this.signatures = []; this.activeSignature = 0; this.activeParameter = 0; } }
+const SignatureHelpTriggerKind = { Invoke: 1, TriggerCharacter: 2, ContentChange: 3 };
+class SignatureInformation { constructor(label, documentation = undefined) { this.label = label; this.documentation = documentation; this.parameters = []; } }
+const SymbolKind = { File: 0, Module: 1, Namespace: 2, Package: 3, Class: 4, Method: 5, Property: 6, Field: 7, Constructor: 8, Enum: 9, Interface: 10, Function: 11, Variable: 12, Constant: 13, String: 14, Number: 15, Boolean: 16, Array: 17, Object: 18, Key: 19, Null: 20, EnumMember: 21, Struct: 22, Event: 23, Operator: 24, TypeParameter: 25 };
+const SymbolTag = { Deprecated: 1 };
+const PortAttributes = class { constructor() { this.onOpen = undefined; this.onReconnect = undefined; } };
+const PortAutoForwardAction = { Notify: 1, Ignore: 2, OpenBrowser: 3 };
+const NotebookControllerAffinity = { Default: 1, Preferred: 2 };
+const NotebookEditorRevealType = { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 };
+const TabInputInteractiveWindow = class { constructor(uri) { this.uri = uri; } };
+const NotebookRendererScript = class { constructor(id, path) { this.id = id; this.path = path; } };
+const NotebookEdit = {
+  updateNotebookMetadata: () => ({}),
+  insertCells: () => ({}),
+  replaceCells: () => ({}),
+  updateCellMetadata: () => ({}),
+  deleteCells: () => ({}),
+};
 const ChatEditingSessionActionOutcome = { Accepted: 1, Rejected: 2, Saved: 3 };
+const ChatVariableLevel = { Full: 1 };
+const ProgressLocation = { SourceControl: 1, Notification: 15 };
+const SettingsSearchResultKind = { EMBEDDED: 1, LLM_RANKED: 2 };
+const TerminalLocation = { Panel: 1, Editor: 2 };
+const TextDocumentChangeReason = { Undo: 0, Redo: 1 };
 const ExcludeSettingOptions = { None: 0, FilesExclude: 1, SearchAndFilesExclude: 2 };
 const LanguageStatusSeverity = { Information: 0, Warning: 1, Error: 2 };
+const TestResultState = { Queued: 0, Running: 1, Passed: 2, Failed: 3, Skipped: 4, Errored: 5, Unknown: 6 };
+const TestRunProfileKind = { Run: 1, Debug: 2, Coverage: 3 };
+
+class ChatCompletionItem {}
+class ChatRequestTurn {}
+class ChatRequestTurn2 {}
+class ChatResponseMarkdownPart {}
+class ChatResponseProgressPart {}
+class ChatResponseReferencePart {}
+class ChatResponseThinkingProgressPart {}
+class ChatResponseTurn {}
+class ChatResponseTurn2 {}
+class ChatResponseWarningPart {}
+class ChatToolInvocationPart {}
+class TerminalProfile {}
+class Location {
+  constructor(uri, range) {
+    this.uri = uri;
+    this.range = range;
+  }
+}
+
+class TestMessage {
+  constructor(message, expected = undefined, actual = undefined) {
+    this.message = String(message ?? "");
+    this.expected = expected;
+    this.actual = actual;
+  }
+  static diff(message, expected, actual) {
+    return new TestMessage(message, expected, actual);
+  }
+  static escaped(message) {
+    return new TestMessage(message);
+  }
+}
 
 class EventEmitter {
   constructor() {
@@ -147,6 +341,15 @@ class CompletionItem {
 class InlineCompletionList {
   constructor(items = []) { this.items = Array.isArray(items) ? items : []; }
 }
+class InlineCompletionItem {
+  constructor(insertText = "") {
+    this.insertText = insertText;
+    this.range = undefined;
+    this.filterText = undefined;
+    this.command = undefined;
+    this.additionalTextEdits = [];
+  }
+}
 
 const CompletionItemKind = {
   Text: 0, Method: 1, Function: 2, Constructor: 3, Field: 4, Variable: 5, Class: 6, Interface: 7,
@@ -168,6 +371,35 @@ class WorkspaceEdit {
   replace(uri, range, newText) { this._edits.push({ uri, edits: [TextEdit.replace(range, newText)] }); }
   delete(uri, range) { this._edits.push({ uri, edits: [TextEdit.delete(range)] }); }
 }
+
+class CodeActionKindValue {
+  constructor(value = "") { this.value = String(value); }
+  append(part) {
+    const suffix = String(part || "");
+    return new CodeActionKindValue(this.value ? `${this.value}.${suffix}` : suffix);
+  }
+  contains(other) {
+    const candidate = other instanceof CodeActionKindValue ? other.value : String(other?.value ?? other ?? "");
+    return candidate === this.value || candidate.startsWith(`${this.value}.`);
+  }
+  intersects(other) {
+    const candidate = other instanceof CodeActionKindValue ? other.value : String(other?.value ?? other ?? "");
+    return this.contains(candidate) || String(this.value).startsWith(`${candidate}.`);
+  }
+  toString() { return this.value; }
+}
+const CodeActionKind = {
+  Empty: new CodeActionKindValue(""),
+  QuickFix: new CodeActionKindValue("quickfix"),
+  Refactor: new CodeActionKindValue("refactor"),
+  RefactorExtract: new CodeActionKindValue("refactor.extract"),
+  RefactorInline: new CodeActionKindValue("refactor.inline"),
+  RefactorRewrite: new CodeActionKindValue("refactor.rewrite"),
+  Source: new CodeActionKindValue("source"),
+  SourceFixAll: new CodeActionKindValue("source.fixAll"),
+  SourceOrganizeImports: new CodeActionKindValue("source.organizeImports"),
+  Notebook: new CodeActionKindValue("notebook"),
+};
 
 class CodeAction {
   constructor(title, kind) {
@@ -201,6 +433,20 @@ class SymbolInformation {
       this.location = locationOrUri || {};
       this.containerName = containerNameOrRange || "";
     }
+  }
+}
+
+class CallHierarchyIncomingCall {
+  constructor(item, fromRanges = []) {
+    this.from = item;
+    this.fromRanges = fromRanges;
+  }
+}
+
+class CallHierarchyOutgoingCall {
+  constructor(item, fromRanges = []) {
+    this.to = item;
+    this.fromRanges = fromRanges;
   }
 }
 
@@ -345,6 +591,7 @@ const activeNotebookEditorEmitter = new EventEmitter();
 const visibleNotebookEditorsEmitter = new EventEmitter();
 const activeDebugSessionEmitter = new EventEmitter();
 const debugCustomEventEmitter = new EventEmitter();
+const activeColorThemeEmitter = new EventEmitter();
 const onDidRenameFilesEmitter = new EventEmitter();
 const onDidDeleteFilesEmitter = new EventEmitter();
 const onWillSaveTextDocumentEmitter = new EventEmitter();
@@ -352,6 +599,30 @@ const onDidCreateFilesEmitter = new EventEmitter();
 const onWillCreateFilesEmitter = new EventEmitter();
 const onWillRenameFilesEmitter = new EventEmitter();
 const onWillDeleteFilesEmitter = new EventEmitter();
+const onDidChangeConfigurationEmitter = new EventEmitter();
+const terminals = [];
+let activeTerminal = {
+  name: "",
+  processId: 0,
+  creationOptions: {},
+  state: {},
+  shellIntegration: {},
+  sendText() {},
+  show() {},
+  hide() {},
+  dispose() {},
+  selection: undefined,
+};
+const activeColorTheme = { kind: ColorThemeKind.Dark, backgroundColor: undefined, foregroundColor: undefined };
+const activeTabGroupState = { activeTab: undefined, viewColumn: ViewColumn.One, tabs: [] };
+const onDidChangeTextEditorVisibleRangesEmitter = new EventEmitter();
+
+function setActiveTab(input, label, viewColumn = ViewColumn.One) {
+  const tab = { input, label, viewColumn, active: true };
+  activeTabGroupState.activeTab = tab;
+  activeTabGroupState.viewColumn = viewColumn;
+  activeTabGroupState.tabs = [tab];
+}
 
 // ── workspace ────────────────────────────────────────────────────────────────
 
@@ -464,9 +735,13 @@ const workspace = {
   },
 
   onDidChangeConfiguration(listener) {
-    // fire once so extensions initialize; real config-change events not yet supported
-    return { dispose: () => {} };
+    return onDidChangeConfigurationEmitter.event(listener);
   },
+  requestResourceTrust(_resource) { return Promise.resolve(true); },
+  requestWorkspaceTrust(_options) { return Promise.resolve(true); },
+  saveAll(_includeUntitled) { return Promise.resolve(true); },
+  registerPortAttributesProvider() { return new Disposable(() => {}); },
+  showWorkspaceFolderPick() { return Promise.resolve(_workspaceFolders[0]); },
   asRelativePath(pathOrUri, includeWorkspaceFolder) {
     const inputPath = typeof pathOrUri === "string"
       ? pathOrUri
@@ -637,17 +912,33 @@ const workspace = {
 
 const window = {
   tabGroups: {
-    all: [],
-    activeTabGroup: undefined,
+    all: [activeTabGroupState],
+    activeTabGroup: activeTabGroupState,
     onDidChangeTabGroups: new EventEmitter().event,
     onDidChangeTabs: new EventEmitter().event,
+    close: async () => undefined,
   },
   onDidChangeWindowState: new EventEmitter().event,
+  onDidChangeActiveColorTheme: activeColorThemeEmitter.event,
+  activeColorTheme,
+  terminals,
+  activeTerminal,
+  onDidChangeActiveTerminal: new EventEmitter().event,
   onDidChangeTerminalShellIntegration: new EventEmitter().event,
   onDidChangeTerminalState: new EventEmitter().event,
+  onDidStartTerminalShellExecution: new EventEmitter().event,
+  onDidEndTerminalShellExecution: new EventEmitter().event,
   onDidWriteTerminalData: new EventEmitter().event,
   onDidExecuteTerminalCommand: new EventEmitter().event,
   onDidCloseTerminal: new EventEmitter().event,
+  onDidChangeTextEditorVisibleRanges: onDidChangeTextEditorVisibleRangesEmitter.event,
+  setStatusBarMessage: (message, timeoutOrThenable) => {
+    const disposable = ensureDisposable({ dispose() {} });
+    if (timeoutOrThenable && typeof timeoutOrThenable.then === "function") {
+      Promise.resolve(timeoutOrThenable).finally(() => disposable.dispose());
+    }
+    return disposable;
+  },
   createTreeView(viewId, options) {
     const provider = options.treeDataProvider;
     treeProviders.set(viewId, { provider });
@@ -693,6 +984,7 @@ const window = {
   showInformationMessage(msg) { send({ type: "notification", level: "info", message: msg }); return Promise.resolve(undefined); },
   showWarningMessage(msg) { send({ type: "notification", level: "warning", message: msg }); return Promise.resolve(undefined); },
   showErrorMessage(msg) { send({ type: "notification", level: "error", message: msg }); return Promise.resolve(undefined); },
+  showWorkspaceFolderPick() { return Promise.resolve(_workspaceFolders[0]); },
 
   createOutputChannel(name) {
     const lines = [];
@@ -716,6 +1008,7 @@ const window = {
   },
 
   createWebviewPanel(viewType, title, column, options) {
+    setActiveTab(new TabInputCustom(Uri.file("")), title || viewType || "panel", typeof column === "number" ? column : ViewColumn.One);
     return {
       webview: { html: "", onDidReceiveMessage: new EventEmitter().event, postMessage: () => {}, options: {} },
       title, viewType, active: false, visible: false,
@@ -736,13 +1029,73 @@ const window = {
   createTextEditorDecorationType() { return { dispose() {} }; },
   withProgress(options, task) { return task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event }); },
   showQuickPick: () => Promise.resolve(undefined),
+  createQuickPick: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      items: [],
+      selectedItems: [],
+      value: "",
+      title: "",
+      placeholder: "",
+      canSelectMany: false,
+      busy: false,
+      ignoreFocusOut: false,
+      onDidChangeValue: emitter.event,
+      onDidChangeSelection: emitter.event,
+      onDidAccept: emitter.event,
+      onDidHide: emitter.event,
+      show() {},
+      hide() {},
+      dispose() { emitter.dispose(); },
+    });
+  },
+  createInputBox: () => {
+    const emitter = new EventEmitter();
+    return ensureDisposable({
+      value: "",
+      prompt: "",
+      placeholder: "",
+      title: "",
+      password: false,
+      busy: false,
+      ignoreFocusOut: false,
+      onDidChangeValue: emitter.event,
+      onDidAccept: emitter.event,
+      onDidHide: emitter.event,
+      show() {},
+      hide() {},
+      dispose() { emitter.dispose(); },
+    });
+  },
   showInputBox: () => Promise.resolve(undefined),
+  showOpenDialog: async (options = {}) => {
+    if (options?.defaultUri) return [options.defaultUri];
+    return [];
+  },
+  showSaveDialog: async (options = {}) => {
+    return options?.defaultUri;
+  },
+  showTextDocument: async (documentOrUri, _columnOrOptions, _preserveFocus) => {
+    let doc = documentOrUri;
+    if (typeof documentOrUri === "string" || documentOrUri?.scheme || documentOrUri?.fsPath) {
+      try { doc = await workspace.openTextDocument(documentOrUri); } catch {}
+    }
+    const editor = makeTextEditor(doc || { uri: Uri.file(""), fileName: "", languageId: "plaintext", getText: () => "" });
+    window.activeTextEditor = editor;
+    setActiveTab(new TabInputText(editor.document.uri), editor.document.fileName || require("path").basename(editor.document.uri?.fsPath || "") || "Untitled", ViewColumn.One);
+    return editor;
+  },
   activeTextEditor: new TextEditor(new TextDocument(Uri.file(""), "")),
   visibleTextEditors: [],
   onDidChangeActiveTextEditor: new EventEmitter().event,
   onDidChangeVisibleTextEditors: new EventEmitter().event,
   onDidChangeTextEditorSelection: new EventEmitter().event,
-  activeNotebookEditor: undefined,
+  activeNotebookEditor: {
+    notebook: { uri: Uri.file(""), cellCount: 0 },
+    selection: new NotebookRange(0, 0),
+    selections: [],
+    visibleRanges: [],
+  },
   visibleNotebookEditors: [],
   onDidChangeActiveNotebookEditor: activeNotebookEditorEmitter.event,
   onDidChangeVisibleNotebookEditors: visibleNotebookEditorsEmitter.event,
@@ -755,6 +1108,7 @@ const window = {
     window.visibleNotebookEditors = [editor];
     activeNotebookEditorEmitter.fire(editor);
     visibleNotebookEditorsEmitter.fire(window.visibleNotebookEditors);
+    setActiveTab(new TabInputNotebook(document.uri), document.uri?.fsPath ? require("path").basename(document.uri.fsPath) : "Notebook", ViewColumn.One);
     return editor;
   },
   registerWebviewViewProvider: () => new Disposable(() => {}),
@@ -763,12 +1117,19 @@ const window = {
   createTerminal(optionsOrName) {
     const terminal = {
       name: typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal"),
+      processId: terminals.length + 1,
+      creationOptions: typeof optionsOrName === "object" ? optionsOrName : { name: String(optionsOrName || "Terminal") },
+      state: { shell: process.env.SHELL || "/bin/zsh" },
       shellIntegration: {},
       sendText() {},
-      show() {},
+      show() { activeTerminal = terminal; window.activeTerminal = terminal; },
       hide() {},
       dispose() {},
     };
+    terminals.push(terminal);
+    activeTerminal = terminal;
+    window.activeTerminal = terminal;
+    setActiveTab(new TabInputCustom(Uri.file("")), terminal.name, ViewColumn.One);
     return terminal;
   },
   registerTerminalLinkProvider: () => new Disposable(() => {}),
@@ -784,10 +1145,35 @@ const commands = {
     registeredCommands.set(id, thisArg ? handler.bind(thisArg) : handler);
     return new Disposable(() => registeredCommands.delete(id));
   },
-  executeCommand(id, ...args) {
+  async executeCommand(id, ...args) {
     const handler = registeredCommands.get(id);
-    if (handler) return Promise.resolve(handler(...args));
-    return Promise.resolve(undefined);
+    if (handler) return handler(...args);
+    if (id === "vscode.open") {
+      const uri = args[0];
+      if (uri) {
+        try { await window.showTextDocument(uri); } catch {}
+      }
+      return true;
+    }
+    if (id === "vscode.openFolder" || id === "vscode.diff") return true;
+    if (id === "vscode.executeDefinitionProvider" || id === "vscode.executeTypeDefinitionProvider" || id === "vscode.executeImplementationProvider" || id === "vscode.executeReferenceProvider" || id === "vscode.executeWorkspaceSymbolProvider" || id === "vscode.executeDocumentSymbolProvider" || id === "vscode.executeCodeActionProvider" || id === "vscode.executeNotebookVariableProvider") {
+      return [];
+    }
+    if (id === "vscode.testing.getControllersWithTests" || id === "vscode.testing.getTestsInFile") {
+      return [];
+    }
+    if (id === "vscode.openWith") {
+      const uri = args[0];
+      if (uri) {
+        try { await window.showTextDocument(uri); } catch {}
+      }
+      return true;
+    }
+    if (id === "vscode.editor.open" || id === "vscode.editor.openLast" || id === "vscode.primaryEditor.open" || id === "vscode.sidebar.open" || id === "vscode.terminal.open" || id === "vscode.window.open" || id === "vscode.openWalkthrough" || id === "vscode.acceptProposedDiff" || id === "vscode.rejectProposedDiff" || id === "vscode.toggleDictation" || id === "vscode.showLogs" || id === "vscode.newConversation" || id === "vscode.logout" || id === "vscode.installPlugin" || id === "vscode.focus" || id === "vscode.blur" || id === "vscode.insertAtMention") {
+      return true;
+    }
+    if (id.startsWith("vscode.")) return true;
+    return undefined;
   },
   getCommands() { return Promise.resolve([...registeredCommands.keys()]); },
   registerTextEditorCommand(id, handler) { return commands.registerCommand(id, handler); },
@@ -826,6 +1212,14 @@ const languages = {
   registerTypeDefinitionProvider: () => new Disposable(() => {}),
   registerImplementationProvider: () => new Disposable(() => {}),
   registerDeclarationProvider: () => new Disposable(() => {}),
+  registerCallHierarchyProvider: () => new Disposable(() => {}),
+  registerInlineValuesProvider: () => new Disposable(() => {}),
+  registerLinkedEditingRangeProvider: () => new Disposable(() => {}),
+  registerTypeHierarchyProvider: () => new Disposable(() => {}),
+  setTextDocumentLanguage: async (document, languageId) => {
+    if (document && typeof document === "object") document.languageId = languageId;
+    return document;
+  },
   createLanguageStatusItem(id, _selector) {
     const emitter = new EventEmitter();
     return { id, text: "", detail: "", severity: 0, command: undefined, busy: false,
@@ -834,7 +1228,15 @@ const languages = {
   registerHoverProvider: () => new Disposable(() => {}),
   registerCompletionItemProvider: () => new Disposable(() => {}),
   registerDefinitionProvider: () => new Disposable(() => {}),
+  registerDocumentHighlightProvider: () => new Disposable(() => {}),
+  registerDocumentLinkProvider: () => new Disposable(() => {}),
+  registerSelectionRangeProvider: () => new Disposable(() => {}),
+  registerDocumentRangeFormattingEditProvider: () => new Disposable(() => {}),
+  registerDocumentRangeSemanticTokensProvider: () => new Disposable(() => {}),
+  registerColorPresentationProvider: () => new Disposable(() => {}),
+  registerOnTypeFormattingEditProvider: () => new Disposable(() => {}),
   registerCodeActionsProvider: () => new Disposable(() => {}),
+  registerWorkspaceSymbolProvider: () => new Disposable(() => {}),
   registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
   registerFoldingRangeProvider: () => new Disposable(() => {}),
   onDidChangeDiagnostics: new EventEmitter().event,
@@ -900,22 +1302,127 @@ const debug = {
   registerDebugConfigurationProvider: () => new Disposable(() => {}),
   registerDebugAdapterDescriptorFactory: () => new Disposable(() => {}),
   registerDebugAdapterTrackerFactory: () => new Disposable(() => {}),
+  activeDebugSession: { name: "", id: "debug-session", type: "", parentSession: undefined, configuration: {} },
+  activeDebugConsole: { append() {}, appendLine() {}, clear() {}, show() {}, hide() {}, dispose() {} },
+  breakpoints: [],
+  onDidChangeBreakpoints: new EventEmitter().event,
   onDidStartDebugSession: new EventEmitter().event,
   onDidTerminateDebugSession: new EventEmitter().event,
   onDidChangeActiveDebugSession: activeDebugSessionEmitter.event,
   onDidReceiveDebugSessionCustomEvent: debugCustomEventEmitter.event,
+  addBreakpoints: async (bps) => bps || [],
+  removeBreakpoints: async () => undefined,
 };
+
+const chat = {
+  createChatParticipant: () => ensureDisposable({ dispose() {} }),
+  createDynamicChatParticipant: () => ensureDisposable({ dispose() {} }),
+  onDidDisposeChatSession: new EventEmitter().event,
+  onDidChangeCustomAgents: new EventEmitter().event,
+  onDidChangeInstructions: new EventEmitter().event,
+  onDidChangeSkills: new EventEmitter().event,
+  onDidChangeHooks: new EventEmitter().event,
+  onDidChangePlugins: new EventEmitter().event,
+  registerChatSessionItemProvider: () => ensureDisposable({ enabled: true, isEnabled: true, onDidChangeEnablement: new EventEmitter().event, onDidChangeEnableStates: new EventEmitter().event, onDidChangeChatSessionItemState: new EventEmitter().event, dispose() {} }),
+  registerChatSessionContentProvider: () => ensureDisposable({ enabled: true, isEnabled: true, onDidChangeEnablement: new EventEmitter().event, onDidChangeEnableStates: new EventEmitter().event, dispose() {} }),
+  registerChatSessionCustomizationProvider: () => ensureDisposable({ enabled: true, isEnabled: true, onDidChangeEnablement: new EventEmitter().event, onDidChangeEnableStates: new EventEmitter().event, dispose() {} }),
+  getCustomAgents: async () => [],
+};
+
+const tests = {
+  testResults: [],
+  onDidChangeTestResults: new EventEmitter().event,
+  createTestController(id, label) {
+    const emitter = new EventEmitter();
+    return {
+      id,
+      label,
+      items: new Map(),
+      createTestItem(testId, testLabel, uri) {
+        return {
+          id: testId,
+          label: testLabel,
+          uri,
+          children: new Map(),
+          tags: [],
+          canResolveChildren: false,
+          busy: false,
+          description: undefined,
+          error: undefined,
+          range: undefined,
+          parent: undefined,
+          dispose() {},
+        };
+      },
+      createRunProfile() {
+        return ensureDisposable({ dispose() {} });
+      },
+      createTestRun(request) {
+        return ensureDisposable({
+          enqueued() {},
+          started() {},
+          skipped() {},
+          passed() {},
+          failed() {},
+          errored() {},
+          appendOutput() {},
+          end() {},
+          dispose() {},
+          request,
+        });
+      },
+      refreshHandler: undefined,
+      resolveHandler: undefined,
+      invalidateTestResults() {},
+      onDidDispose: emitter.event,
+      dispose() {
+        emitter.fire();
+      },
+    };
+  },
+  createTestMessage(message, expected, actual) {
+    return new TestMessage(message, expected, actual);
+  },
+};
+
+const lmTools = [];
+const mcpServerDefinitionsEmitter = new EventEmitter();
+const mcpServerDefinitions = [];
 
 const lm = {
   isModelProxyAvailable: false,
   onDidChangeModelProxyAvailability: new EventEmitter().event,
+  onDidChangeMcpServerDefinitions: mcpServerDefinitionsEmitter.event,
+  mcpServerDefinitions,
+  tools: lmTools,
   getModelProxy: async () => ({
     uri: "athva://lm/proxy",
     dispose() {},
   }),
   registerLanguageModelChatProvider: () => new Disposable(() => {}),
-  registerTool: () => new Disposable(() => {}),
+  registerMcpServerDefinitionProvider: () => new Disposable(() => {}),
+  startMcpGateway: async () => undefined,
+  invokeTool: async (name, _args) => lmTools.find((tool) => tool?.name === name || tool?.toolName === name),
+  registerTool: (tool) => {
+    if (tool) lmTools.push(tool);
+    return new Disposable(() => {
+      const index = lmTools.indexOf(tool);
+      if (index >= 0) lmTools.splice(index, 1);
+    });
+  },
   selectChatModels: async () => [],
+};
+
+const editorChat = {
+  start: async (...args) => commands.executeCommand("vscode.editorChat.start", ...args),
+};
+
+function extensionPromptFileProvider(...args) {
+  return commands.executeCommand("vscode.extensionPromptFileProvider", ...args);
+}
+
+const interactive = {
+  transferActiveChat: async () => undefined,
 };
 
 // ── env ───────────────────────────────────────────────────────────────────────
@@ -923,6 +1430,7 @@ const lm = {
 const env = {
   appRoot: process.env.VSCODE_APP_ROOT || "",
   appName: "Athva",
+  appCommit: process.env.GIT_COMMIT || process.env.COMMIT_SHA || "",
   appHost: "desktop",
   language: "en",
   machineId: "athva-machine",
@@ -1060,11 +1568,23 @@ async function handleMessage(msg) {
   }
 
   if (msg.type === "setWorkspace") {
+    const prevConfig = JSON.stringify(_configuration || {});
     _workspaceFolders = (msg.folders || []).map((f, i) => ({
       index: i, name: require("path").basename(f), uri: Uri.file(f),
     }));
     _configuration = msg.configuration || {};
     workspaceFoldersEmitter.fire({ added: _workspaceFolders, removed: [] });
+    const nextConfig = JSON.stringify(_configuration || {});
+    if (prevConfig !== nextConfig) {
+      onDidChangeConfigurationEmitter.fire({
+        affectsConfiguration: (section) => {
+          if (!section) return prevConfig !== nextConfig;
+          const beforeSection = JSON.stringify((JSON.parse(prevConfig || "{}") || {})[section] ?? null);
+          const afterSection = JSON.stringify((_configuration || {})[section] ?? null);
+          return beforeSection !== afterSection;
+        },
+      });
+    }
   }
 
   if (msg.type === "executeCommand") {
@@ -1139,13 +1659,18 @@ function withApiFallback(obj, rootPath) {
 const vscodeApi = {
   __esModule: true,
   // value types
-  Uri, Range, Position, Selection, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind,
-  CancellationTokenSource, CancellationToken, CancellationError, CompletionItem, CompletionItemKind, TextEdit, WorkspaceEdit, CodeAction, Diagnostic, InlineCompletionList,
-  SymbolInformation, CallHierarchyItem, TypeHierarchyItem, InlayHint,
+  Uri, Range, Position, Selection, Location, Color, ColorInformation, ColorPresentation, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind, NotebookEdit, NotebookRendererScript, NotebookControllerAffinity, NotebookEditorRevealType,
+  TabInputText, TabInputTextDiff, TabInputNotebook, TabInputNotebookDiff, TabInputCustom,
+  LanguageModelChat, LanguageModelChatMessage, LanguageModelTextPart, LanguageModelTextPart2, LanguageModelDataPart, LanguageModelDataPart2, LanguageModelThinkingPart, LanguageModelToolCallPart, LanguageModelToolResultPart, LanguageModelToolResultPart2, LanguageModelToolResult, LanguageModelPromptTsxPart, LanguageModelError,
+  ChatCompletionItem, ChatRequestTurn, ChatRequestTurn2, ChatResponseMarkdownPart, ChatResponseProgressPart, ChatResponseReferencePart, ChatResponseThinkingProgressPart, ChatResponseTurn, ChatResponseTurn2, ChatResponseWarningPart, ChatToolInvocationPart, ChatVariableLevel,
+  CancellationTokenSource, CancellationToken, CancellationError, CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, TextEdit, WorkspaceEdit, CodeAction, CodeActionKind, CodeActionTriggerKind, Diagnostic, DiagnosticTag, DiagnosticRelatedInformation, InlineCompletionList, InlineCompletionItem, DebugAdapterInlineImplementation,
+  SymbolInformation, CallHierarchyItem, CallHierarchyIncomingCall, CallHierarchyOutgoingCall, TypeHierarchyItem, InlayHint, InlayHintLabelPart,
   TextDocument, TextEditor,
-  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind,
-  InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind, ChatEditingSessionActionOutcome,
-  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, ExcludeSettingOptions, LanguageStatusSeverity,
+  TreeItemCollapsibleState, StatusBarAlignment, ViewColumn, UIKind, QuickPickItemKind, QuickInputButtons, LogLevel, TerminalProfile, TerminalLocation, TabInputInteractiveWindow,
+  InlineCompletionEndOfLifeReasonKind, InlineCompletionsDisposeReasonKind, InlineCompletionDisplayLocationKind, InlineCompletionTriggerKind, DecorationRangeBehavior, ChatEditingSessionActionOutcome,
+  DiagnosticSeverity, ColorThemeKind, ConfigurationTarget, ExtensionMode, FileType, EndOfLine, ExcludeSettingOptions, LanguageStatusSeverity, ProgressLocation, SettingsSearchResultKind, TextDocumentChangeReason, CompletionTriggerKind,
+  DocumentHighlight, DocumentHighlightKind, DocumentSymbol, FoldingRange, FoldingRangeKind, Hover, PortAttributes, PortAutoForwardAction, TextDocumentSaveReason, TextEditorRevealType,
+  TestResultState, TestRunProfileKind, TestMessage,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
   workspace: withApiFallback(workspace, "vscode.workspace"),
@@ -1153,11 +1678,18 @@ const vscodeApi = {
   commands: withApiFallback(commands, "vscode.commands"),
   languages: withApiFallback(languages, "vscode.languages"),
   notebooks: withApiFallback(notebooks, "vscode.notebooks"),
+  chat: withApiFallback(chat, "vscode.chat"),
+  tests: withApiFallback(tests, "vscode.tests"),
+  testing: withApiFallback(tests, "vscode.testing"),
   debug: withApiFallback(debug, "vscode.debug"),
   lm: withApiFallback(lm, "vscode.lm"),
+  editorChat,
+  extensionPromptFileProvider,
+  interactive,
   env: withApiFallback(env, "vscode.env"),
   l10n: withApiFallback(l10n, "vscode.l10n"),
   extensions: withApiFallback(extensions, "vscode.extensions"),
+  process,
   version,
   // internal
   _handleMessage: handleMessage,
