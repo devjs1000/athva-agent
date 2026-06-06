@@ -2052,6 +2052,12 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     },
     onWebviewPostMessage: (viewId, message) => {
       const bridgeId = `${vc.extensionIdentifier}:${viewId}`;
+      const commandMessage = message as { type?: string; command?: unknown; args?: unknown };
+      if (commandMessage && commandMessage.type === "executeCommand" && typeof commandMessage.command === "string") {
+        const args = Array.isArray(commandMessage.args) ? commandMessage.args : [];
+        void runtime.executeCommand(commandMessage.command, ...args).catch(() => {});
+        return;
+      }
       const selector = webviewBridgeIframeSelectorById.get(bridgeId);
       if (!selector) return;
       const iframe = document.querySelector<HTMLIFrameElement>(selector);
@@ -2487,6 +2493,33 @@ function prepareInlineWebviewHtml(input: string, bridgeId: string): string {
       } catch (_) {}
     });
 
+    function parseCommandUri(uri) {
+      if (typeof uri !== 'string' || uri.indexOf('command:') !== 0) return null;
+      var raw = uri.slice('command:'.length);
+      var queryIndex = raw.indexOf('?');
+      var command = queryIndex >= 0 ? raw.slice(0, queryIndex) : raw;
+      if (!command) return null;
+      var args = [];
+      if (queryIndex >= 0) {
+        var query = raw.slice(queryIndex + 1);
+        try {
+          var decoded = decodeURIComponent(query);
+          if (decoded) args = JSON.parse(decoded);
+          if (!Array.isArray(args)) args = [args];
+        } catch (_) {}
+      }
+      return { command: command, args: args };
+    }
+
+    function sendCommandUri(uri) {
+      var parsed = parseCommandUri(uri);
+      if (!parsed) return false;
+      try {
+        window.acquireVsCodeApi().postMessage({ type: 'executeCommand', command: parsed.command, args: parsed.args });
+      } catch (_) {}
+      return true;
+    }
+
     function isFileUrl(v) { return typeof v === 'string' && v.toLowerCase().indexOf('file://') === 0; }
     function patchAttr(el, attr) {
       try {
@@ -2508,6 +2541,29 @@ function prepareInlineWebviewHtml(input: string, bridgeId: string): string {
           patchAttr(nested[i], 'href');
         }
       }
+    }
+    document.addEventListener('click', function(event) {
+      try {
+        var node = event && event.target;
+        while (node && node !== document) {
+          if (node.tagName === 'A') {
+            var href = node.getAttribute && node.getAttribute('href');
+            if (sendCommandUri(href)) {
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+          }
+          node = node.parentNode;
+        }
+      } catch (_) {}
+    }, true);
+    var _open = window.open ? window.open.bind(window) : null;
+    if (_open) {
+      window.open = function(url, target, features) {
+        if (sendCommandUri(String(url || ''))) return null;
+        return _open(url, target, features);
+      };
     }
     var _setAttribute = Element.prototype.setAttribute;
     Element.prototype.setAttribute = function(name, value) {
