@@ -1245,7 +1245,7 @@ const workspace = {
 
   findFiles(include, exclude, maxResults) {
     const includePattern = normalizeGlobPattern(include);
-    const excludePattern = normalizeGlobPattern(exclude);
+    const excludePattern = exclude ? normalizeGlobPattern(exclude) : "";
     const limit = Number.isFinite(Number(maxResults)) && Number(maxResults) > 0 ? Number(maxResults) : 10_000;
     const results = [];
     const seen = new Set();
@@ -1272,7 +1272,11 @@ const workspace = {
     const patterns = Array.isArray(includes) ? includes : [includes];
     const limit = Number.isFinite(Number(options?.maxResults)) && Number(options?.maxResults) > 0
       ? Number(options?.maxResults) : 10_000;
-    const excludePatterns = (options?.exclude || []).map(normalizeGlobPattern).filter(Boolean);
+    const excludePatterns = Array.isArray(options?.exclude)
+      ? options.exclude.map(normalizeGlobPattern).filter(Boolean)
+      : options?.exclude
+        ? [normalizeGlobPattern(options.exclude)]
+        : [];
     const results = [];
     const seen = new Set();
 
@@ -1293,6 +1297,59 @@ const workspace = {
       if (results.length >= limit) break;
     }
     return Promise.resolve(results);
+  },
+
+  findTextInFiles(query, options = {}, callback) {
+    const search = normalizeTextSearchQuery(query);
+    if (!search) return Promise.resolve([]);
+
+    const includePattern = normalizeGlobPattern(options.include || "**/*");
+    const excludePattern = options.exclude ? normalizeGlobPattern(options.exclude) : "";
+    const limit = Number.isFinite(Number(options.maxResults)) && Number(options.maxResults) > 0
+      ? Number(options.maxResults) : 1_000;
+    const results = [];
+    const seen = new Set();
+    const onResult = typeof callback === "function" ? callback : null;
+
+    for (const folder of _workspaceFolders) {
+      const root = folder?.uri?.fsPath;
+      if (!root || !fs.existsSync(root)) continue;
+      walkFiles(root, (filePath) => {
+        if (results.length >= limit) return false;
+        const rel = toPosix(path.relative(root, filePath));
+        if (!globMatch(rel, includePattern)) return true;
+        if (excludePattern && globMatch(rel, excludePattern)) return true;
+        if (seen.has(filePath)) return true;
+        seen.add(filePath);
+
+        let content = "";
+        try {
+          content = fs.readFileSync(filePath, "utf8");
+        } catch {
+          return true;
+        }
+
+        for (const match of searchTextContent(content, search)) {
+          if (results.length >= limit) return false;
+          const result = {
+            uri: Uri.file(filePath),
+            ranges: [new Range(match.line, match.startCharacter, match.line, match.endCharacter)],
+            preview: {
+              text: match.lineText,
+              matches: [new Range(0, match.startCharacter, 0, match.endCharacter)],
+            },
+          };
+          results.push(result);
+          if (onResult) {
+            try { onResult(result); } catch {}
+          }
+        }
+        return true;
+      });
+      if (results.length >= limit) break;
+    }
+
+    return Promise.resolve(onResult ? undefined : results);
   },
 
   openTextDocument(pathOrUri) {
@@ -1861,6 +1918,9 @@ const languages = {
     languages._codeActionProviders.add(provider);
     return new Disposable(() => languages._codeActionProviders.delete(provider));
   },
+  registerCodeActionProvider(_selector, provider, metadata) {
+    return languages.registerCodeActionsProvider(_selector, provider, metadata);
+  },
   registerWorkspaceSymbolProvider: () => new Disposable(() => {}),
   registerCodeLensProvider: () => new Disposable(() => {}),
   registerReferenceProvider: () => new Disposable(() => {}),
@@ -1994,6 +2054,95 @@ const tasks = {
   onDidEndTask: new EventEmitter().event,
   onDidStartTaskProcess: new EventEmitter().event,
   onDidEndTaskProcess: new EventEmitter().event,
+};
+
+const scmSourceControls = new Map();
+const scm = {
+  sourceControls: [],
+  onDidChangeSelectedSourceControl: new EventEmitter().event,
+  createSourceControl(id, label, rootUri) {
+    const resourceGroups = new Map();
+    const controller = ensureDisposable({
+      id,
+      label,
+      rootUri,
+      count: 0,
+      commitTemplate: "",
+      quickDiffProvider: undefined,
+      inputBox: {
+        value: "",
+        placeholder: "",
+        prompt: "",
+        enabled: true,
+        visible: true,
+        show() { this.visible = true; },
+        hide() { this.visible = false; },
+        validateInput: undefined,
+      },
+      statusBarCommands: [],
+      selected: false,
+      createResourceGroup(groupId, groupLabel) {
+        const group = ensureDisposable({
+          id: groupId,
+          label: groupLabel,
+          resourceStates: [],
+          hideWhenEmpty: false,
+          resourceStateCount: 0,
+          dispose() { resourceGroups.delete(String(groupId)); },
+        });
+        resourceGroups.set(String(groupId), group);
+        return group;
+      },
+      dispose() {
+        resourceGroups.clear();
+        scmSourceControls.delete(String(id));
+        scm.sourceControls = scm.sourceControls.filter((item) => item !== controller);
+      },
+    });
+    scmSourceControls.set(String(id), controller);
+    scm.sourceControls.push(controller);
+    return controller;
+  },
+};
+
+const comments = {
+  controllers: [],
+  onDidChangeCommentingRanges: new EventEmitter().event,
+  createCommentController(id, label) {
+    const threads = new Map();
+    const controller = ensureDisposable({
+      id,
+      label,
+      commentingRangeProvider: undefined,
+      options: {},
+      threads: [],
+      createCommentThread(uri, range, commentsList = []) {
+        const thread = ensureDisposable({
+          uri,
+          range,
+          comments: Array.isArray(commentsList) ? commentsList : [],
+          label: undefined,
+          collapsibleState: 0,
+          canReply: true,
+          contextValue: undefined,
+          inputBox: undefined,
+          state: 0,
+          dispose() {
+            threads.delete(String(thread.label || thread.range?.toString?.() || threads.size));
+          },
+        });
+        threads.set(String(thread.label || thread.range?.toString?.() || threads.size), thread);
+        controller.threads.push(thread);
+        return thread;
+      },
+      dispose() {
+        threads.clear();
+        comments.controllers = comments.controllers.filter((item) => item !== controller);
+      },
+    });
+    comments.controllers.push(controller);
+    return controller;
+  },
 };
 
 const tests = {
@@ -2418,7 +2567,7 @@ const vscodeApi = {
   FileSystemError,
   Event, EventEmitter, Disposable, MarkdownString,
   // namespaces
-  workspace, window, commands, languages, notebooks, authentication, tasks, tests, testing: tests, debug, chat, lm, editorChat, extensionPromptFileProvider, interactive, env, l10n, extensions, process,
+  workspace, window, commands, languages, notebooks, authentication, tasks, scm, comments, tests, testing: tests, debug, chat, lm, editorChat, extensionPromptFileProvider, interactive, env, l10n, extensions, process,
   TestResultState, TestRunProfileKind, TestMessage,
   version,
   // internal
@@ -2492,6 +2641,8 @@ vscodeApi.languages = withApiFallback(languages, "vscode.languages");
 vscodeApi.notebooks = withApiFallback(notebooks, "vscode.notebooks");
 vscodeApi.authentication = withApiFallback(authentication, "vscode.authentication");
 vscodeApi.tasks = withApiFallback(tasks, "vscode.tasks");
+vscodeApi.scm = withApiFallback(scm, "vscode.scm");
+vscodeApi.comments = withApiFallback(comments, "vscode.comments");
 vscodeApi.debug = withApiFallback(debug, "vscode.debug");
 vscodeApi.chat = withApiFallback(chat, "vscode.chat");
 vscodeApi.lm = withApiFallback(lm, "vscode.lm");
@@ -2553,12 +2704,65 @@ function normalizeGlobPattern(pattern) {
 function globMatch(file, pattern) {
   const normalizedFile = toPosix(file);
   const normalizedPattern = toPosix(String(pattern || "**/*"));
-  const escaped = normalizedPattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "__DOUBLE_STAR__")
-    .replace(/\*/g, "[^/]*")
-    .replace(/__DOUBLE_STAR__/g, ".*")
-    .replace(/\?/g, ".");
+  let escaped = normalizedPattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  escaped = escaped.replace(/\*\*\//g, "__DOUBLE_STAR_DIR__");
+  escaped = escaped.replace(/\*\*/g, "__DOUBLE_STAR__");
+  escaped = escaped.replace(/\*/g, "[^/]*");
+  escaped = escaped.replace(/\?/g, ".");
+  escaped = escaped.replace(/__DOUBLE_STAR_DIR__/g, "(?:.*/)?");
+  escaped = escaped.replace(/__DOUBLE_STAR__/g, ".*");
   const re = new RegExp(`^${escaped}$`);
   return re.test(normalizedFile);
+}
+
+function normalizeTextSearchQuery(query) {
+  if (query == null) return "";
+  if (typeof query === "string") return query;
+  if (query instanceof RegExp) return query;
+  if (typeof query === "object") {
+    if (typeof query.pattern === "string" && query.pattern) return query.pattern;
+    if (query.pattern instanceof RegExp) return query.pattern;
+    if (typeof query.value === "string" && query.value) return query.value;
+  }
+  return "";
+}
+
+function searchTextContent(content, query) {
+  const text = String(content ?? "");
+  const lines = text.split(/\r?\n/);
+  const results = [];
+  if (!query) return results;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const lineText = lines[lineIndex];
+    if (query instanceof RegExp) {
+      const flags = query.flags.includes("g") ? query.flags : `${query.flags}g`;
+      const regex = new RegExp(query.source, flags);
+      let match;
+      while ((match = regex.exec(lineText))) {
+        const startCharacter = match.index || 0;
+        const endCharacter = startCharacter + String(match[0] ?? "").length;
+        results.push({ line: lineIndex, startCharacter, endCharacter, lineText });
+        if (!match[0]) break;
+      }
+      continue;
+    }
+
+    const needle = String(query);
+    if (!needle) continue;
+    let offset = 0;
+    while (offset <= lineText.length) {
+      const index = lineText.indexOf(needle, offset);
+      if (index < 0) break;
+      results.push({
+        line: lineIndex,
+        startCharacter: index,
+        endCharacter: index + needle.length,
+        lineText,
+      });
+      offset = index + Math.max(1, needle.length);
+    }
+  }
+
+  return results;
 }
