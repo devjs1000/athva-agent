@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const vscode = require("../src/extension-host/vscode-shim.cjs");
+const { matchesVscodeWhenClause } = await import("../src/modules/vscode-when.js");
 
 test("vscode shim exposes compatibility namespaces and aliases", async () => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "athva-vscode-shim-"));
@@ -45,6 +46,33 @@ test("vscode shim executes registered commands", async () => {
   disposable.dispose();
 
   assert.equal(commandResult, "hello");
+});
+
+test("vscode when evaluator supports explorer resource context and precedence", () => {
+  const context = {
+    resourcePath: "/workspace/src/index.ts",
+    resourceName: "index.ts",
+    resourceExtname: ".ts",
+    resourceFilename: "index.ts",
+    resourceIsFolder: false,
+    resourceIsRoot: false,
+    resourceScheme: "file",
+    resourceLangId: "typescript",
+    resourceReadonly: false,
+    isFileSystemResource: true,
+    editorFocus: true,
+    textInputFocus: true,
+    selectionExists: true,
+    view: "explorer",
+  };
+
+  assert.equal(matchesVscodeWhenClause("view == explorer && resourceExtname == '.ts'", context), true);
+  assert.equal(matchesVscodeWhenClause("view == scm || resourceExtname == '.js'", context), false);
+  assert.equal(matchesVscodeWhenClause("!(resourceIsFolder || resourceExtname == '.js') && resourceFilename == 'index.ts'", context), true);
+  assert.equal(matchesVscodeWhenClause("resourceIsFolder", { ...context, resourceIsFolder: true }), true);
+  assert.equal(matchesVscodeWhenClause("editorFocus && resourceLangId == 'typescript'", context), true);
+  assert.equal(matchesVscodeWhenClause("isFileSystemResource && !resourceReadonly", context), true);
+  assert.equal(matchesVscodeWhenClause("selectionExists && textInputFocus", context), true);
 });
 
 test("vscode shim executes registered language providers", async () => {

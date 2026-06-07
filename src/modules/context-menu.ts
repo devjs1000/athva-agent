@@ -22,7 +22,7 @@ interface MenuItem {
 }
 
 export interface ContextMenuItem extends MenuItem {}
-export type GetExtensionContextMenuItems = () => ContextMenuItem[];
+export type GetExtensionContextMenuItems = (target: ContextMenuTarget) => ContextMenuItem[];
 
 export class ContextMenu {
   private el: HTMLElement;
@@ -33,6 +33,7 @@ export class ContextMenu {
   private onCompactContexts: OnCompactContexts | null = null;
   private onRenameCallback: ((oldPath: string, newPath: string) => void) | null = null;
   private getExtensionContextMenuItems: GetExtensionContextMenuItems | null = null;
+  private currentTarget: ContextMenuTarget | null = null;
   private projectRoot: string = "";
 
   constructor(onRefresh: OnRefresh, onOpenFile: OnOpenFile, getExtensionContextMenuItems?: GetExtensionContextMenuItems) {
@@ -77,6 +78,7 @@ export class ContextMenu {
   }
 
   show(x: number, y: number, target: ContextMenuTarget) {
+    this.currentTarget = target;
     const items = this.buildMenu(target);
     this.renderMenu(items);
 
@@ -97,6 +99,7 @@ export class ContextMenu {
 
   close() {
     this.el.classList.add("hidden");
+    this.currentTarget = null;
   }
 
   private buildMenu(target: ContextMenuTarget): MenuItem[] {
@@ -183,7 +186,7 @@ export class ContextMenu {
   }
 
   private buildExtensionMenuItems(): MenuItem[] {
-    const items = this.getExtensionContextMenuItems?.() ?? [];
+    const items = this.currentTarget ? this.getExtensionContextMenuItems?.(this.currentTarget) ?? [] : [];
     if (!items.length) return [];
     return [
       { separator: true, label: "" },

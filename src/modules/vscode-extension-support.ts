@@ -31,6 +31,12 @@ export interface ExtensionCommand {
   iconCodicon?: string;
 }
 
+export interface ExtensionMenuContribution {
+  command: string;
+  group?: string;
+  when?: string;
+}
+
 export interface ExtensionViewContainer {
   id: string;
   title: string;
@@ -72,6 +78,7 @@ export interface ExtensionSupportSnapshot {
   unsupportedFeatures: string[];
   compatibilityIssues: ExtensionCompatibilityIssue[];
   commands: ExtensionCommand[];
+  menus: ExtensionMenuContribution[];
   viewContainers: ExtensionViewContainer[];
   views: ExtensionView[];
   languages: ExtensionLanguage[];
@@ -85,6 +92,7 @@ export interface ResolvedExtensionsSupport {
   runtimeFileIconThemes: RuntimeFileIconTheme[];
   snippets: SnippetEntry[];
   allCommands: ExtensionCommand[];
+  allMenuContributions: ExtensionMenuContribution[];
   allViewContainers: ExtensionViewContainer[];
   allViews: ExtensionView[];
   allLanguages: ExtensionLanguage[];
@@ -130,6 +138,7 @@ export async function loadInstalledExtensionSupport(
   const runtimeFileIconThemes: RuntimeFileIconTheme[] = [];
   const snippets: SnippetEntry[] = [];
   const allCommands: ExtensionCommand[] = [];
+  const allMenuContributions: ExtensionMenuContribution[] = [];
   const allViewContainers: ExtensionViewContainer[] = [];
   const allViews: ExtensionView[] = [];
   const allLanguages: ExtensionLanguage[] = [];
@@ -158,6 +167,7 @@ export async function loadInstalledExtensionSupport(
           ],
         }],
         commands: [],
+        menus: [],
         viewContainers: [],
         views: [],
         languages: [],
@@ -174,6 +184,7 @@ export async function loadInstalledExtensionSupport(
     const iconThemes = await loadIconThemes(extension.identifier, extension.display_name, extension.install_path, manifest);
     const extensionSnippets = await loadSnippets(extension.identifier, extension.install_path, manifest);
     const commands = parseCommands(manifest);
+    const menus = parseMenus(manifest);
     const viewContainers = await parseViewContainers(extension.identifier, extension.install_path, manifest);
     const views = parseViews(manifest);
     const languages = parseLanguages(manifest);
@@ -182,6 +193,7 @@ export async function loadInstalledExtensionSupport(
     runtimeFileIconThemes.push(...iconThemes);
     snippets.push(...extensionSnippets);
     allCommands.push(...commands);
+    allMenuContributions.push(...menus);
     allViewContainers.push(...viewContainers);
     allViews.push(...views);
     allLanguages.push(...languages);
@@ -194,6 +206,7 @@ export async function loadInstalledExtensionSupport(
     if (iconThemes.length) supportedFeatures.push(`${iconThemes.length} file icon theme${iconThemes.length === 1 ? "" : "s"}`);
     if (extensionSnippets.length) supportedFeatures.push(`${extensionSnippets.length} snippet${extensionSnippets.length === 1 ? "" : "s"}`);
     if (commands.length) supportedFeatures.push(`${commands.length} command${commands.length === 1 ? "" : "s"}`);
+    if (menus.length) supportedFeatures.push(`${menus.length} menu contribution${menus.length === 1 ? "" : "s"}`);
     if (manifest?.main || manifest?.browser) supportedFeatures.push("Runtime execution (beta)");
     if (viewContainers.length) supportedFeatures.push(`${viewContainers.length} activity bar panel${viewContainers.length === 1 ? "" : "s"}`);
     if (languages.length) supportedFeatures.push(`${languages.length} language${languages.length === 1 ? "" : "s"} (metadata)`);
@@ -211,6 +224,7 @@ export async function loadInstalledExtensionSupport(
       unsupportedFeatures,
       compatibilityIssues,
       commands,
+      menus,
       viewContainers,
       views,
       languages,
@@ -219,7 +233,7 @@ export async function loadInstalledExtensionSupport(
     });
   }
 
-  return { supportByIdentifier, runtimeThemes, runtimeFileIconThemes, snippets, allCommands, allViewContainers, allViews, allLanguages };
+  return { supportByIdentifier, runtimeThemes, runtimeFileIconThemes, snippets, allCommands, allMenuContributions, allViewContainers, allViews, allLanguages };
 }
 
 async function readExtensionManifest(installPath: string): Promise<any | null> {
@@ -409,6 +423,24 @@ function parseCommands(manifest: any): ExtensionCommand[] {
       category: item.category ? String(item.category) : undefined,
       iconCodicon: typeof item.icon === "string" && item.icon.startsWith("$(") ? item.icon : undefined,
     }));
+}
+
+function parseMenus(manifest: any): ExtensionMenuContribution[] {
+  const menus = manifest?.contributes?.menus;
+  if (!menus || typeof menus !== "object") return [];
+  const result: ExtensionMenuContribution[] = [];
+  for (const entries of Object.values(menus)) {
+    if (!Array.isArray(entries)) continue;
+    for (const item of entries as any[]) {
+      if (!item || typeof item.command !== "string" || !item.command) continue;
+      result.push({
+        command: String(item.command),
+        group: typeof item.group === "string" ? String(item.group) : undefined,
+        when: typeof item.when === "string" ? String(item.when) : undefined,
+      });
+    }
+  }
+  return result;
 }
 
 async function parseViewContainers(extensionIdentifier: string, installPath: string, manifest: any): Promise<ExtensionViewContainer[]> {

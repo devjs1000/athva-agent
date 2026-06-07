@@ -44,6 +44,8 @@ import { ContextManager } from "./modules/context-manager";
 import { ScreenSaver } from "./modules/screen-saver";
 import { renderMarkdown } from "./modules/markdown-renderer";
 import { initIdeLogsCapture } from "./modules/ide-logs";
+import { matchesVscodeWhenClause, type VscodeWhenContext } from "./modules/vscode-when.js";
+import type { EditorExtensionContext } from "./modules/editor";
 
 // ── State ──
 let appSettings: AppSettings;
@@ -1871,22 +1873,109 @@ function getActiveRuntimeForWorkspaceSearch(): ExtensionRuntime | null {
   return null;
 }
 
-function buildExtensionContextMenuItems() {
+function buildExtensionContextMenuItems(target: { path: string; name: string; isDir: boolean; parentDir: string }) {
+  const context = buildExplorerContext(target);
+  return buildExtensionMenuGroups(context);
+}
+
+function buildEditorExtensionContextMenuItems(context: EditorExtensionContext) {
+  const whenContext: VscodeWhenContext = {
+    resourcePath: context.resourcePath,
+    resourceName: context.resourceName,
+    resourceExtname: context.resourceExtname,
+    resourceFilename: context.resourceFilename,
+    resourceIsFolder: context.resourceIsFolder,
+    resourceIsRoot: context.resourceIsRoot,
+    resourceScheme: context.resourceScheme,
+    resourceLangId: context.resourceLangId,
+    resourceReadonly: context.resourceReadonly,
+    isFileSystemResource: context.isFileSystemResource,
+    editorFocus: context.editorFocus,
+    textInputFocus: context.textInputFocus,
+    selectionExists: context.selectionExists,
+    view: context.view,
+  };
   return [...extensionSupportByIdentifier.values()]
-    .filter((support) => support.hasRuntime && support.commands.length > 0)
+    .filter((support) => support.hasRuntime && support.menus.length > 0)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    .flatMap((support) =>
+      support.menus
+        .filter((menu) => matchesMenuWhen(menu.when, whenContext))
+        .map((menu) => {
+          const command = support.commands.find((item) => item.command === menu.command);
+          if (!command) return null;
+          return {
+            label: command.category
+              ? `${support.displayName}: ${command.category}: ${command.title}`
+              : `${support.displayName}: ${command.title}`,
+            action: () => {
+              void executeExtensionCommand(command);
+            },
+          };
+        })
+        .filter((item): item is { label: string; action: () => void } => !!item)
+    );
+}
+
+function buildExtensionMenuGroups(context: VscodeWhenContext) {
+  return [...extensionSupportByIdentifier.values()]
+    .filter((support) => support.hasRuntime && support.menus.length > 0)
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
     .map((support) => ({
       label: support.displayName,
-      submenu: support.commands
+      submenu: support.menus
         .slice()
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .map((command) => ({
-          label: command.category ? `${command.category}: ${command.title}` : command.title,
+        .filter((menu) => matchesMenuWhen(menu.when, context))
+        .map((menu) => {
+          const command = support.commands.find((item) => item.command === menu.command);
+          return {
+            label: command
+              ? (command.category ? `${command.category}: ${command.title}` : command.title)
+              : menu.command,
+            detail: menu.group ? menu.group.replace(/^\w+\./, "") : undefined,
+            command,
+          };
+        })
+        .filter((item) => !!item.command)
+        .sort((a, b) => {
+          const groupA = a.detail ?? "";
+          const groupB = b.detail ?? "";
+          if (groupA !== groupB) return groupA.localeCompare(groupB);
+          return a.label.localeCompare(b.label);
+        })
+        .map(({ label, command }) => ({
+          label,
           action: () => {
-            void executeExtensionCommand(command);
+            if (command) void executeExtensionCommand(command);
           },
         })),
     }));
+}
+
+function buildExplorerContext(target: { path: string; name: string; isDir: boolean; parentDir: string }): VscodeWhenContext {
+  const context: VscodeWhenContext = {
+    resourcePath: target.path,
+    resourceName: target.name,
+    resourceExtname: "",
+    resourceFilename: "",
+    resourceIsFolder: target.isDir,
+    resourceIsRoot: !!currentProjectPath && target.path === currentProjectPath,
+    resourceScheme: "file",
+    view: "explorer",
+    isFileSystemResource: true,
+  };
+  const resourcePath = target.path;
+  const resourceName = target.name;
+  const resourceFilename = resourcePath.split("/").pop() || resourceName || resourcePath;
+  const lastDot = resourceFilename.lastIndexOf(".");
+  const resourceExtname = lastDot > 0 ? resourceFilename.slice(lastDot) : "";
+  context.resourceExtname = resourceExtname;
+  context.resourceFilename = resourceFilename;
+  return context;
+}
+
+function matchesMenuWhen(when: string | undefined, context: VscodeWhenContext): boolean {
+  return matchesVscodeWhenClause(when, context);
 }
 
 function getExtensionSettingsState(identifier: string) {
@@ -3030,6 +3119,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init editor
   editor = new Editor("monaco-editor", "editor-tabs", "editor-empty");
+  editor.setExtensionContextMenuItems(buildEditorExtensionContextMenuItems);
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);
   registerMonacoThemeSetter((theme) => editor.setMonacoTheme(theme));

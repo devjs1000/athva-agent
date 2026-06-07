@@ -199,6 +199,40 @@ const BOOKMARK_TAG_COLORS: Record<string, string> = {
   note: "#94a3b8",
 };
 
+type EditorContextMenuActionItem = {
+  label: string;
+  icon?: string;
+  shortcut?: string;
+  action?: () => void | Promise<void>;
+  submenu?: EditorContextMenuActionItem[];
+  separator?: false;
+};
+
+type EditorContextMenuItem =
+  | EditorContextMenuActionItem
+  | {
+      separator: true;
+    };
+
+export interface EditorExtensionContext {
+  view: "editor";
+  editorFocus: boolean;
+  textInputFocus: boolean;
+  resourcePath: string;
+  resourceName: string;
+  resourceExtname: string;
+  resourceFilename: string;
+  resourceLangId: string;
+  resourceIsFolder: false;
+  resourceIsRoot: boolean;
+  resourceScheme: string;
+  resourceReadonly: boolean;
+  isFileSystemResource: boolean;
+  selectionExists: boolean;
+}
+
+export type GetEditorExtensionContextMenuItems = (context: EditorExtensionContext) => EditorContextMenuActionItem[];
+
 interface EmmetNode {
   tag: string;
   id?: string;
@@ -237,6 +271,7 @@ export class Editor {
   private onNavigate: ((request: EditorNavigationRequest) => Promise<void>) | null = null;
   private onHoverInfo: ((request: EditorHoverRequest) => Promise<EditorHoverInfo | null>) | null = null;
   private onDocLinkNavigate: ((fromPath: string, href: string) => Promise<boolean>) | null = null;
+  private getEditorExtensionContextMenuItems: GetEditorExtensionContextMenuItems | null = null;
   private webFrameEl: HTMLIFrameElement;
   private tabPickerDropdown: HTMLElement;
   private webTabLabels: Map<string, string> = new Map();
@@ -3621,6 +3656,10 @@ export class Editor {
     this.onDocLinkNavigate = handler;
   }
 
+  setExtensionContextMenuItems(getItems: GetEditorExtensionContextMenuItems) {
+    this.getEditorExtensionContextMenuItems = getItems;
+  }
+
   // ── Git Blame ───────────────────────────────────────────────────────────
 
   private clearBlame() {
@@ -3837,11 +3876,16 @@ export class Editor {
     const menu = this.editorContextMenu;
     menu.innerHTML = "";
 
-    type MenuItem =
-      | { label: string; icon: string; shortcut?: string; action: () => void | Promise<void>; separator?: false }
-      | { separator: true };
+    const askAiSubmenu: EditorContextMenuActionItem[] = [
+      { label: "Fix", action: () => { const code = selection || (this.monacoEditor.getModel()?.getValue() ?? ""); this.onAskAI?.("Fix the issues in this code:\n```\n" + code + "\n```", code); } },
+      { label: "Explain", action: () => { const code = selection || (this.monacoEditor.getModel()?.getValue() ?? ""); this.onAskAI?.("Explain what this code does:\n```\n" + code + "\n```", code); } },
+      { label: "Refactor", action: () => { const code = selection || (this.monacoEditor.getModel()?.getValue() ?? ""); this.onAskAI?.("Refactor this code to be cleaner and more efficient:\n```\n" + code + "\n```", code); } },
+      { label: "Add comments", action: () => { const code = selection || (this.monacoEditor.getModel()?.getValue() ?? ""); this.onAskAI?.("Add clear comments to this code:\n```\n" + code + "\n```", code); } },
+      { label: "Optimize", action: () => { const code = selection || (this.monacoEditor.getModel()?.getValue() ?? ""); this.onAskAI?.("Optimize this code for performance:\n```\n" + code + "\n```", code); } },
+      { label: "Write tests", action: () => { const code = selection || (this.monacoEditor.getModel()?.getValue() ?? ""); this.onAskAI?.("Write unit tests for this code:\n```\n" + code + "\n```", code); } },
+    ];
 
-    const items: MenuItem[] = [
+    const items: EditorContextMenuItem[] = [
       ...(selection ? [
         {
           label: "Cut", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 3.5c-.2.2-.3.4-.3.7 0 .5.4 1 1 1 .2 0 .5-.1.7-.3L7 2.8 5.1 1a.5.5 0 0 0-.7.7L5.8 3l-.7.7-.2-.2-.9.9L3 3.4 1 5.4 2.4 6.8l2.2-2.2c.1.2.3.4.5.5L3.5 6.6l2 1.4 2-2L8 7l-1 1 1 1 1.1-1.1.5.5-1.1 1.1 1 1 2-2-1.5-1.5.7-.7c.2.2.5.3.7.3.6 0 1-.4 1-1 0-.3-.1-.5-.3-.7L8 3.5 7.3 2.8 5.8 1.3 4.5 2.6l-.5-.5-.5.5.5.5-.5.5v-.1zm1 1c-.3 0-.5-.2-.5-.5s.2-.5.5-.5.5.2.5.5-.2.5-.5.5z"/></svg>`,
@@ -3854,7 +3898,7 @@ export class Editor {
               if (sel) this.monacoEditor.executeEdits("cut", [{ range: sel, text: "" }]);
             }
           },
-        } as MenuItem,
+        },
         {
           label: "Copy", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`,
           shortcut: "⌘C",
@@ -3862,8 +3906,8 @@ export class Editor {
             const text = this.getSelectedText();
             if (text) navigator.clipboard.writeText(text).catch(() => { });
           },
-        } as MenuItem,
-        { separator: true } as MenuItem,
+        },
+        { separator: true as const },
       ] : []),
       {
         label: "Paste", icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 1.5A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5v1A1.5 1.5 0 0 1 9.5 4h-3A1.5 1.5 0 0 1 5 2.5v-1zm1.5-.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-3z"/><path d="M3 2.5a.5.5 0 0 1 .5-.5H5v1H3.5a.5.5 0 0 1-.5-.5V2.5zm8 0v.5H9.5V2h1a.5.5 0 0 1 .5.5zM3 4v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4H3z"/></svg>`,
@@ -3894,7 +3938,7 @@ export class Editor {
         action: async () => { await this.openProjectBookmarksView(); },
       },
       ...(selection ? [
-        { separator: true } as MenuItem,
+        { separator: true as const },
         {
           label: "Add Bookmark",
           icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1.5A1.5 1.5 0 0 1 4.5 0h7A1.5 1.5 0 0 1 13 1.5V15a.5.5 0 0 1-.8.4L8 12.3l-4.2 3.1A.5.5 0 0 1 3 15V1.5zm1 0a.5.5 0 0 0-.5.5v12l4-2.9a.5.5 0 0 1 .6 0l4 2.9V2a.5.5 0 0 0-.5-.5h-7z"/></svg>`,
@@ -3902,14 +3946,25 @@ export class Editor {
             if (!selectionRange || !selection.trim()) return;
             await this.addCodeBookmarkFromSelection(selection, selectionRange);
           },
-        } as MenuItem,
+        },
         {
           label: "Ask AI",
           icon: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.657 6.247c.11-.33.576-.33.686 0l.645 1.937a2.89 2.89 0 0 0 1.829 1.828l1.936.645c.33.11.33.576 0 .686l-1.937.645a2.89 2.89 0 0 0-1.828 1.829l-.645 1.936a.361.361 0 0 1-.686 0l-.645-1.937a2.89 2.89 0 0 0-1.828-1.828l-1.937-.645a.361.361 0 0 1 0-.686l1.937-.645a2.89 2.89 0 0 0 1.828-1.829l.645-1.936z"/></svg>`,
-          action: () => { },
-        } as MenuItem,
+          submenu: askAiSubmenu,
+        },
       ] : []),
     ];
+
+    const extensionItems = this.getEditorExtensionContextMenuItems?.(this.buildEditorExtensionContext(selection.length > 0)) ?? [];
+    if (extensionItems.length) {
+      items.push(
+        { separator: true as const },
+        {
+          label: "Extension Commands",
+          submenu: extensionItems,
+        },
+      );
+    }
 
     for (const item of items) {
       if ("separator" in item && item.separator) {
@@ -3918,23 +3973,25 @@ export class Editor {
         menu.appendChild(sep);
         continue;
       }
+      if (!("label" in item)) continue;
+      const actionItem = item as EditorContextMenuActionItem;
 
       const row = document.createElement("div");
       row.className = "context-menu-item ecm-item";
 
       const left = document.createElement("span");
       left.className = "ecm-left";
-      left.innerHTML = item.icon + `<span class="ecm-label">${item.label}</span>`;
+      left.innerHTML = `${actionItem.icon ?? ""}<span class="ecm-label">${actionItem.label}</span>`;
       row.appendChild(left);
 
-      if ("shortcut" in item && item.shortcut) {
+      if ("shortcut" in actionItem && actionItem.shortcut) {
         const sc = document.createElement("span");
         sc.className = "ecm-shortcut";
-        sc.textContent = item.shortcut;
+        sc.textContent = actionItem.shortcut;
         row.appendChild(sc);
       }
 
-      if (item.label === "Ask AI") {
+      if ("submenu" in actionItem && actionItem.submenu?.length) {
         const arrow = document.createElement("span");
         arrow.className = "context-menu-arrow";
         arrow.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 3.5L10.5 8 6 12.5V3.5Z"/></svg>`;
@@ -3943,24 +4000,14 @@ export class Editor {
         const sub = document.createElement("div");
         sub.className = "context-submenu ecm-submenu hidden";
 
-        const aiActions = [
-          { label: "Fix", prompt: "Fix the issues in this code:\n" },
-          { label: "Explain", prompt: "Explain what this code does:\n" },
-          { label: "Refactor", prompt: "Refactor this code to be cleaner and more efficient:\n" },
-          { label: "Add comments", prompt: "Add clear comments to this code:\n" },
-          { label: "Optimize", prompt: "Optimize this code for performance:\n" },
-          { label: "Write tests", prompt: "Write unit tests for this code:\n" },
-        ];
-
-        for (const ai of aiActions) {
+        for (const subItem of actionItem.submenu) {
           const subRow = document.createElement("div");
           subRow.className = "context-menu-item ecm-item";
-          subRow.innerHTML = `<span class="ecm-left"><span class="ecm-label">${ai.label}</span></span>`;
+          subRow.innerHTML = `<span class="ecm-left"><span class="ecm-label">${subItem.label}</span></span>`;
           subRow.addEventListener("click", (ev) => {
             ev.stopPropagation();
             menu.classList.add("hidden");
-            const code = selection || (this.monacoEditor.getModel()?.getValue() ?? "");
-            this.onAskAI?.(ai.prompt + "```\n" + code + "\n```", code);
+            void subItem.action?.();
           });
           sub.appendChild(subRow);
         }
@@ -3993,7 +4040,7 @@ export class Editor {
       row.addEventListener("click", (ev) => {
         ev.stopPropagation();
         menu.classList.add("hidden");
-        void item.action();
+        void actionItem.action?.();
       });
       menu.appendChild(row);
     }
@@ -4011,5 +4058,30 @@ export class Editor {
         menu.style.top = `${window.innerHeight - rect.height - 6}px`;
       }
     });
+  }
+
+  private buildEditorExtensionContext(selectionExists: boolean): EditorExtensionContext {
+    const path = this.getActiveFilePath();
+    const name = path.split("/").pop() || path || "";
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    const resourceExtname = name.includes(".") ? `.${ext}` : "";
+    const model = this.monacoEditor.getModel();
+    const languageId = model?.getLanguageId?.() || EXT_LANGUAGE_MAP[ext] || "plaintext";
+    return {
+      view: "editor",
+      editorFocus: document.activeElement instanceof HTMLElement && !!document.activeElement.closest(".monaco-editor"),
+      textInputFocus: true,
+      resourcePath: path,
+      resourceName: name,
+      resourceExtname,
+      resourceFilename: name,
+      resourceLangId: languageId,
+      resourceIsFolder: false,
+      resourceIsRoot: !!this.projectRoot && path === this.projectRoot,
+      resourceScheme: path.startsWith("athva://") ? "athva" : "file",
+      resourceReadonly: !!this.monacoEditor.getOption(monaco.editor.EditorOption.readOnly),
+      isFileSystemResource: !path.startsWith("athva://"),
+      selectionExists,
+    };
   }
 }
