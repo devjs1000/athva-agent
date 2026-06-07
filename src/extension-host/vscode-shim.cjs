@@ -811,9 +811,14 @@ const NotebookCellKind = { Markup: 1, Code: 2 };
 // viewId → { provider, onDidChangeTreeDataSub }
 const treeProviders = new Map();
 const webviewChannels = new Map();
+const customEditorProviders = new Map();
 const notebookSerializers = new Map();
 const notebookDocuments = [];
 const notebookControllers = new Map();
+const debugConfigurationProviders = new Map();
+const debugAdapterDescriptorFactories = [];
+const debugAdapterTrackerFactories = [];
+let activeDebugSessionState = undefined;
 const notebookOpenEmitter = new EventEmitter();
 const notebookCloseEmitter = new EventEmitter();
 const notebookChangeEmitter = new EventEmitter();
@@ -1774,7 +1779,14 @@ const window = {
       bridge.dispose();
     });
   },
-  registerCustomEditorProvider: () => new Disposable(() => {}),
+  registerCustomEditorProvider(viewType, provider) {
+    const entry = { viewType, provider };
+    customEditorProviders.set(String(viewType), entry);
+    return new Disposable(() => {
+      const current = customEditorProviders.get(String(viewType));
+      if (current === entry) customEditorProviders.delete(String(viewType));
+    });
+  },
   createChatStatusItem: () => ensureDisposable({ text: "", tooltip: "", command: undefined, show() {}, hide() {}, dispose() {} }),
   createTerminal(optionsOrName) {
     const processId = terminals.length + 1;
@@ -1795,8 +1807,20 @@ const window = {
     setActiveTab(new TabInputCustom(Uri.file("")), terminal.name, ViewColumn.One);
     return ensureDisposable(terminal);
   },
-  registerTerminalLinkProvider: () => new Disposable(() => {}),
-  registerTerminalProfileProvider: () => new Disposable(() => {}),
+  registerTerminalLinkProvider(_provider) {
+    terminalLinkProviders.push(_provider);
+    return new Disposable(() => {
+      const index = terminalLinkProviders.indexOf(_provider);
+      if (index >= 0) terminalLinkProviders.splice(index, 1);
+    });
+  },
+  registerTerminalProfileProvider(_id, provider) {
+    terminalProfileProviders.push(provider);
+    return new Disposable(() => {
+      const index = terminalProfileProviders.indexOf(provider);
+      if (index >= 0) terminalProfileProviders.splice(index, 1);
+    });
+  },
 };
 
 // ── commands ──────────────────────────────────────────────────────────────────
@@ -1850,11 +1874,31 @@ const commands = {
     if (id === "vscode.executeDocumentRangeSemanticTokensProvider") return executeFirstRegisteredProvider(languages._documentRangeSemanticTokensProviders, "provideDocumentRangeSemanticTokens", args[0], args[1]);
     if (id === "vscode.executeDocumentColorProvider") return executeFirstRegisteredProvider(languages._documentColorProviders, "provideDocumentColors", args[0]);
     if (id === "vscode.executeLinkedEditingRangeProvider") return executeFirstRegisteredProvider(languages._linkedEditingRangeProviders, "provideLinkedEditingRanges", args[0], args[1]);
+    if (id === "vscode.provideCallHierarchyItems" || id === "vscode.executeCallHierarchyProvider") return executeCallHierarchyProvider(args[0], args[1]);
+    if (id === "vscode.provideTypeHierarchyItems" || id === "vscode.executeTypeHierarchyProvider") return executeTypeHierarchyProvider(args[0], args[1]);
+    if (id === "vscode.executeInlineValuesProvider") return executeInlineValuesProvider(args[0], args[1]);
     if (id === "vscode.testing.getControllersWithTests" || id === "vscode.testing.getTestsInFile") {
       return [];
     }
     if (id === "vscode.openWith") {
       const uri = args[0];
+      const viewType = typeof args[1] === "string" ? args[1] : "";
+      const customEditor = viewType ? customEditorProviders.get(viewType) : undefined;
+      if (uri && customEditor) {
+        try {
+          const document = await workspace.openTextDocument(uri);
+          const panel = window.createWebviewPanel(viewType, viewType, ViewColumn.One, { enableScripts: true });
+          const provider = customEditor.provider;
+          if (provider) {
+            if (typeof provider.resolveCustomTextEditor === "function") {
+              await provider.resolveCustomTextEditor(document, panel, { backups: [] }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event });
+            } else if (typeof provider.resolveCustomEditor === "function") {
+              await provider.resolveCustomEditor(document, panel, { backups: [] }, { isCancellationRequested: false, onCancellationRequested: new EventEmitter().event });
+            }
+          }
+        } catch {}
+        return true;
+      }
       if (uri) {
         try { await window.showTextDocument(uri); } catch {}
       }
@@ -1885,12 +1929,15 @@ const languages = {
   _documentSymbolProviders: [],
   _workspaceSymbolProviders: [],
   _codeLensProviders: [],
+  _callHierarchyProviders: [],
+  _typeHierarchyProviders: [],
   _renameProviders: [],
   _signatureHelpProviders: [],
   _foldingRangeProviders: [],
   _documentHighlightProviders: [],
   _documentLinkProviders: [],
   _selectionRangeProviders: [],
+  _inlineValuesProviders: [],
   _documentFormattingProviders: [],
   _documentRangeFormattingProviders: [],
   _documentSemanticTokensProviders: [],
@@ -1943,10 +1990,30 @@ const languages = {
       languages._declarationProviders = languages._declarationProviders.filter((item) => item !== provider);
     });
   },
-  registerCallHierarchyProvider: () => new Disposable(() => {}),
-  registerInlineValuesProvider: () => new Disposable(() => {}),
-  registerLinkedEditingRangeProvider: () => new Disposable(() => {}),
-  registerTypeHierarchyProvider: () => new Disposable(() => {}),
+  registerCallHierarchyProvider(_selector, provider) {
+    languages._callHierarchyProviders.push(provider);
+    return new Disposable(() => {
+      languages._callHierarchyProviders = languages._callHierarchyProviders.filter((item) => item !== provider);
+    });
+  },
+  registerInlineValuesProvider(_selector, provider) {
+    languages._inlineValuesProviders.push(provider);
+    return new Disposable(() => {
+      languages._inlineValuesProviders = languages._inlineValuesProviders.filter((item) => item !== provider);
+    });
+  },
+  registerLinkedEditingRangeProvider(_selector, provider) {
+    languages._linkedEditingRangeProviders.push(provider);
+    return new Disposable(() => {
+      languages._linkedEditingRangeProviders = languages._linkedEditingRangeProviders.filter((item) => item !== provider);
+    });
+  },
+  registerTypeHierarchyProvider(_selector, provider) {
+    languages._typeHierarchyProviders.push(provider);
+    return new Disposable(() => {
+      languages._typeHierarchyProviders = languages._typeHierarchyProviders.filter((item) => item !== provider);
+    });
+  },
   setTextDocumentLanguage: async (document, languageId) => {
     if (document && typeof document === "object") document.languageId = languageId;
     return document;
@@ -2218,14 +2285,59 @@ const authentication = {
 };
 
 const tasks = {
-  fetchTasks: async () => [],
-  executeTask: async () => undefined,
-  registerTaskProvider: () => new Disposable(() => {}),
-  onDidStartTask: new EventEmitter().event,
-  onDidEndTask: new EventEmitter().event,
-  onDidStartTaskProcess: new EventEmitter().event,
-  onDidEndTaskProcess: new EventEmitter().event,
+  _providers: [],
+  async fetchTasks() {
+    const results = [];
+    for (const entry of tasks._providers) {
+      const provider = entry?.provider;
+      if (!provider || typeof provider.provideTasks !== "function") continue;
+      try {
+        const value = await provider.provideTasks();
+        if (Array.isArray(value)) results.push(...value);
+      } catch {}
+    }
+    return results;
+  },
+  async executeTask(task) {
+    const execution = {
+      task,
+      terminate() {
+        tasks.onDidEndTaskEmitter.fire({ task });
+        return Promise.resolve();
+      },
+      dispose() {
+        tasks.onDidEndTaskEmitter.fire({ task });
+      },
+    };
+    tasks.onDidStartTaskEmitter.fire({ task });
+    tasks.onDidStartTaskProcessEmitter.fire({ task, processId: 1 });
+    return execution;
+  },
+  registerTaskProvider(type, provider) {
+    const entry = { type, provider };
+    tasks._providers.push(entry);
+    return new Disposable(() => {
+      tasks._providers = tasks._providers.filter((item) => item !== entry);
+    });
+  },
+  onDidStartTaskEmitter: new EventEmitter(),
+  onDidEndTaskEmitter: new EventEmitter(),
+  onDidStartTaskProcessEmitter: new EventEmitter(),
+  onDidEndTaskProcessEmitter: new EventEmitter(),
+  onDidStartTask: null,
+  onDidEndTask: null,
+  onDidStartTaskProcess: null,
+  onDidEndTaskProcess: null,
 };
+tasks.onDidStartTask = tasks.onDidStartTaskEmitter.event;
+tasks.onDidEndTask = tasks.onDidEndTaskEmitter.event;
+tasks.onDidStartTaskProcess = tasks.onDidStartTaskProcessEmitter.event;
+tasks.onDidEndTaskProcess = tasks.onDidEndTaskProcessEmitter.event;
+
+const debugStartSessionEmitter = new EventEmitter();
+const debugTerminateSessionEmitter = new EventEmitter();
+const terminalLinkProviders = [];
+const terminalProfileProviders = [];
 
 const scmSourceControls = new Map();
 const scm = {
@@ -2370,17 +2482,77 @@ const tests = {
 };
 
 const debug = {
-  startDebugging: async () => false,
-  stopDebugging: async () => undefined,
-  registerDebugConfigurationProvider: () => new Disposable(() => {}),
-  registerDebugAdapterDescriptorFactory: () => new Disposable(() => {}),
-  registerDebugAdapterTrackerFactory: () => new Disposable(() => {}),
-  activeDebugSession: { name: "", id: "debug-session", type: "", parentSession: undefined, configuration: {} },
+  async startDebugging(folder, nameOrConfiguration, options) {
+    let configuration = typeof nameOrConfiguration === "object" && nameOrConfiguration ? { ...nameOrConfiguration } : undefined;
+    const debugType = configuration?.type || (typeof nameOrConfiguration === "string" ? nameOrConfiguration : "");
+    const providers = debugConfigurationProviders.get(String(debugType)) || [];
+    for (const provider of providers) {
+      try {
+        if (!configuration && typeof provider.provideDebugConfigurations === "function") {
+          const provided = await provider.provideDebugConfigurations(folder, undefined);
+          if (Array.isArray(provided) && provided.length) configuration = { ...provided[0] };
+        }
+        if (configuration && typeof provider.resolveDebugConfiguration === "function") {
+          const resolved = await provider.resolveDebugConfiguration(folder, configuration, options);
+          if (resolved) configuration = { ...resolved };
+        }
+      } catch {}
+    }
+    if (!configuration) configuration = { type: String(debugType || "debug"), name: String(nameOrConfiguration || "Launch") };
+    const session = {
+      name: String(configuration.name || "Launch"),
+      id: `debug-session-${Math.random().toString(36).slice(2)}`,
+      type: String(configuration.type || debugType || "debug"),
+      parentSession: undefined,
+      configuration,
+    };
+    activeDebugSessionState = session;
+    debugStartSessionEmitter.fire(session);
+    activeDebugSessionEmitter.fire(session);
+    return true;
+  },
+  async stopDebugging(session) {
+    if (!activeDebugSessionState) return undefined;
+    if (session && session.id && session.id !== activeDebugSessionState.id) return undefined;
+    const ended = activeDebugSessionState;
+    activeDebugSessionState = undefined;
+    debugTerminateSessionEmitter.fire(ended);
+    activeDebugSessionEmitter.fire(undefined);
+    return undefined;
+  },
+  registerDebugConfigurationProvider(type, provider) {
+    const entry = { type, provider };
+    const key = String(type || "");
+    const list = debugConfigurationProviders.get(key) || [];
+    list.push(provider);
+    debugConfigurationProviders.set(key, list);
+    return new Disposable(() => {
+      const current = debugConfigurationProviders.get(key) || [];
+      const next = current.filter((item) => item !== provider);
+      if (next.length) debugConfigurationProviders.set(key, next);
+      else debugConfigurationProviders.delete(key);
+    });
+  },
+  registerDebugAdapterDescriptorFactory(type, factory) {
+    debugAdapterDescriptorFactories.push({ type, factory });
+    return new Disposable(() => {
+      const index = debugAdapterDescriptorFactories.findIndex((entry) => entry.factory === factory && entry.type === type);
+      if (index >= 0) debugAdapterDescriptorFactories.splice(index, 1);
+    });
+  },
+  registerDebugAdapterTrackerFactory(type, factory) {
+    debugAdapterTrackerFactories.push({ type, factory });
+    return new Disposable(() => {
+      const index = debugAdapterTrackerFactories.findIndex((entry) => entry.factory === factory && entry.type === type);
+      if (index >= 0) debugAdapterTrackerFactories.splice(index, 1);
+    });
+  },
+  get activeDebugSession() { return activeDebugSessionState; },
   activeDebugConsole: { append() {}, appendLine() {}, clear() {}, show() {}, hide() {}, dispose() {} },
   breakpoints: [],
   onDidChangeBreakpoints: new EventEmitter().event,
-  onDidStartDebugSession: new EventEmitter().event,
-  onDidTerminateDebugSession: new EventEmitter().event,
+  onDidStartDebugSession: debugStartSessionEmitter.event,
+  onDidTerminateDebugSession: debugTerminateSessionEmitter.event,
   onDidChangeActiveDebugSession: activeDebugSessionEmitter.event,
   onDidReceiveDebugSessionCustomEvent: debugCustomEventEmitter.event,
   addBreakpoints: async (bps) => bps || [],
@@ -2433,6 +2605,8 @@ const chat = {
 const lmTools = [];
 const mcpServerDefinitionsEmitter = new EventEmitter();
 const mcpServerDefinitions = [];
+const lmChatProviders = [];
+const mcpServerDefinitionProviders = [];
 
 const lm = {
   isModelProxyAvailable: false,
@@ -2444,8 +2618,20 @@ const lm = {
     uri: "athva://lm/proxy",
     dispose() {},
   }),
-  registerLanguageModelChatProvider: () => new Disposable(() => {}),
-  registerMcpServerDefinitionProvider: () => new Disposable(() => {}),
+  registerLanguageModelChatProvider(_id, provider) {
+    lmChatProviders.push(provider);
+    return new Disposable(() => {
+      const index = lmChatProviders.indexOf(provider);
+      if (index >= 0) lmChatProviders.splice(index, 1);
+    });
+  },
+  registerMcpServerDefinitionProvider(_id, provider) {
+    mcpServerDefinitionProviders.push(provider);
+    return new Disposable(() => {
+      const index = mcpServerDefinitionProviders.indexOf(provider);
+      if (index >= 0) mcpServerDefinitionProviders.splice(index, 1);
+    });
+  },
   startMcpGateway: async () => undefined,
   invokeTool: async (name, _args) => lmTools.find((tool) => tool?.name === name || tool?.toolName === name),
   registerTool: (tool) => {
@@ -2976,6 +3162,65 @@ async function executeFirstRegisteredProvider(providers, methodName, ...invokeAr
     } catch {}
   }
   return undefined;
+}
+
+async function executeCallHierarchyProvider(uriArg, positionArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  const results = [];
+  for (const provider of languages._callHierarchyProviders) {
+    if (!provider) continue;
+    try {
+      if (typeof provider.prepareCallHierarchy === "function") {
+        const prepared = await provider.prepareCallHierarchy(document, position, CancellationToken.None);
+        results.push(...normalizeProviderResults(prepared));
+        continue;
+      }
+      if (typeof provider.provideCallHierarchyItems === "function") {
+        const prepared = await provider.provideCallHierarchyItems(document, position, CancellationToken.None);
+        results.push(...normalizeProviderResults(prepared));
+      }
+    } catch {}
+  }
+  return results;
+}
+
+async function executeTypeHierarchyProvider(uriArg, positionArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  const results = [];
+  for (const provider of languages._typeHierarchyProviders) {
+    if (!provider) continue;
+    try {
+      if (typeof provider.prepareTypeHierarchy === "function") {
+        const prepared = await provider.prepareTypeHierarchy(document, position, CancellationToken.None);
+        results.push(...normalizeProviderResults(prepared));
+        continue;
+      }
+      if (typeof provider.provideTypeHierarchyItems === "function") {
+        const prepared = await provider.provideTypeHierarchyItems(document, position, CancellationToken.None);
+        results.push(...normalizeProviderResults(prepared));
+      }
+    } catch {}
+  }
+  return results;
+}
+
+async function executeInlineValuesProvider(uriArg, rangeArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const range = rangeArg || new Range(0, 0, 0, 0);
+  const results = [];
+  for (const provider of languages._inlineValuesProviders) {
+    if (!provider || typeof provider.provideInlineValues !== "function") continue;
+    try {
+      const value = await provider.provideInlineValues(document, range, CancellationToken.None);
+      results.push(...normalizeProviderResults(value));
+    } catch {}
+  }
+  return results;
 }
 
 function completionItemToSimple(item) {

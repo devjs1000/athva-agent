@@ -224,3 +224,163 @@ test("vscode shim executes linked editing and declaration providers", async () =
   assert.equal(declarationResult.length, 1);
   assert.equal(declarationResult[0].uri.fsPath, filePath);
 });
+
+test("vscode shim executes call hierarchy, type hierarchy, and inline values providers", async () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "athva-vscode-shim-"));
+  const filePath = join(workspaceRoot, "hierarchy.ts");
+  writeFileSync(filePath, "function alpha() { return 1; }\n", "utf8");
+
+  await vscode._handleMessage({
+    type: "setWorkspace",
+    folders: [workspaceRoot],
+    configuration: {},
+  });
+
+  const callDisposable = vscode.languages.registerCallHierarchyProvider("typescript", {
+    prepareCallHierarchy(document, position) {
+      return [
+        new vscode.CallHierarchyItem(
+          vscode.SymbolKind.Function,
+          "alpha",
+          "",
+          document.uri,
+          new vscode.Range(0, 0, 0, 30),
+          new vscode.Range(0, 9, 0, 14),
+        ),
+      ];
+    },
+  });
+
+  const typeDisposable = vscode.languages.registerTypeHierarchyProvider("typescript", {
+    prepareTypeHierarchy(document, position) {
+      return [
+        new vscode.TypeHierarchyItem(
+          vscode.SymbolKind.Class,
+          "Alpha",
+          "",
+          document.uri,
+          new vscode.Range(0, 0, 0, 30),
+          new vscode.Range(0, 9, 0, 14),
+        ),
+      ];
+    },
+  });
+
+  const inlineDisposable = vscode.languages.registerInlineValuesProvider("typescript", {
+    provideInlineValues(document, range) {
+      return [
+        new vscode.InlineValueText(
+          new vscode.Range(0, 0, 0, 0),
+          "1",
+        ),
+      ];
+    },
+  });
+
+  const callResult = await vscode.commands.executeCommand(
+    "vscode.executeCallHierarchyProvider",
+    vscode.Uri.file(filePath),
+    new vscode.Position(0, 9),
+  );
+
+  const typeResult = await vscode.commands.executeCommand(
+    "vscode.executeTypeHierarchyProvider",
+    vscode.Uri.file(filePath),
+    new vscode.Position(0, 9),
+  );
+
+  const inlineResult = await vscode.commands.executeCommand(
+    "vscode.executeInlineValuesProvider",
+    vscode.Uri.file(filePath),
+    new vscode.Range(0, 0, 0, 30),
+  );
+
+  callDisposable.dispose();
+  typeDisposable.dispose();
+  inlineDisposable.dispose();
+
+  assert.equal(Array.isArray(callResult), true);
+  assert.equal(callResult.length, 1);
+  assert.equal(callResult[0].name, "alpha");
+  assert.equal(Array.isArray(typeResult), true);
+  assert.equal(typeResult.length, 1);
+  assert.equal(typeResult[0].name, "Alpha");
+  assert.equal(Array.isArray(inlineResult), true);
+  assert.equal(inlineResult.length, 1);
+  assert.equal(inlineResult[0].text, "1");
+});
+
+test("vscode shim supports tasks and debug session lifecycle", async () => {
+  const taskEvents = [];
+  const debugEvents = [];
+
+  const taskDisposable = vscode.tasks.registerTaskProvider("athva", {
+    provideTasks() {
+      return [{ name: "build" }];
+    },
+  });
+
+  const debugDisposable = vscode.debug.registerDebugConfigurationProvider("athva-debug", {
+    provideDebugConfigurations() {
+      return [{ type: "athva-debug", name: "Launch Athva" }];
+    },
+  });
+
+  const startTaskSub = vscode.tasks.onDidStartTask((event) => taskEvents.push(`start:${event.task.name}`));
+  const endTaskSub = vscode.tasks.onDidEndTask((event) => taskEvents.push(`end:${event.task.name}`));
+  const startDebugSub = vscode.debug.onDidStartDebugSession((session) => debugEvents.push(`start:${session?.name ?? "none"}`));
+  const endDebugSub = vscode.debug.onDidTerminateDebugSession((session) => debugEvents.push(`end:${session?.name ?? "none"}`));
+
+  const tasks = await vscode.tasks.fetchTasks();
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].name, "build");
+
+  const execution = await vscode.tasks.executeTask({ name: "build" });
+  await execution.terminate();
+
+  const started = await vscode.debug.startDebugging(undefined, "athva-debug");
+  assert.equal(started, true);
+  assert.equal(vscode.debug.activeDebugSession?.name, "Launch Athva");
+  await vscode.debug.stopDebugging();
+
+  taskDisposable.dispose();
+  debugDisposable.dispose();
+  startTaskSub.dispose();
+  endTaskSub.dispose();
+  startDebugSub.dispose();
+  endDebugSub.dispose();
+
+  assert.deepEqual(taskEvents, ["start:build", "end:build"]);
+  assert.deepEqual(debugEvents, ["start:Launch Athva", "end:Launch Athva"]);
+});
+
+test("vscode shim routes openWith to a registered custom editor provider", async () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "athva-vscode-shim-"));
+  const filePath = join(workspaceRoot, "custom.txt");
+  writeFileSync(filePath, "custom editor content", "utf8");
+
+  await vscode._handleMessage({
+    type: "setWorkspace",
+    folders: [workspaceRoot],
+    configuration: {},
+  });
+
+  let resolved = false;
+  const disposable = vscode.window.registerCustomEditorProvider("athva.custom", {
+    async resolveCustomTextEditor(document, webviewPanel) {
+      resolved = true;
+      webviewPanel.webview.html = `<p>${document.getText()}</p>`;
+    },
+  });
+
+  const result = await vscode.commands.executeCommand(
+    "vscode.openWith",
+    vscode.Uri.file(filePath),
+    "athva.custom",
+  );
+
+  disposable.dispose();
+
+  assert.equal(result, true);
+  assert.equal(resolved, true);
+});
