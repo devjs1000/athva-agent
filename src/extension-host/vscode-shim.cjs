@@ -812,6 +812,12 @@ const NotebookCellKind = { Markup: 1, Code: 2 };
 const treeProviders = new Map();
 const webviewChannels = new Map();
 const customEditorProviders = new Map();
+const textDocumentContentProviders = new Map();
+const webviewPanelSerializers = new Map();
+const uriHandlers = new Set();
+const portAttributesProviders = [];
+const notebookCellStatusBarItemProviders = [];
+const kernelSourceActionProviders = [];
 const notebookSerializers = new Map();
 const notebookDocuments = [];
 const notebookControllers = new Map();
@@ -1221,7 +1227,13 @@ const workspace = {
   requestResourceTrust(_resource) { return Promise.resolve(true); },
   requestWorkspaceTrust(_options) { return Promise.resolve(true); },
   saveAll(_includeUntitled) { return Promise.resolve(true); },
-  registerPortAttributesProvider() { return new Disposable(() => {}); },
+  registerPortAttributesProvider(provider) {
+    if (provider) portAttributesProviders.push(provider);
+    return new Disposable(() => {
+      const index = portAttributesProviders.indexOf(provider);
+      if (index >= 0) portAttributesProviders.splice(index, 1);
+    });
+  },
   showWorkspaceFolderPick() { return Promise.resolve(_workspaceFolders[0]); },
   asRelativePath(pathOrUri, includeWorkspaceFolder) {
     const inputPath = typeof pathOrUri === "string"
@@ -1374,6 +1386,28 @@ const workspace = {
       onDidOpenTextDocumentEmitter.fire(doc);
       return Promise.resolve(doc);
     }
+    const uriInput = typeof pathOrUri === "string" ? Uri.parse(pathOrUri) : pathOrUri;
+    if (uriInput?.scheme && uriInput.scheme !== "file") {
+      const provider = textDocumentContentProviders.get(uriInput.scheme);
+      if (provider && typeof provider.provideTextDocumentContent === "function") {
+        try {
+          const value = provider.provideTextDocumentContent(uriInput, CancellationToken.None);
+          return Promise.resolve(value && typeof value.then === "function"
+            ? value.then((content) => {
+                const doc = new TextDocument(uriInput, String(content ?? ""));
+                trackOpenTextDocument(doc);
+                onDidOpenTextDocumentEmitter.fire(doc);
+                return doc;
+              })
+            : Promise.resolve().then(() => {
+                const doc = new TextDocument(uriInput, String(value ?? ""));
+                trackOpenTextDocument(doc);
+                onDidOpenTextDocumentEmitter.fire(doc);
+                return doc;
+              }));
+        } catch {}
+      }
+    }
     const fspath = typeof pathOrUri === "string" ? pathOrUri : pathOrUri?.fsPath ?? "";
     try {
       const content = fs.readFileSync(fspath, "utf8");
@@ -1429,7 +1463,9 @@ const workspace = {
   },
 
   registerTextDocumentContentProvider(scheme, provider) {
-    return new Disposable(() => {});
+    if (typeof scheme !== "string" || !scheme) return new Disposable(() => {});
+    textDocumentContentProviders.set(scheme, provider);
+    return new Disposable(() => textDocumentContentProviders.delete(scheme));
   },
 
   registerFileSystemProvider(scheme, provider, _options) {
@@ -1630,11 +1666,15 @@ const window = {
   },
 
   registerWebviewPanelSerializer(_viewType, _serializer) {
-    return new Disposable(() => {});
+    webviewPanelSerializers.set(String(_viewType), _serializer);
+    return new Disposable(() => webviewPanelSerializers.delete(String(_viewType)));
   },
 
   registerUriHandler(_handler) {
-    return new Disposable(() => {});
+    if (_handler) uriHandlers.add(_handler);
+    return new Disposable(() => {
+      if (_handler) uriHandlers.delete(_handler);
+    });
   },
 
   createTextEditorDecorationType() { return ensureDisposable({ dispose() {} }); },
@@ -2203,7 +2243,12 @@ const notebooks = {
     return ensureDisposable(ctl);
   },
   registerNotebookCellStatusBarItemProvider() {
-    return new Disposable(() => {});
+    const provider = arguments[0];
+    if (provider) notebookCellStatusBarItemProviders.push(provider);
+    return new Disposable(() => {
+      const index = notebookCellStatusBarItemProviders.indexOf(provider);
+      if (index >= 0) notebookCellStatusBarItemProviders.splice(index, 1);
+    });
   },
   createNotebookControllerDetectionTask() {
     return ensureDisposable({
@@ -2211,7 +2256,12 @@ const notebooks = {
     });
   },
   registerKernelSourceActionProvider() {
-    return new Disposable(() => {});
+    const provider = arguments[0];
+    if (provider) kernelSourceActionProviders.push(provider);
+    return new Disposable(() => {
+      const index = kernelSourceActionProviders.indexOf(provider);
+      if (index >= 0) kernelSourceActionProviders.splice(index, 1);
+    });
   },
   createRendererMessaging() {
     const emitter = new EventEmitter();

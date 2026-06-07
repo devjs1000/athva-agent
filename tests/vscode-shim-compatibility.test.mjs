@@ -384,3 +384,19 @@ test("vscode shim routes openWith to a registered custom editor provider", async
   assert.equal(result, true);
   assert.equal(resolved, true);
 });
+
+test("vscode shim resolves text document content providers for custom schemes", async () => {
+  const scheme = `athva-test-${Date.now()}`;
+  const disposable = vscode.workspace.registerTextDocumentContentProvider(scheme, {
+    provideTextDocumentContent(uri) {
+      return `content for ${uri.scheme}`;
+    },
+  });
+
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(`${scheme}:/virtual/doc.txt`));
+
+  disposable.dispose();
+
+  assert.equal(doc.getText(), `content for ${scheme}`);
+  assert.equal(doc.uri.scheme, scheme);
+});
