@@ -18,7 +18,7 @@ if (!extMain) {
 // Override require('vscode') before loading the extension
 const Module = require("module");
 const origLoad = Module._load;
-const shimPath = path.resolve(__dirname, "vscode-shim.js");
+const shimPath = path.resolve(__dirname, "vscode-shim.cjs");
 // Load shim first so it can call require('./ipc') correctly
 const vscode = require(shimPath);
 

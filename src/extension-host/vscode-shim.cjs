@@ -1825,9 +1825,31 @@ const commands = {
       return true;
     }
     if (id === "vscode.openFolder" || id === "vscode.diff") return true;
-    if (id === "vscode.executeDefinitionProvider" || id === "vscode.executeTypeDefinitionProvider" || id === "vscode.executeImplementationProvider" || id === "vscode.executeReferenceProvider" || id === "vscode.executeWorkspaceSymbolProvider" || id === "vscode.executeDocumentSymbolProvider" || id === "vscode.executeCodeActionProvider" || id === "vscode.executeNotebookVariableProvider") {
-      return [];
-    }
+    if (id === "vscode.executeCompletionItemProvider") return executeCompletionItemProvider(args[0], args[1], args[2], args[3]);
+    if (id === "vscode.executeHoverProvider") return executeHoverProvider(args[0], args[1]);
+    if (id === "vscode.executeInlineCompletionItemProvider") return executeInlineCompletionItemProvider(args[0], args[1], args[2]);
+    if (id === "vscode.executeCodeLensProvider") return executeCodeLensProvider(args[0]);
+    if (id === "vscode.executeDefinitionProvider") return executeLocationProvider(languages._definitionProviders, "provideDefinition", args[0], args[1]);
+    if (id === "vscode.executeTypeDefinitionProvider") return executeLocationProvider(languages._typeDefinitionProviders, "provideTypeDefinition", args[0], args[1]);
+    if (id === "vscode.executeImplementationProvider") return executeLocationProvider(languages._implementationProviders, "provideImplementation", args[0], args[1]);
+    if (id === "vscode.executeDeclarationProvider") return executeLocationProvider(languages._declarationProviders, "provideDeclaration", args[0], args[1]);
+    if (id === "vscode.executeReferenceProvider") return executeReferenceProvider(args[0], args[1], args[2]);
+    if (id === "vscode.executeWorkspaceSymbolProvider") return executeWorkspaceSymbolProvider(args[0] || "");
+    if (id === "vscode.executeDocumentSymbolProvider") return executeDocumentSymbolProvider(args[0]);
+    if (id === "vscode.executeCodeActionProvider") return executeCodeActionProvider(args[0], args[1], args[2]);
+    if (id === "vscode.executeNotebookVariableProvider") return [];
+    if (id === "vscode.executeSignatureHelpProvider") return executeSignatureHelpProvider(args[0], args[1], args[2]);
+    if (id === "vscode.executeDocumentFormattingEditProvider") return executeFormattingProvider(languages._documentFormattingProviders, "provideDocumentFormattingEdits", args[0]);
+    if (id === "vscode.executeDocumentRangeFormattingEditProvider") return executeFormattingProvider(languages._documentRangeFormattingProviders, "provideDocumentRangeFormattingEdits", args[0], args[1]);
+    if (id === "vscode.executeDocumentHighlightProvider") return executeDocumentHighlightProvider(args[0], args[1]);
+    if (id === "vscode.executeDocumentLinkProvider") return executeDocumentLinkProvider(args[0]);
+    if (id === "vscode.executeSelectionRangeProvider") return executeSelectionRangeProvider(args[0], args[1]);
+    if (id === "vscode.executeInlayHintProvider") return executeInlayHintProvider(args[0], args[1]);
+    if (id === "vscode.executeFoldingRangeProvider") return executeFoldingRangeProvider(args[0]);
+    if (id === "vscode.executeDocumentSemanticTokensProvider") return executeFirstRegisteredProvider(languages._documentSemanticTokensProviders, "provideDocumentSemanticTokens", args[0], args[1]);
+    if (id === "vscode.executeDocumentRangeSemanticTokensProvider") return executeFirstRegisteredProvider(languages._documentRangeSemanticTokensProviders, "provideDocumentRangeSemanticTokens", args[0], args[1]);
+    if (id === "vscode.executeDocumentColorProvider") return executeFirstRegisteredProvider(languages._documentColorProviders, "provideDocumentColors", args[0]);
+    if (id === "vscode.executeLinkedEditingRangeProvider") return executeFirstRegisteredProvider(languages._linkedEditingRangeProviders, "provideLinkedEditingRanges", args[0], args[1]);
     if (id === "vscode.testing.getControllersWithTests" || id === "vscode.testing.getTestsInFile") {
       return [];
     }
@@ -1854,6 +1876,29 @@ const languages = {
   _diagnostics: new Map(),
   _completionProviders: new Set(),
   _codeActionProviders: new Set(),
+  _hoverProviders: [],
+  _definitionProviders: [],
+  _typeDefinitionProviders: [],
+  _implementationProviders: [],
+  _declarationProviders: [],
+  _referenceProviders: [],
+  _documentSymbolProviders: [],
+  _workspaceSymbolProviders: [],
+  _codeLensProviders: [],
+  _renameProviders: [],
+  _signatureHelpProviders: [],
+  _foldingRangeProviders: [],
+  _documentHighlightProviders: [],
+  _documentLinkProviders: [],
+  _selectionRangeProviders: [],
+  _documentFormattingProviders: [],
+  _documentRangeFormattingProviders: [],
+  _documentSemanticTokensProviders: [],
+  _documentRangeSemanticTokensProviders: [],
+  _documentColorProviders: [],
+  _linkedEditingRangeProviders: [],
+  _inlayHintProviders: [],
+  _inlineCompletionProviders: [],
   inlineCompletionsUnificationState: { expAssignments: [] },
   onDidChangeCompletionsUnificationState: new EventEmitter().event,
   createDiagnosticCollection(name) {
@@ -1880,9 +1925,24 @@ const languages = {
     }
     return uri ? (rows[0]?.[1] || []) : rows;
   },
-  registerTypeDefinitionProvider: () => new Disposable(() => {}),
-  registerImplementationProvider: () => new Disposable(() => {}),
-  registerDeclarationProvider: () => new Disposable(() => {}),
+  registerTypeDefinitionProvider(_selector, provider) {
+    languages._typeDefinitionProviders.push(provider);
+    return new Disposable(() => {
+      languages._typeDefinitionProviders = languages._typeDefinitionProviders.filter((item) => item !== provider);
+    });
+  },
+  registerImplementationProvider(_selector, provider) {
+    languages._implementationProviders.push(provider);
+    return new Disposable(() => {
+      languages._implementationProviders = languages._implementationProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDeclarationProvider(_selector, provider) {
+    languages._declarationProviders.push(provider);
+    return new Disposable(() => {
+      languages._declarationProviders = languages._declarationProviders.filter((item) => item !== provider);
+    });
+  },
   registerCallHierarchyProvider: () => new Disposable(() => {}),
   registerInlineValuesProvider: () => new Disposable(() => {}),
   registerLinkedEditingRangeProvider: () => new Disposable(() => {}),
@@ -1900,20 +1960,70 @@ const languages = {
     });
     return item;
   },
-  registerHoverProvider: () => new Disposable(() => {}),
+  registerHoverProvider(_selector, provider) {
+    languages._hoverProviders.push(provider);
+    return new Disposable(() => {
+      languages._hoverProviders = languages._hoverProviders.filter((item) => item !== provider);
+    });
+  },
   registerCompletionItemProvider(_selector, provider) {
     languages._completionProviders.add(provider);
     return new Disposable(() => languages._completionProviders.delete(provider));
   },
-  registerInlineCompletionItemProvider: () => new Disposable(() => {}),
-  registerDefinitionProvider: () => new Disposable(() => {}),
-  registerDocumentHighlightProvider: () => new Disposable(() => {}),
-  registerDocumentLinkProvider: () => new Disposable(() => {}),
-  registerSelectionRangeProvider: () => new Disposable(() => {}),
-  registerDocumentRangeFormattingEditProvider: () => new Disposable(() => {}),
-  registerDocumentRangeSemanticTokensProvider: () => new Disposable(() => {}),
-  registerColorPresentationProvider: () => new Disposable(() => {}),
-  registerOnTypeFormattingEditProvider: () => new Disposable(() => {}),
+  registerInlineCompletionItemProvider(_selector, provider) {
+    languages._inlineCompletionProviders.push(provider);
+    return new Disposable(() => {
+      languages._inlineCompletionProviders = languages._inlineCompletionProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDefinitionProvider(_selector, provider) {
+    languages._definitionProviders.push(provider);
+    return new Disposable(() => {
+      languages._definitionProviders = languages._definitionProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentHighlightProvider(_selector, provider) {
+    languages._documentHighlightProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentHighlightProviders = languages._documentHighlightProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentLinkProvider(_selector, provider) {
+    languages._documentLinkProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentLinkProviders = languages._documentLinkProviders.filter((item) => item !== provider);
+    });
+  },
+  registerSelectionRangeProvider(_selector, provider) {
+    languages._selectionRangeProviders.push(provider);
+    return new Disposable(() => {
+      languages._selectionRangeProviders = languages._selectionRangeProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentRangeFormattingEditProvider(_selector, provider) {
+    languages._documentRangeFormattingProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentRangeFormattingProviders = languages._documentRangeFormattingProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentRangeSemanticTokensProvider(_selector, provider) {
+    languages._documentRangeSemanticTokensProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentRangeSemanticTokensProviders = languages._documentRangeSemanticTokensProviders.filter((item) => item !== provider);
+    });
+  },
+  registerColorPresentationProvider(_selector, provider) {
+    languages._documentColorProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentColorProviders = languages._documentColorProviders.filter((item) => item !== provider);
+    });
+  },
+  registerOnTypeFormattingEditProvider(_selector, provider) {
+    languages._documentRangeFormattingProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentRangeFormattingProviders = languages._documentRangeFormattingProviders.filter((item) => item !== provider);
+    });
+  },
   registerCodeActionsProvider(_selector, provider) {
     languages._codeActionProviders.add(provider);
     return new Disposable(() => languages._codeActionProviders.delete(provider));
@@ -1921,17 +2031,78 @@ const languages = {
   registerCodeActionProvider(_selector, provider, metadata) {
     return languages.registerCodeActionsProvider(_selector, provider, metadata);
   },
-  registerWorkspaceSymbolProvider: () => new Disposable(() => {}),
-  registerCodeLensProvider: () => new Disposable(() => {}),
-  registerReferenceProvider: () => new Disposable(() => {}),
-  registerDocumentSymbolProvider: () => new Disposable(() => {}),
-  registerRenameProvider: () => new Disposable(() => {}),
-  registerSignatureHelpProvider: () => new Disposable(() => {}),
-  registerInlayHintsProvider: () => new Disposable(() => {}),
-  registerDocumentSemanticTokensProvider: () => new Disposable(() => {}),
-  registerColorProvider: () => new Disposable(() => {}),
-  registerDocumentFormattingEditProvider: () => new Disposable(() => {}),
-  registerFoldingRangeProvider: () => new Disposable(() => {}),
+  registerWorkspaceSymbolProvider(_selector, provider) {
+    languages._workspaceSymbolProviders.push(provider);
+    return new Disposable(() => {
+      languages._workspaceSymbolProviders = languages._workspaceSymbolProviders.filter((item) => item !== provider);
+    });
+  },
+  registerCodeLensProvider(_selector, provider) {
+    languages._codeLensProviders.push(provider);
+    return new Disposable(() => {
+      languages._codeLensProviders = languages._codeLensProviders.filter((item) => item !== provider);
+    });
+  },
+  registerReferenceProvider(_selector, provider) {
+    languages._referenceProviders.push(provider);
+    return new Disposable(() => {
+      languages._referenceProviders = languages._referenceProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentSymbolProvider(_selector, provider) {
+    languages._documentSymbolProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentSymbolProviders = languages._documentSymbolProviders.filter((item) => item !== provider);
+    });
+  },
+  registerRenameProvider(_selector, provider) {
+    languages._renameProviders.push(provider);
+    return new Disposable(() => {
+      languages._renameProviders = languages._renameProviders.filter((item) => item !== provider);
+    });
+  },
+  registerSignatureHelpProvider(_selector, provider) {
+    languages._signatureHelpProviders.push(provider);
+    return new Disposable(() => {
+      languages._signatureHelpProviders = languages._signatureHelpProviders.filter((item) => item !== provider);
+    });
+  },
+  registerInlayHintsProvider(_selector, provider) {
+    languages._inlayHintProviders.push(provider);
+    return new Disposable(() => {
+      languages._inlayHintProviders = languages._inlayHintProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentSemanticTokensProvider(_selector, provider) {
+    languages._documentSemanticTokensProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentSemanticTokensProviders = languages._documentSemanticTokensProviders.filter((item) => item !== provider);
+    });
+  },
+  registerLinkedEditingRangeProvider(_selector, provider) {
+    languages._linkedEditingRangeProviders.push(provider);
+    return new Disposable(() => {
+      languages._linkedEditingRangeProviders = languages._linkedEditingRangeProviders.filter((item) => item !== provider);
+    });
+  },
+  registerColorProvider(_selector, provider) {
+    languages._documentColorProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentColorProviders = languages._documentColorProviders.filter((item) => item !== provider);
+    });
+  },
+  registerDocumentFormattingEditProvider(_selector, provider) {
+    languages._documentFormattingProviders.push(provider);
+    return new Disposable(() => {
+      languages._documentFormattingProviders = languages._documentFormattingProviders.filter((item) => item !== provider);
+    });
+  },
+  registerFoldingRangeProvider(_selector, provider) {
+    languages._foldingRangeProviders.push(provider);
+    return new Disposable(() => {
+      languages._foldingRangeProviders = languages._foldingRangeProviders.filter((item) => item !== provider);
+    });
+  },
   onDidChangeDiagnostics: new EventEmitter().event,
   getLanguages: () => Promise.resolve(["plaintext", "javascript", "typescript", "json", "markdown", "html", "css"]),
   match: () => 0,
@@ -2765,4 +2936,240 @@ function searchTextContent(content, query) {
   }
 
   return results;
+}
+
+async function loadTextDocumentFromArg(arg) {
+  if (!arg) return undefined;
+  if (typeof arg === "object" && typeof arg.getText === "function" && arg.uri) return arg;
+  try {
+    return await workspace.openTextDocument(arg);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeProviderResults(result) {
+  if (result == null) return [];
+  if (Array.isArray(result)) return result.flatMap((item) => normalizeProviderResults(item));
+  if (result.items && Array.isArray(result.items)) return normalizeProviderResults(result.items);
+  return [result];
+}
+
+async function executeProviderCollection(providers, methodName, ...invokeArgs) {
+  const results = [];
+  for (const provider of providers || []) {
+    if (!provider || typeof provider[methodName] !== "function") continue;
+    try {
+      const value = await provider[methodName](...invokeArgs);
+      results.push(...normalizeProviderResults(value));
+    } catch {}
+  }
+  return results;
+}
+
+async function executeFirstRegisteredProvider(providers, methodName, ...invokeArgs) {
+  for (const provider of providers || []) {
+    if (!provider || typeof provider[methodName] !== "function") continue;
+    try {
+      const value = await provider[methodName](...invokeArgs);
+      if (value != null) return value;
+    } catch {}
+  }
+  return undefined;
+}
+
+function completionItemToSimple(item) {
+  if (!item) return null;
+  const label = typeof item.label === "string"
+    ? item.label
+    : item.label?.label || "";
+  if (!label) return null;
+  return {
+    label,
+    insertText: typeof item.insertText === "string" ? item.insertText : undefined,
+    detail: typeof item.detail === "string" ? item.detail : undefined,
+    documentation: typeof item.documentation === "string"
+      ? item.documentation
+      : typeof item.documentation?.value === "string"
+        ? item.documentation.value
+        : undefined,
+    kind: typeof item.kind === "number" ? item.kind : undefined,
+  };
+}
+
+function normalizeCompletionProviderOutput(output) {
+  if (output == null) return [];
+  const items = Array.isArray(output)
+    ? output
+    : Array.isArray(output.items)
+      ? output.items
+      : [];
+  return items.map(completionItemToSimple).filter(Boolean);
+}
+
+async function executeCompletionItemProvider(uriArg, positionArg, triggerChar, contextArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  const results = [];
+  for (const provider of languages._completionProviders) {
+    if (!provider || typeof provider.provideCompletionItems !== "function") continue;
+    try {
+      const value = await provider.provideCompletionItems(
+        document,
+        position,
+        CancellationToken.None,
+        { triggerKind: 0, triggerCharacter: triggerChar, ...contextArg },
+      );
+      results.push(...normalizeCompletionProviderOutput(value));
+    } catch {}
+  }
+  return results;
+}
+
+async function executeHoverProvider(uriArg, positionArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  const results = [];
+  for (const provider of languages._hoverProviders) {
+    if (!provider || typeof provider.provideHover !== "function") continue;
+    try {
+      const value = await provider.provideHover(document, position, CancellationToken.None);
+      if (value) results.push(value);
+    } catch {}
+  }
+  return results;
+}
+
+function normalizeInlineCompletionItem(item) {
+  if (!item) return null;
+  return {
+    insertText: typeof item.insertText === "string" ? item.insertText : item.insertText?.value || "",
+    filterText: typeof item.filterText === "string" ? item.filterText : undefined,
+    range: item.range,
+    command: item.command,
+  };
+}
+
+async function executeInlineCompletionItemProvider(uriArg, positionArg, contextArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  const results = [];
+  for (const provider of languages._inlineCompletionProviders) {
+    if (!provider || typeof provider.provideInlineCompletionItems !== "function") continue;
+    try {
+      const value = await provider.provideInlineCompletionItems(document, position, contextArg ?? {}, CancellationToken.None);
+      const items = Array.isArray(value)
+        ? value
+        : Array.isArray(value?.items)
+          ? value.items
+          : [];
+      results.push(...items.map(normalizeInlineCompletionItem).filter(Boolean));
+    } catch {}
+  }
+  return results;
+}
+
+async function executeCodeLensProvider(uriArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const results = [];
+  for (const provider of languages._codeLensProviders) {
+    if (!provider || typeof provider.provideCodeLenses !== "function") continue;
+    try {
+      const value = await provider.provideCodeLenses(document, CancellationToken.None);
+      const items = Array.isArray(value)
+        ? value
+        : Array.isArray(value?.items)
+          ? value.items
+          : [];
+      results.push(...items);
+    } catch {}
+  }
+  return results;
+}
+
+async function executeLocationProvider(providers, methodName, uriArg, positionArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  return executeProviderCollection(providers, methodName, document, position, CancellationToken.None);
+}
+
+async function executeReferenceProvider(uriArg, positionArg, context = {}) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  const results = await executeProviderCollection(languages._referenceProviders, "provideReferences", document, position, context, CancellationToken.None);
+  return results;
+}
+
+async function executeWorkspaceSymbolProvider(query) {
+  const results = await executeProviderCollection(languages._workspaceSymbolProviders, "provideWorkspaceSymbols", String(query || ""), CancellationToken.None);
+  return results;
+}
+
+async function executeDocumentSymbolProvider(uriArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  return executeProviderCollection(languages._documentSymbolProviders, "provideDocumentSymbols", document, CancellationToken.None);
+}
+
+async function executeCodeActionProvider(uriArg, rangeArg, contextArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const range = rangeArg || new Range(0, 0, 0, 0);
+  const context = contextArg || { diagnostics: [] };
+  return executeProviderCollection(languages._codeActionProviders, "provideCodeActions", document, range, context, CancellationToken.None);
+}
+
+async function executeSignatureHelpProvider(uriArg, positionArg, contextArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  return executeProviderCollection(languages._signatureHelpProviders, "provideSignatureHelp", document, position, CancellationToken.None, contextArg);
+}
+
+async function executeFormattingProvider(providers, methodName, uriArg, rangeArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  if (rangeArg) {
+    return executeProviderCollection(providers, methodName, document, rangeArg, CancellationToken.None);
+  }
+  return executeProviderCollection(providers, methodName, document, CancellationToken.None);
+}
+
+async function executeDocumentHighlightProvider(uriArg, positionArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const position = positionArg || new Position(0, 0);
+  return executeProviderCollection(languages._documentHighlightProviders, "provideDocumentHighlights", document, position, CancellationToken.None);
+}
+
+async function executeDocumentLinkProvider(uriArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  return executeProviderCollection(languages._documentLinkProviders, "provideDocumentLinks", document, CancellationToken.None);
+}
+
+async function executeSelectionRangeProvider(uriArg, positionsArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const positions = Array.isArray(positionsArg) ? positionsArg : [positionsArg || new Position(0, 0)];
+  return executeProviderCollection(languages._selectionRangeProviders, "provideSelectionRanges", document, positions, CancellationToken.None);
+}
+
+async function executeInlayHintProvider(uriArg, rangeArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  const range = rangeArg || new Range(0, 0, 0, 0);
+  return executeProviderCollection(languages._inlayHintProviders, "provideInlayHints", document, range, CancellationToken.None);
+}
+
+async function executeFoldingRangeProvider(uriArg) {
+  const document = await loadTextDocumentFromArg(uriArg);
+  if (!document) return [];
+  return executeProviderCollection(languages._foldingRangeProviders, "provideFoldingRanges", document, {}, CancellationToken.None);
 }
