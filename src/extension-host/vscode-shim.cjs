@@ -1855,10 +1855,23 @@ const window = {
   createChatStatusItem: () => ensureDisposable({ text: "", tooltip: "", command: undefined, show() {}, hide() {}, dispose() {} }),
   createTerminal(optionsOrName) {
     const processId = terminals.length + 1;
+    const requestedName = typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal");
+    const profile = terminalProfileProviders.length > 0
+      ? terminalProfileProviders
+          .map((provider) => {
+            try {
+              if (provider && typeof provider.provideTerminalProfile === "function") {
+                return provider.provideTerminalProfile(CancellationToken.None);
+              }
+            } catch {}
+            return undefined;
+          })
+          .find((value) => value)
+      : undefined;
     const terminal = {
-      name: typeof optionsOrName === "string" ? optionsOrName : (optionsOrName?.name || "Terminal"),
+      name: profile?.name || requestedName,
       processId,
-      creationOptions: typeof optionsOrName === "object" ? optionsOrName : { name: String(optionsOrName || "Terminal") },
+      creationOptions: profile || (typeof optionsOrName === "object" ? optionsOrName : { name: String(optionsOrName || "Terminal") }),
       state: { shell: process.env.SHELL || "/bin/zsh" },
       shellIntegration: {},
       sendText() {},

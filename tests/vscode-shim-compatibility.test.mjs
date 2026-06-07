@@ -447,3 +447,21 @@ test("vscode shim routes internal scheme URIs through registered uri handlers", 
 
   assert.equal(handled, "athva://deep/link");
 });
+
+test("vscode shim applies a registered terminal profile when creating a terminal", async () => {
+  const disposable = vscode.window.registerTerminalProfileProvider("athva-profile", {
+    provideTerminalProfile() {
+      return {
+        name: "Athva Profile",
+        options: { name: "Athva Profile", cwd: "/tmp" },
+      };
+    },
+  });
+
+  const terminal = vscode.window.createTerminal("Fallback");
+
+  disposable.dispose();
+
+  assert.equal(terminal.name, "Athva Profile");
+  assert.equal(terminal.creationOptions.name, "Athva Profile");
+});
