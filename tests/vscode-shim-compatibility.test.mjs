@@ -400,3 +400,50 @@ test("vscode shim resolves text document content providers for custom schemes", 
   assert.equal(doc.getText(), `content for ${scheme}`);
   assert.equal(doc.uri.scheme, scheme);
 });
+
+test("vscode shim deserializes notebooks through a registered serializer", async () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "athva-vscode-shim-"));
+  const notebookPath = join(workspaceRoot, "notebook.nb");
+  writeFileSync(notebookPath, "serialized notebook", "utf8");
+
+  let deserialized = false;
+  const disposable = vscode.workspace.registerNotebookSerializer("athva-notebook", {
+    deserializeNotebook(data) {
+      deserialized = true;
+      return {
+        cells: [
+          new vscode.NotebookCellData(vscode.NotebookCellKind.Code, "print(1)", "python"),
+        ],
+        metadata: { source: String(data) },
+      };
+    },
+  });
+
+  const doc = await vscode.workspace.openNotebookDocument(
+    "athva-notebook",
+    vscode.Uri.file(notebookPath),
+  );
+
+  disposable.dispose();
+
+  assert.equal(deserialized, true);
+  assert.equal(doc.notebookType, "athva-notebook");
+  assert.equal(doc.cellCount, 1);
+  assert.equal(doc.getCells().length, 1);
+  assert.equal(doc.getCells()[0].value, "print(1)");
+});
+
+test("vscode shim routes internal scheme URIs through registered uri handlers", async () => {
+  let handled = "";
+  const disposable = vscode.window.registerUriHandler({
+    handleUri(uri) {
+      handled = uri.toString();
+    },
+  });
+
+  await vscode.env.openExternal(vscode.Uri.parse("athva://deep/link"));
+
+  disposable.dispose();
+
+  assert.equal(handled, "athva://deep/link");
+});

@@ -1423,6 +1423,31 @@ const workspace = {
     const viewType = typeof viewTypeOrUri === "string" && maybeUri ? viewTypeOrUri : "jupyter-notebook";
     const uriInput = maybeUri || viewTypeOrUri;
     const uri = typeof uriInput === "string" ? Uri.parse(uriInput) : (uriInput || Uri.file(""));
+    const serializer = notebookSerializers.get(String(viewType));
+    if (serializer && typeof serializer.deserializeNotebook === "function") {
+      try {
+        const raw = uri?.fsPath ? fs.readFileSync(uri.fsPath) : Buffer.from("");
+        const deserialized = serializer.deserializeNotebook(raw, CancellationToken.None);
+        const applyNotebook = (data) => {
+          const cells = Array.isArray(data?.cells) ? data.cells : [];
+          const doc = {
+            uri,
+            notebookType: viewType,
+            version: 1,
+            isDirty: false,
+            isClosed: false,
+            metadata: data?.metadata || {},
+            cellCount: cells.length,
+            getCells: () => cells,
+            save: () => Promise.resolve(true),
+          };
+          notebookDocuments.push(doc);
+          notebookOpenEmitter.fire(doc);
+          return Promise.resolve(doc);
+        };
+        return Promise.resolve(deserialized && typeof deserialized.then === "function" ? deserialized.then(applyNotebook) : applyNotebook(deserialized));
+      } catch {}
+    }
     const doc = {
       uri,
       notebookType: viewType,
@@ -2735,7 +2760,22 @@ const env = {
   },
   remoteName: undefined,
   shell: process.env.SHELL || "/bin/zsh",
-  openExternal: (uri) => { send({ type: "openExternal", uri: uri.toString() }); return Promise.resolve(true); },
+  openExternal: async (uri) => {
+    const parsed = uri && typeof uri === "object" && typeof uri.scheme === "string"
+      ? uri
+      : Uri.parse(String(uri?.toString?.() ?? uri ?? ""));
+    if (parsed?.scheme === env.uriScheme || parsed?.scheme === "vscode") {
+      for (const handler of uriHandlers) {
+        if (!handler || typeof handler.handleUri !== "function") continue;
+        try {
+          await handler.handleUri(parsed);
+        } catch {}
+      }
+      return true;
+    }
+    send({ type: "openExternal", uri: parsed.toString() });
+    return true;
+  },
   clipboard: {
     readText: () => Promise.resolve(_clipboardText),
     writeText: (text) => { _clipboardText = String(text ?? ""); return Promise.resolve(); },
