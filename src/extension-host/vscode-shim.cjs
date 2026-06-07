@@ -851,6 +851,20 @@ let activeTerminal = {
   dispose() {},
   selection: undefined,
 };
+function matchesDebugType(entryType, debugType) {
+  const normalizedEntryType = String(entryType || "");
+  const normalizedDebugType = String(debugType || "");
+  return !normalizedEntryType || normalizedEntryType === "*" || normalizedEntryType === normalizedDebugType;
+}
+function callDebugTrackerHook(trackers, hookName, ...args) {
+  for (const tracker of trackers || []) {
+    const hook = tracker?.[hookName];
+    if (typeof hook !== "function") continue;
+    try {
+      hook.apply(tracker, args);
+    } catch {}
+  }
+}
 const activeColorTheme = { kind: ColorThemeKind.Dark, backgroundColor: undefined, foregroundColor: undefined };
 const activeTabGroupState = {
   activeTab: undefined,
@@ -2587,15 +2601,39 @@ const debug = {
       } catch {}
     }
     if (!configuration) configuration = { type: String(debugType || "debug"), name: String(nameOrConfiguration || "Launch") };
+    const sessionDescriptorState = {
+      descriptor: undefined,
+      trackers: [],
+    };
     const session = {
       name: String(configuration.name || "Launch"),
       id: `debug-session-${Math.random().toString(36).slice(2)}`,
       type: String(configuration.type || debugType || "debug"),
       parentSession: undefined,
       configuration,
+      _adapterState: sessionDescriptorState,
     };
+    for (const entry of debugAdapterDescriptorFactories) {
+      if (!matchesDebugType(entry.type, session.type)) continue;
+      try {
+        const descriptor = await entry.factory?.createDebugAdapterDescriptor?.(session, undefined);
+        if (descriptor !== undefined) {
+          sessionDescriptorState.descriptor = descriptor;
+          break;
+        }
+      } catch {}
+    }
+    for (const entry of debugAdapterTrackerFactories) {
+      if (!matchesDebugType(entry.type, session.type)) continue;
+      try {
+        const tracker = await entry.factory?.createDebugAdapterTracker?.(session);
+        if (tracker) sessionDescriptorState.trackers.push(tracker);
+      } catch {}
+    }
+    callDebugTrackerHook(sessionDescriptorState.trackers, "onWillStartSession");
     activeDebugSessionState = session;
     debugStartSessionEmitter.fire(session);
+    callDebugTrackerHook(sessionDescriptorState.trackers, "onDidStartSession");
     activeDebugSessionEmitter.fire(session);
     return true;
   },
@@ -2604,7 +2642,16 @@ const debug = {
     if (session && session.id && session.id !== activeDebugSessionState.id) return undefined;
     const ended = activeDebugSessionState;
     activeDebugSessionState = undefined;
+    const trackers = ended?._adapterState?.trackers || [];
+    callDebugTrackerHook(trackers, "onWillStopSession");
+    callDebugTrackerHook(trackers, "onWillTerminateSession");
     debugTerminateSessionEmitter.fire(ended);
+    callDebugTrackerHook(trackers, "onDidTerminateSession");
+    for (const tracker of trackers) {
+      try {
+        if (typeof tracker?.dispose === "function") tracker.dispose();
+      } catch {}
+    }
     activeDebugSessionEmitter.fire(undefined);
     return undefined;
   },

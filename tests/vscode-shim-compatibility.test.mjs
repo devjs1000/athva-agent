@@ -313,6 +313,7 @@ test("vscode shim executes call hierarchy, type hierarchy, and inline values pro
 test("vscode shim supports tasks and debug session lifecycle", async () => {
   const taskEvents = [];
   const debugEvents = [];
+  const adapterEvents = [];
 
   const taskDisposable = vscode.tasks.registerTaskProvider("athva", {
     provideTasks() {
@@ -323,6 +324,37 @@ test("vscode shim supports tasks and debug session lifecycle", async () => {
   const debugDisposable = vscode.debug.registerDebugConfigurationProvider("athva-debug", {
     provideDebugConfigurations() {
       return [{ type: "athva-debug", name: "Launch Athva" }];
+    },
+  });
+  const descriptorDisposable = vscode.debug.registerDebugAdapterDescriptorFactory("athva-debug", {
+    createDebugAdapterDescriptor(session) {
+      adapterEvents.push(`descriptor:${session.type}`);
+      return { type: "server", port: 8123 };
+    },
+  });
+  const trackerDisposable = vscode.debug.registerDebugAdapterTrackerFactory("athva-debug", {
+    createDebugAdapterTracker(session) {
+      adapterEvents.push(`tracker:create:${session.type}`);
+      return {
+        onWillStartSession() {
+          adapterEvents.push("tracker:willStart");
+        },
+        onDidStartSession() {
+          adapterEvents.push("tracker:didStart");
+        },
+        onWillStopSession() {
+          adapterEvents.push("tracker:willStop");
+        },
+        onWillTerminateSession() {
+          adapterEvents.push("tracker:willTerminate");
+        },
+        onDidTerminateSession() {
+          adapterEvents.push("tracker:didTerminate");
+        },
+        dispose() {
+          adapterEvents.push("tracker:dispose");
+        },
+      };
     },
   });
 
@@ -345,6 +377,8 @@ test("vscode shim supports tasks and debug session lifecycle", async () => {
 
   taskDisposable.dispose();
   debugDisposable.dispose();
+  descriptorDisposable.dispose();
+  trackerDisposable.dispose();
   startTaskSub.dispose();
   endTaskSub.dispose();
   startDebugSub.dispose();
@@ -352,6 +386,16 @@ test("vscode shim supports tasks and debug session lifecycle", async () => {
 
   assert.deepEqual(taskEvents, ["start:build", "end:build"]);
   assert.deepEqual(debugEvents, ["start:Launch Athva", "end:Launch Athva"]);
+  assert.deepEqual(adapterEvents, [
+    "descriptor:athva-debug",
+    "tracker:create:athva-debug",
+    "tracker:willStart",
+    "tracker:didStart",
+    "tracker:willStop",
+    "tracker:willTerminate",
+    "tracker:didTerminate",
+    "tracker:dispose",
+  ]);
 });
 
 test("vscode shim routes openWith to a registered custom editor provider", async () => {
