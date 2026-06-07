@@ -47,12 +47,14 @@ export class TerminalPanel {
     brightCyan: "#4ec9b0",
     brightWhite: "#ffffff",
   };
+  private onLinkClick?: (uri: string) => Promise<boolean> | boolean;
 
-  constructor(onEditorResize: () => void) {
+  constructor(onEditorResize: () => void, onLinkClick?: (uri: string) => Promise<boolean> | boolean) {
     this.panel = document.getElementById("terminal-panel")!;
     this.resizeHandle = document.getElementById("terminal-resize")!;
     this.container = document.getElementById("xterm-container")!;
     this.onResize = onEditorResize;
+    this.onLinkClick = onLinkClick;
 
     document.getElementById("btn-close-terminal")?.addEventListener("click", () => {
       void this.hide();
@@ -143,7 +145,7 @@ export class TerminalPanel {
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
     this.term.loadAddon(new WebLinksAddon((_event, uri) => {
-      import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(uri)).catch(() => {});
+      void this.handleLinkClick(uri);
     }));
 
     this.term.open(this.container);
@@ -155,6 +157,12 @@ export class TerminalPanel {
 
     // Handle user input
     this.term.onData((data) => this.handleInput(data));
+  }
+
+  private async handleLinkClick(uri: string) {
+    const handled = this.onLinkClick ? await Promise.resolve(this.onLinkClick(uri)).catch(() => false) : false;
+    if (handled) return;
+    import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(uri)).catch(() => {});
   }
 
   private getShortCwd(): string {

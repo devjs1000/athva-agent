@@ -509,3 +509,34 @@ test("vscode shim applies a registered terminal profile when creating a terminal
   assert.equal(terminal.name, "Athva Profile");
   assert.equal(terminal.creationOptions.name, "Athva Profile");
 });
+
+test("vscode shim routes terminal link clicks through registered providers", async () => {
+  const handled = [];
+  const disposable = vscode.window.registerTerminalLinkProvider({
+    provideTerminalLinks(context) {
+      handled.push(`provide:${context.line}`);
+      return [
+        {
+          text: context.line,
+          range: new vscode.Range(0, 0, 0, context.line.length),
+        },
+      ];
+    },
+    handleLink(link) {
+      handled.push(`handle:${link.text}`);
+    },
+  });
+
+  await vscode._handleMessage({
+    type: "terminalLink",
+    id: "terminal-link-test",
+    uri: "https://example.com",
+  });
+
+  disposable.dispose();
+
+  assert.deepEqual(handled, [
+    "provide:https://example.com",
+    "handle:https://example.com",
+  ]);
+});

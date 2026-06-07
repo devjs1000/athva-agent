@@ -3046,6 +3046,42 @@ async function handleMessage(msg) {
     }
   }
 
+  if (msg.type === "terminalLink") {
+    const uri = String(msg.uri || "");
+    let handled = false;
+    const token = CancellationToken.None;
+    const syntheticTerminal = activeTerminal || { name: "", processId: 0, creationOptions: {}, state: {}, shellIntegration: {} };
+    const context = {
+      terminal: syntheticTerminal,
+      line: uri,
+      rawLine: uri,
+    };
+    for (const provider of terminalLinkProviders) {
+      if (!provider) continue;
+      try {
+        if (typeof provider.provideTerminalLinks === "function") {
+          const links = await provider.provideTerminalLinks(context, token);
+          const list = Array.isArray(links) ? links : [];
+          const match = list.find((link) => String(link?.text || "") === uri) || list[0];
+          if (match && typeof provider.handleLink === "function") {
+            await provider.handleLink(match);
+            handled = true;
+            break;
+          }
+          if (match) {
+            handled = true;
+            break;
+          }
+        } else if (typeof provider.handleLink === "function") {
+          await provider.handleLink({ text: uri });
+          handled = true;
+          break;
+        }
+      } catch {}
+    }
+    send({ type: "terminalLinkResult", id: msg.id, handled });
+  }
+
   if (msg.type === "webviewMessage") {
     const channel = webviewChannels.get(msg.viewId);
     if (channel) {

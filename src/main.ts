@@ -37,7 +37,7 @@ import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./
 import { setExtensionSnippets } from "./modules/snippet-store";
 import { loadInstalledExtensionSupport, type ExtensionCompatibilityIssue, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
-import { getOrCreateRuntime, type ExtensionRuntime, type RuntimeCompletionItem, type TreeNode } from "./modules/extension-runtime";
+import { getOrCreateRuntime, getRuntime, type ExtensionRuntime, type RuntimeCompletionItem, type TreeNode } from "./modules/extension-runtime";
 import { ProjectSwitcher } from "./modules/project-switcher";
 import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
@@ -3153,7 +3153,17 @@ window.addEventListener("DOMContentLoaded", async () => {
   gitStatus = new GitStatusBar();
 
   // Init terminal
-  terminal = new TerminalPanel(() => editor.resize());
+  terminal = new TerminalPanel(() => editor.resize(), async (uri) => {
+    for (const support of extensionSupportByIdentifier.values()) {
+      if (!support?.hasRuntime) continue;
+      const runtime = getRuntime(support.identifier);
+      if (!runtime) continue;
+      try {
+        if (await runtime.handleTerminalLink(uri)) return true;
+      } catch {}
+    }
+    return false;
+  });
   registerTerminalThemeSetter((colors, isLight) => terminal.setTheme(colors, isLight));
 
   // Init script runner

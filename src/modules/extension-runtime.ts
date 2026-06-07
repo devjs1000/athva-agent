@@ -62,6 +62,7 @@ export class ExtensionRuntime {
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingChildren = new Map<string, (nodes: TreeNode[]) => void>();
   private pendingCompletions = new Map<string, (items: RuntimeCompletionItem[]) => void>();
+  private pendingTerminalLinks = new Map<string, (handled: boolean) => void>();
   private registeredViews = new Set<string>();
   private webviewViews = new Set<string>();
   private webviewHtml = new Map<string, string>();
@@ -213,6 +214,22 @@ export class ExtensionRuntime {
     });
   }
 
+  async handleTerminalLink(uri: string): Promise<boolean> {
+    if (!this.process || this.status !== "active") return false;
+    const id = Math.random().toString(36).slice(2);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingTerminalLinks.delete(id);
+        resolve(false);
+      }, 2500);
+      this.pendingTerminalLinks.set(id, (handled) => {
+        clearTimeout(timer);
+        resolve(handled);
+      });
+      this.send({ type: "terminalLink", id, uri });
+    });
+  }
+
   async provideCompletions(input: {
     filePath: string;
     content: string;
@@ -333,6 +350,16 @@ export class ExtensionRuntime {
           this.pendingCompletions.delete(id);
           const items = Array.isArray(msg.items) ? (msg.items as RuntimeCompletionItem[]) : [];
           resolve(items);
+        }
+        break;
+      }
+
+      case "terminalLinkResult": {
+        const id = String(msg.id ?? "");
+        const resolve = this.pendingTerminalLinks.get(id);
+        if (resolve) {
+          this.pendingTerminalLinks.delete(id);
+          resolve(Boolean(msg.handled));
         }
         break;
       }
