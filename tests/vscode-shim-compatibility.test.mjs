@@ -39,6 +39,14 @@ test("vscode shim exposes compatibility namespaces and aliases", async () => {
   assert.equal(results[0].ranges[0].start.character, 0);
 });
 
+test("vscode shim executes registered commands", async () => {
+  const disposable = vscode.commands.registerCommand("athva.test.echo", (value) => value);
+  const commandResult = await vscode.commands.executeCommand("athva.test.echo", "hello");
+  disposable.dispose();
+
+  assert.equal(commandResult, "hello");
+});
+
 test("vscode shim executes registered language providers", async () => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "athva-vscode-shim-"));
   const filePath = join(workspaceRoot, "provider.ts");

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-interface SearchMatch {
+export interface SearchMatch {
   path: string;
   line: number;
   col: number;
@@ -11,6 +11,12 @@ interface SearchMatch {
 
 export type OnOpenFile = (path: string, name: string, line?: number) => void;
 export type OnFilesReplaced = (paths: string[]) => void;
+export type OnSearch = (options: {
+  query: string;
+  caseSensitive: boolean;
+  useRegex: boolean;
+  maxResults: number;
+}) => Promise<SearchMatch[] | null>;
 
 export class GlobalSearch {
   private panel: HTMLElement;
@@ -36,10 +42,12 @@ export class GlobalSearch {
 
   private onOpenFile: OnOpenFile;
   private onFilesReplaced: OnFilesReplaced;
+  private onSearch: OnSearch | null = null;
 
-  constructor(onOpenFile: OnOpenFile, onFilesReplaced: OnFilesReplaced) {
+  constructor(onOpenFile: OnOpenFile, onFilesReplaced: OnFilesReplaced, onSearch?: OnSearch) {
     this.onOpenFile = onOpenFile;
     this.onFilesReplaced = onFilesReplaced;
+    this.onSearch = onSearch ?? null;
 
     this.panel = document.getElementById("global-search-panel")!;
     this.queryInput = document.getElementById("gs-query") as HTMLInputElement;
@@ -130,7 +138,15 @@ export class GlobalSearch {
     }
 
     try {
-      this.results = await invoke<SearchMatch[]>("search_in_files", {
+      const runtimeResults = this.onSearch
+        ? await this.onSearch({
+            query,
+            caseSensitive: this.caseSensitive,
+            useRegex: this.useRegex,
+            maxResults: 500,
+          })
+        : null;
+      this.results = runtimeResults ?? await invoke<SearchMatch[]>("search_in_files", {
         root: this.projectRoot,
         query,
         caseSensitive: this.caseSensitive,

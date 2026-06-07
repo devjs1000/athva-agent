@@ -21,6 +21,22 @@ export interface RuntimeCompletionItem {
   kind?: number;
 }
 
+export interface RuntimeSearchMatch {
+  path: string;
+  line: number;
+  col: number;
+  line_content: string;
+  match_start: number;
+  match_end: number;
+}
+
+export interface RuntimeSearchOptions {
+  query: string;
+  caseSensitive: boolean;
+  useRegex: boolean;
+  maxResults: number;
+}
+
 export type RuntimeStatus = "stopped" | "starting" | "active" | "error";
 
 export interface ExtensionRuntimeOptions {
@@ -62,6 +78,7 @@ export class ExtensionRuntime {
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingChildren = new Map<string, (nodes: TreeNode[]) => void>();
   private pendingCompletions = new Map<string, (items: RuntimeCompletionItem[]) => void>();
+  private pendingSearches = new Map<string, (items: RuntimeSearchMatch[]) => void>();
   private pendingTerminalLinks = new Map<string, (handled: boolean) => void>();
   private registeredViews = new Set<string>();
   private webviewViews = new Set<string>();
@@ -214,6 +231,29 @@ export class ExtensionRuntime {
     });
   }
 
+  async searchInFiles(options: RuntimeSearchOptions): Promise<RuntimeSearchMatch[]> {
+    if (!this.process || this.status !== "active") return [];
+    const id = Math.random().toString(36).slice(2);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingSearches.delete(id);
+        resolve([]);
+      }, 5000);
+      this.pendingSearches.set(id, (items) => {
+        clearTimeout(timer);
+        resolve(items);
+      });
+      this.send({
+        type: "searchInFiles",
+        id,
+        query: options.query,
+        caseSensitive: options.caseSensitive,
+        useRegex: options.useRegex,
+        maxResults: options.maxResults,
+      });
+    });
+  }
+
   async handleTerminalLink(uri: string): Promise<boolean> {
     if (!this.process || this.status !== "active") return false;
     const id = Math.random().toString(36).slice(2);
@@ -350,6 +390,16 @@ export class ExtensionRuntime {
           this.pendingCompletions.delete(id);
           const items = Array.isArray(msg.items) ? (msg.items as RuntimeCompletionItem[]) : [];
           resolve(items);
+        }
+        break;
+      }
+
+      case "searchResult": {
+        const id = String(msg.id ?? "");
+        const resolve = this.pendingSearches.get(id);
+        if (resolve) {
+          this.pendingSearches.delete(id);
+          resolve(Array.isArray(msg.items) ? (msg.items as RuntimeSearchMatch[]) : []);
         }
         break;
       }

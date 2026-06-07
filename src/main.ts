@@ -35,7 +35,7 @@ import { ExportsTracker } from "./modules/exports-tracker";
 import { applyTheme, registerMonacoThemeDefiner, registerMonacoThemeSetter, registerRuntimeThemes, registerTerminalThemeSetter } from "./modules/theme-engine";
 import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./modules/file-icons";
 import { setExtensionSnippets } from "./modules/snippet-store";
-import { loadInstalledExtensionSupport, type ExtensionCompatibilityIssue, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
+import { loadInstalledExtensionSupport, type ExtensionCommand, type ExtensionCompatibilityIssue, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
 import { getOrCreateRuntime, getRuntime, type ExtensionRuntime, type RuntimeCompletionItem, type TreeNode } from "./modules/extension-runtime";
 import { ProjectSwitcher } from "./modules/project-switcher";
@@ -1829,6 +1829,66 @@ function getExtensionSupport(identifier: string): ExtensionSupportSnapshot | nul
   return extensionSupportByIdentifier.get(identifier) ?? null;
 }
 
+function findExtensionCommandOwner(commandId: string): ExtensionSupportSnapshot | null {
+  for (const support of extensionSupportByIdentifier.values()) {
+    if (support.commands.some((command) => command.command === commandId)) {
+      return support;
+    }
+  }
+  return null;
+}
+
+async function executeExtensionCommand(command: ExtensionCommand): Promise<boolean> {
+  const ownerSnapshot = findExtensionCommandOwner(command.command);
+  if (!ownerSnapshot) {
+    showToast(`Command "${command.title}" is not registered by any installed extension.`, 3000);
+    return false;
+  }
+  if (!ownerSnapshot.hasRuntime) {
+    showToast(`Command "${command.title}" belongs to "${ownerSnapshot.displayName}" but that extension has no runtime handler.`, 4000);
+    return false;
+  }
+  const runtime = getRuntime(ownerSnapshot.identifier);
+  if (!runtime) {
+    showToast(`Command "${command.title}" is available, but the extension runtime is not active yet.`, 4000);
+    return false;
+  }
+  try {
+    await runtime.executeCommand(command.command);
+    return true;
+  } catch (error) {
+    showToast(`Failed to run "${command.title}": ${String(error)}`, 4000);
+    return false;
+  }
+}
+
+function getActiveRuntimeForWorkspaceSearch(): ExtensionRuntime | null {
+  for (const support of extensionSupportByIdentifier.values()) {
+    if (!support.hasRuntime) continue;
+    const runtime = getRuntime(support.identifier);
+    if (runtime?.getStatus() === "active") return runtime;
+  }
+  return null;
+}
+
+function buildExtensionContextMenuItems() {
+  return [...extensionSupportByIdentifier.values()]
+    .filter((support) => support.hasRuntime && support.commands.length > 0)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    .map((support) => ({
+      label: support.displayName,
+      submenu: support.commands
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .map((command) => ({
+          label: command.category ? `${command.category}: ${command.title}` : command.title,
+          action: () => {
+            void executeExtensionCommand(command);
+          },
+        })),
+    }));
+}
+
 function getExtensionSettingsState(identifier: string) {
   const support = extensionSupportByIdentifier.get(identifier);
   if (!support) return null;
@@ -3019,6 +3079,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     }
   );
+  fileExplorer.setExtensionContextMenuItems(buildExtensionContextMenuItems);
 
   docsWorkspace = new DocsWorkspace(
     "docs-sidebar-panel",
@@ -3223,14 +3284,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init command palette
   commandPalette = new CommandPalette((command) => {
-    const ownerSnapshot = [...extensionSupportByIdentifier.values()].find((s) =>
-      s.commands.some((c) => c.command === command.command)
-    );
-    if (ownerSnapshot?.hasRuntime) {
-      showToast(`"${command.title}" is runtime-backed. Athva will run it when the extension host supports this command path.`, 4000);
-    } else {
-      showToast(`Command "${command.title}" has no handler in Athva.`, 3000);
-    }
+    void executeExtensionCommand(command);
   });
 
   await reloadInstalledExtensionSupport();
@@ -3263,6 +3317,20 @@ window.addEventListener("DOMContentLoaded", async () => {
     (paths) => {
       paths.forEach((p) => editor.reloadFile(p));
       if (currentProjectPath) fileExplorer.loadRoot(currentProjectPath);
+    },
+    async ({ query, caseSensitive, useRegex, maxResults }) => {
+      const runtime = getActiveRuntimeForWorkspaceSearch();
+      if (!runtime) return null;
+      try {
+        return await runtime.searchInFiles({
+          query,
+          caseSensitive,
+          useRegex,
+          maxResults,
+        });
+      } catch {
+        return null;
+      }
     }
   );
 

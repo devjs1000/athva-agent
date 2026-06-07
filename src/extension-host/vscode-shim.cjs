@@ -3162,6 +3162,37 @@ async function handleMessage(msg) {
     }
   }
 
+  if (msg.type === "searchInFiles") {
+    try {
+      const rawQuery = typeof msg.query === "string" ? msg.query : String(msg.query ?? "");
+      const caseSensitive = !!msg.caseSensitive;
+      const useRegex = !!msg.useRegex;
+      const maxResults = Number.isFinite(Number(msg.maxResults)) && Number(msg.maxResults) > 0
+        ? Number(msg.maxResults)
+        : 1_000;
+      const query = buildSearchQuery(rawQuery, caseSensitive, useRegex);
+      const items = await workspace.findTextInFiles(query, {
+        maxResults,
+      });
+      send({
+        type: "searchResult",
+        id: msg.id,
+        items: Array.isArray(items)
+          ? items.map((match) => ({
+              path: match.uri?.fsPath || match.uri?.path || "",
+              line: Number(match.ranges?.[0]?.start?.line ?? 0),
+              col: Number(match.ranges?.[0]?.start?.character ?? 0),
+              line_content: String(match.preview?.text ?? ""),
+              match_start: Number(match.ranges?.[0]?.start?.character ?? 0),
+              match_end: Number(match.ranges?.[0]?.end?.character ?? 0),
+            }))
+          : [],
+      });
+    } catch (e) {
+      send({ type: "searchResult", id: msg.id, items: [], error: e.message });
+    }
+  }
+
   if (msg.type === "provideCompletions") {
     try {
       const filePath = String(msg.filePath || "");
@@ -3437,6 +3468,24 @@ function normalizeTextSearchQuery(query) {
     if (typeof query.value === "string" && query.value) return query.value;
   }
   return "";
+}
+
+function escapeRegExp(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildSearchQuery(query, caseSensitive, useRegex) {
+  const text = String(query ?? "");
+  if (!text) return "";
+  const flags = caseSensitive ? "g" : "gi";
+  if (useRegex) {
+    try {
+      return new RegExp(text, flags);
+    } catch {
+      return new RegExp(escapeRegExp(text), flags);
+    }
+  }
+  return new RegExp(escapeRegExp(text), flags);
 }
 
 function searchTextContent(content, query) {

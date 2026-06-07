@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getAthvaSpecialEntry, getAthvaSpecialEntryGuide, getFolderIcon, getFileIcon } from "./file-icons";
-import { ContextMenu, type ContextMenuTarget } from "./context-menu";
+import { ContextMenu, type ContextMenuTarget, type GetExtensionContextMenuItems } from "./context-menu";
 
 export interface FileEntry {
   name: string;
@@ -80,6 +80,10 @@ export class FileExplorer {
 
   setOnCompactContexts(cb: () => Promise<void>) {
     this.contextMenu.setOnCompactContexts(cb);
+  }
+
+  setExtensionContextMenuItems(getItems: GetExtensionContextMenuItems) {
+    this.contextMenu.setExtensionContextMenuItems(getItems);
   }
 
   setActiveFile(path: string) {

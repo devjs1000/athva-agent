@@ -21,6 +21,9 @@ interface MenuItem {
   submenu?: MenuItem[];
 }
 
+export interface ContextMenuItem extends MenuItem {}
+export type GetExtensionContextMenuItems = () => ContextMenuItem[];
+
 export class ContextMenu {
   private el: HTMLElement;
   private onRefresh: OnRefresh;
@@ -29,11 +32,13 @@ export class ContextMenu {
   private onInitContexts: OnInitContexts | null = null;
   private onCompactContexts: OnCompactContexts | null = null;
   private onRenameCallback: ((oldPath: string, newPath: string) => void) | null = null;
+  private getExtensionContextMenuItems: GetExtensionContextMenuItems | null = null;
   private projectRoot: string = "";
 
-  constructor(onRefresh: OnRefresh, onOpenFile: OnOpenFile) {
+  constructor(onRefresh: OnRefresh, onOpenFile: OnOpenFile, getExtensionContextMenuItems?: GetExtensionContextMenuItems) {
     this.onRefresh = onRefresh;
     this.onOpenFile = onOpenFile;
+    this.getExtensionContextMenuItems = getExtensionContextMenuItems ?? null;
 
     this.el = document.createElement("div");
     this.el.className = "context-menu hidden";
@@ -65,6 +70,10 @@ export class ContextMenu {
 
   setOnCompactContexts(cb: OnCompactContexts) {
     this.onCompactContexts = cb;
+  }
+
+  setExtensionContextMenuItems(getItems: GetExtensionContextMenuItems) {
+    this.getExtensionContextMenuItems = getItems;
   }
 
   show(x: number, y: number, target: ContextMenuTarget) {
@@ -162,6 +171,7 @@ export class ContextMenu {
         label: "Copy Name",
         action: () => this.copyToClipboard(target.name),
       },
+      ...this.buildExtensionMenuItems(),
       { separator: true, label: "" },
       {
         label: "Reveal in Finder",
@@ -170,6 +180,18 @@ export class ContextMenu {
     );
 
     return items;
+  }
+
+  private buildExtensionMenuItems(): MenuItem[] {
+    const items = this.getExtensionContextMenuItems?.() ?? [];
+    if (!items.length) return [];
+    return [
+      { separator: true, label: "" },
+      {
+        label: "Extension Commands",
+        submenu: items,
+      },
+    ];
   }
 
   private renderMenu(items: MenuItem[]) {
