@@ -451,6 +451,8 @@ test("vscode shim deserializes notebooks through a registered serializer", async
   writeFileSync(notebookPath, "serialized notebook", "utf8");
 
   let deserialized = false;
+  let statusBarCalls = 0;
+  let kernelSourceCalls = 0;
   const disposable = vscode.workspace.registerNotebookSerializer("athva-notebook", {
     deserializeNotebook(data) {
       deserialized = true;
@@ -462,6 +464,28 @@ test("vscode shim deserializes notebooks through a registered serializer", async
       };
     },
   });
+  const statusBarDisposable = vscode.notebooks.registerNotebookCellStatusBarItemProvider("athva-notebook", {
+    async provideCellStatusBarItems(cell) {
+      statusBarCalls += 1;
+      return [
+        new vscode.NotebookCellStatusBarItem(
+          `cell:${cell.value}`,
+          vscode.NotebookCellStatusBarAlignment.Left,
+        ),
+      ];
+    },
+  });
+  const kernelSourceDisposable = vscode.notebooks.registerKernelSourceActionProvider("athva-notebook", {
+    async provideKernelSourceActions() {
+      kernelSourceCalls += 1;
+      return [
+        {
+          label: "Use notebook kernel",
+          command: "athva.useNotebookKernel",
+        },
+      ];
+    },
+  });
 
   const doc = await vscode.workspace.openNotebookDocument(
     "athva-notebook",
@@ -469,12 +493,18 @@ test("vscode shim deserializes notebooks through a registered serializer", async
   );
 
   disposable.dispose();
+  statusBarDisposable.dispose();
+  kernelSourceDisposable.dispose();
 
   assert.equal(deserialized, true);
   assert.equal(doc.notebookType, "athva-notebook");
   assert.equal(doc.cellCount, 1);
   assert.equal(doc.getCells().length, 1);
   assert.equal(doc.getCells()[0].value, "print(1)");
+  assert.equal(statusBarCalls, 1);
+  assert.equal(kernelSourceCalls, 1);
+  assert.equal(doc.cellStatusBarItems[0][0].text, "cell:print(1)");
+  assert.equal(doc.kernelSourceActions[0].label, "Use notebook kernel");
 });
 
 test("vscode shim routes internal scheme URIs through registered uri handlers", async () => {
@@ -539,4 +569,90 @@ test("vscode shim routes terminal link clicks through registered providers", asy
     "provide:https://example.com",
     "handle:https://example.com",
   ]);
+});
+
+test("vscode shim selects language models and refreshes MCP server definitions from providers", async () => {
+  const lmDisposable = vscode.lm.registerLanguageModelChatProvider("custom-provider", {
+    async provideLanguageModelChatInformation() {
+      return [
+        {
+          id: "model-1",
+          vendor: "custom-vendor",
+          family: "custom",
+          version: "1.0",
+          name: "Custom Model",
+          maxInputTokens: 1024,
+          maxOutputTokens: 512,
+        },
+      ];
+    },
+  });
+
+  const mcpDisposable = vscode.lm.registerMcpServerDefinitionProvider("demo.mcp", {
+    async provideMcpServerDefinitions() {
+      return [
+        {
+          label: "Demo MCP",
+          command: "node",
+          args: ["server.js"],
+          env: {},
+          version: "1",
+        },
+      ];
+    },
+  });
+
+  await vscode._refreshMcpServerDefinitions();
+
+  const models = await vscode.lm.selectChatModels({ vendor: "custom-vendor" });
+
+  assert.equal(vscode.lm.mcpServerDefinitions.length, 1);
+  assert.equal(vscode.lm.mcpServerDefinitions[0].label, "Demo MCP");
+
+  lmDisposable.dispose();
+  mcpDisposable.dispose();
+
+  await vscode._refreshMcpServerDefinitions();
+
+  assert.equal(models.length, 1);
+  assert.equal(models[0].name, "Custom Model");
+  assert.equal(models[0].vendor, "custom-vendor");
+  assert.equal(vscode.lm.mcpServerDefinitions.length, 0);
+});
+
+test("vscode shim resolves port attributes and suppresses localhost openExternal when ignored", async () => {
+  const disposable = vscode.workspace.registerPortAttributesProvider(
+    { portRange: [3000, 3001] },
+    {
+      providePortAttributes(attributes) {
+        if (attributes.port === 3000) {
+          return new vscode.PortAttributes(vscode.PortAutoForwardAction.Ignore);
+        }
+        return undefined;
+      },
+    },
+  );
+
+  const resolved = await vscode._resolvePortAttributes({ port: 3000, pid: undefined, commandLine: undefined });
+  assert.equal(resolved?.autoForwardAction, vscode.PortAutoForwardAction.Ignore);
+
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const chunks = [];
+  process.stdout.write = function write(chunk, encoding, cb) {
+    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    if (typeof encoding === "function") {
+      return originalWrite(chunk, encoding);
+    }
+    return originalWrite(chunk, encoding, cb);
+  };
+
+  try {
+    await vscode.env.openExternal(vscode.Uri.parse("http://localhost:3000"));
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+
+  disposable.dispose();
+
+  assert.equal(chunks.some((chunk) => chunk.includes('"type":"openExternal"')), false);
 });

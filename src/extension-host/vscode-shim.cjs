@@ -42,7 +42,7 @@ class Uri {
   static parse(str) {
     try {
       const url = new URL(str);
-      const u = new Uri(url.protocol.replace(":",""), url.hostname, url.pathname);
+      const u = new Uri(url.protocol.replace(":",""), url.host, url.pathname);
       u.fsPath = url.pathname;
       return u;
     } catch { return Uri.file(str); }
@@ -283,7 +283,11 @@ const SignatureHelpTriggerKind = { Invoke: 1, TriggerCharacter: 2, ContentChange
 class SignatureInformation { constructor(label, documentation = undefined) { this.label = label; this.documentation = documentation; this.parameters = []; } }
 const SymbolKind = { File: 0, Module: 1, Namespace: 2, Package: 3, Class: 4, Method: 5, Property: 6, Field: 7, Constructor: 8, Enum: 9, Interface: 10, Function: 11, Variable: 12, Constant: 13, String: 14, Number: 15, Boolean: 16, Array: 17, Object: 18, Key: 19, Null: 20, EnumMember: 21, Struct: 22, Event: 23, Operator: 24, TypeParameter: 25 };
 const SymbolTag = { Deprecated: 1 };
-const PortAttributes = class { constructor() { this.onOpen = undefined; this.onReconnect = undefined; } };
+const PortAttributes = class {
+  constructor(autoForwardAction = PortAutoForwardAction.Notify) {
+    this.autoForwardAction = autoForwardAction;
+  }
+};
 const PortAutoForwardAction = { Notify: 1, Ignore: 2, OpenBrowser: 3 };
 const NotebookControllerAffinity = { Default: 1, Preferred: 2 };
 const NotebookEditorRevealType = { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 };
@@ -806,6 +810,17 @@ class NotebookRange {
 }
 
 const NotebookCellKind = { Markup: 1, Code: 2 };
+const NotebookCellStatusBarAlignment = { Left: 1, Right: 2 };
+class NotebookCellStatusBarItem {
+  constructor(text, alignment) {
+    this.text = text;
+    this.alignment = alignment;
+    this.command = undefined;
+    this.priority = undefined;
+    this.tooltip = undefined;
+    this.accessibilityInformation = undefined;
+  }
+}
 
 // ── Registered tree data providers ───────────────────────────────────────────
 // viewId → { provider, onDidChangeTreeDataSub }
@@ -864,6 +879,59 @@ function callDebugTrackerHook(trackers, hookName, ...args) {
       hook.apply(tracker, args);
     } catch {}
   }
+}
+function matchesPortAttributesSelector(selector, attributes) {
+  if (!selector || typeof selector !== "object") return true;
+  const port = Number(attributes?.port);
+  if (selector.portRange !== undefined) {
+    const range = selector.portRange;
+    if (Array.isArray(range) && range.length >= 2) {
+      if (!(port >= Number(range[0]) && port < Number(range[1]))) return false;
+    } else if (typeof range === "number") {
+      if (port !== range) return false;
+    }
+  }
+  if (selector.commandPattern instanceof RegExp) {
+    const commandLine = String(attributes?.commandLine || "");
+    if (!selector.commandPattern.test(commandLine)) return false;
+  }
+  return true;
+}
+function matchesNotebookType(entryType, notebookType) {
+  return !entryType || String(entryType) === String(notebookType);
+}
+function normalizeNotebookCellStatusBarItems(items) {
+  const list = Array.isArray(items) ? items : items ? [items] : [];
+  return list.map((item) => {
+    if (!item) return item;
+    if (item instanceof NotebookCellStatusBarItem) return item;
+    const normalized = new NotebookCellStatusBarItem(String(item.text ?? ""), item.alignment ?? NotebookCellStatusBarAlignment.Left);
+    normalized.command = item.command;
+    normalized.priority = item.priority;
+    normalized.tooltip = item.tooltip;
+    normalized.accessibilityInformation = item.accessibilityInformation;
+    return normalized;
+  });
+}
+function matchesLanguageModelSelector(selector, info) {
+  if (!selector || typeof selector !== "object") return true;
+  for (const key of ["vendor", "id", "family", "version"]) {
+    if (selector[key] !== undefined && String(selector[key]) !== String(info?.[key] ?? "")) return false;
+  }
+  return true;
+}
+async function resolvePortAttributes(attributes) {
+  const token = CancellationToken.None;
+  for (const entry of portAttributesProviders) {
+    if (!entry || !matchesPortAttributesSelector(entry.selector, attributes)) continue;
+    const provider = entry.provider;
+    if (!provider || typeof provider.providePortAttributes !== "function") continue;
+    try {
+      const result = await provider.providePortAttributes(attributes, token);
+      if (result) return result;
+    } catch {}
+  }
+  return undefined;
 }
 const activeColorTheme = { kind: ColorThemeKind.Dark, backgroundColor: undefined, foregroundColor: undefined };
 const activeTabGroupState = {
@@ -1241,10 +1309,11 @@ const workspace = {
   requestResourceTrust(_resource) { return Promise.resolve(true); },
   requestWorkspaceTrust(_options) { return Promise.resolve(true); },
   saveAll(_includeUntitled) { return Promise.resolve(true); },
-  registerPortAttributesProvider(provider) {
-    if (provider) portAttributesProviders.push(provider);
+  registerPortAttributesProvider(selector, provider) {
+    const entry = provider ? { selector, provider } : { selector: undefined, provider: selector };
+    if (entry.provider) portAttributesProviders.push(entry);
     return new Disposable(() => {
-      const index = portAttributesProviders.indexOf(provider);
+      const index = portAttributesProviders.indexOf(entry);
       if (index >= 0) portAttributesProviders.splice(index, 1);
     });
   },
@@ -1442,8 +1511,10 @@ const workspace = {
       try {
         const raw = uri?.fsPath ? fs.readFileSync(uri.fsPath) : Buffer.from("");
         const deserialized = serializer.deserializeNotebook(raw, CancellationToken.None);
-        const applyNotebook = (data) => {
+        const applyNotebook = async (data) => {
           const cells = Array.isArray(data?.cells) ? data.cells : [];
+          const cellStatusBarItems = [];
+          const kernelSourceActions = [];
           const doc = {
             uri,
             notebookType: viewType,
@@ -1453,11 +1524,35 @@ const workspace = {
             metadata: data?.metadata || {},
             cellCount: cells.length,
             getCells: () => cells,
+            cellStatusBarItems,
+            kernelSourceActions,
             save: () => Promise.resolve(true),
           };
+          for (const entry of notebookCellStatusBarItemProviders) {
+            if (!entry || !matchesNotebookType(entry.notebookType, viewType)) continue;
+            const provider = entry.provider;
+            if (!provider || typeof provider.provideCellStatusBarItems !== "function") continue;
+            for (let index = 0; index < cells.length; index++) {
+              try {
+                const value = await provider.provideCellStatusBarItems(cells[index], CancellationToken.None);
+                const items = normalizeNotebookCellStatusBarItems(value);
+                if (items.length) cellStatusBarItems[index] = items;
+              } catch {}
+            }
+          }
+          for (const entry of kernelSourceActionProviders) {
+            if (!entry || !matchesNotebookType(entry.notebookType, viewType)) continue;
+            const provider = entry.provider;
+            if (!provider || typeof provider.provideKernelSourceActions !== "function") continue;
+            try {
+              const result = await provider.provideKernelSourceActions(CancellationToken.None);
+              const actions = Array.isArray(result) ? result : [];
+              for (const action of actions) kernelSourceActions.push(action);
+            } catch {}
+          }
           notebookDocuments.push(doc);
           notebookOpenEmitter.fire(doc);
-          return Promise.resolve(doc);
+          return doc;
         };
         return Promise.resolve(deserialized && typeof deserialized.then === "function" ? deserialized.then(applyNotebook) : applyNotebook(deserialized));
       } catch {}
@@ -2294,11 +2389,11 @@ const notebooks = {
     notebookControllers.set(String(id), ctl);
     return ensureDisposable(ctl);
   },
-  registerNotebookCellStatusBarItemProvider() {
-    const provider = arguments[0];
-    if (provider) notebookCellStatusBarItemProviders.push(provider);
+  registerNotebookCellStatusBarItemProvider(notebookType, provider) {
+    const entry = provider ? { notebookType, provider } : { notebookType: undefined, provider: notebookType };
+    if (entry.provider) notebookCellStatusBarItemProviders.push(entry);
     return new Disposable(() => {
-      const index = notebookCellStatusBarItemProviders.indexOf(provider);
+      const index = notebookCellStatusBarItemProviders.indexOf(entry);
       if (index >= 0) notebookCellStatusBarItemProviders.splice(index, 1);
     });
   },
@@ -2307,11 +2402,11 @@ const notebooks = {
       dispose() {},
     });
   },
-  registerKernelSourceActionProvider() {
-    const provider = arguments[0];
-    if (provider) kernelSourceActionProviders.push(provider);
+  registerKernelSourceActionProvider(notebookType, provider) {
+    const entry = provider ? { notebookType, provider } : { notebookType: undefined, provider: notebookType };
+    if (entry.provider) kernelSourceActionProviders.push(entry);
     return new Disposable(() => {
-      const index = kernelSourceActionProviders.indexOf(provider);
+      const index = kernelSourceActionProviders.indexOf(entry);
       if (index >= 0) kernelSourceActionProviders.splice(index, 1);
     });
   },
@@ -2742,6 +2837,54 @@ const mcpServerDefinitionsEmitter = new EventEmitter();
 const mcpServerDefinitions = [];
 const lmChatProviders = [];
 const mcpServerDefinitionProviders = [];
+const mcpServerDefinitionProviderEntries = [];
+
+async function refreshMcpServerDefinitions() {
+  const collected = [];
+  for (const entry of mcpServerDefinitionProviderEntries) {
+    const provider = entry?.provider;
+    if (!provider || typeof provider.provideMcpServerDefinitions !== "function") continue;
+    try {
+      const provided = await provider.provideMcpServerDefinitions(CancellationToken.None);
+      if (Array.isArray(provided)) collected.push(...provided.filter(Boolean));
+    } catch {}
+  }
+  mcpServerDefinitions.splice(0, mcpServerDefinitions.length, ...collected);
+  mcpServerDefinitionsEmitter.fire();
+}
+
+async function selectLanguageModels(selector) {
+  const models = [];
+  for (const provider of lmChatProviders) {
+    if (!provider || typeof provider.provideLanguageModelChatInformation !== "function") continue;
+    try {
+      const infos = await provider.provideLanguageModelChatInformation(CancellationToken.None);
+      const list = Array.isArray(infos) ? infos : [];
+      for (const info of list) {
+        if (!matchesLanguageModelSelector(selector, info)) continue;
+        const model = new LanguageModelChat();
+        Object.assign(model, info || {});
+        model.sendRequest = async (messages, options, token) => {
+          if (typeof provider.provideLanguageModelChatResponse === "function") {
+            return provider.provideLanguageModelChatResponse(info, messages, options, token);
+          }
+          if (typeof provider.provideLanguageModelResponse === "function") {
+            return provider.provideLanguageModelResponse(messages, options, token);
+          }
+          throw new LanguageModelError("Language model response provider not implemented");
+        };
+        model.countTokens = async (content) => {
+          if (typeof provider.provideTokenCount === "function") {
+            return provider.provideTokenCount(info, content, CancellationToken.None);
+          }
+          return typeof content === "string" ? content.length : 0;
+        };
+        models.push(model);
+      }
+    } catch {}
+  }
+  return models;
+}
 
 const lm = {
   isModelProxyAvailable: false,
@@ -2753,6 +2896,9 @@ const lm = {
     uri: "athva://lm/proxy",
     dispose() {},
   }),
+  async selectChatModels(selector) {
+    return selectLanguageModels(selector);
+  },
   registerLanguageModelChatProvider(_id, provider) {
     lmChatProviders.push(provider);
     return new Disposable(() => {
@@ -2762,9 +2908,23 @@ const lm = {
   },
   registerMcpServerDefinitionProvider(_id, provider) {
     mcpServerDefinitionProviders.push(provider);
+    const entry = { id: _id, provider, changeDisposable: undefined };
+    if (provider && typeof provider.onDidChangeServerDefinitions === "function") {
+      try {
+        entry.changeDisposable = provider.onDidChangeServerDefinitions(() => {
+          void refreshMcpServerDefinitions();
+        });
+      } catch {}
+    }
+    mcpServerDefinitionProviderEntries.push(entry);
+    void refreshMcpServerDefinitions();
     return new Disposable(() => {
       const index = mcpServerDefinitionProviders.indexOf(provider);
       if (index >= 0) mcpServerDefinitionProviders.splice(index, 1);
+      const entryIndex = mcpServerDefinitionProviderEntries.indexOf(entry);
+      if (entryIndex >= 0) mcpServerDefinitionProviderEntries.splice(entryIndex, 1);
+      try { entry.changeDisposable?.dispose?.(); } catch {}
+      void refreshMcpServerDefinitions();
     });
   },
   startMcpGateway: async () => undefined,
@@ -2776,7 +2936,6 @@ const lm = {
       if (index >= 0) lmTools.splice(index, 1);
     });
   },
-  selectChatModels: async () => [],
 };
 
 const editorChat = {
@@ -2832,6 +2991,14 @@ const env = {
         } catch {}
       }
       return true;
+    }
+    if (parsed?.scheme === "http" || parsed?.scheme === "https") {
+      const hostname = String(parsed.authority || "").split(":")[0].toLowerCase();
+      const port = Number(String(parsed.authority || "").split(":")[1] || (parsed.scheme === "https" ? 443 : 80));
+      if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+        const attributes = await resolvePortAttributes({ port, pid: undefined, commandLine: undefined });
+        if (attributes?.autoForwardAction === PortAutoForwardAction.Ignore) return true;
+      }
     }
     send({ type: "openExternal", uri: parsed.toString() });
     return true;
@@ -3093,7 +3260,7 @@ async function handleMessage(msg) {
 const vscodeApi = {
   __esModule: true,
   // value types
-  Uri, RelativePattern, Range, Position, Selection, Location, Color, ColorInformation, ColorPresentation, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind, NotebookEdit, NotebookRendererScript, NotebookControllerAffinity, NotebookEditorRevealType,
+  Uri, RelativePattern, Range, Position, Selection, Location, Color, ColorInformation, ColorPresentation, ThemeIcon, ThemeColor, TreeItem, NotebookCellOutputItem, NotebookCellOutput, NotebookCellData, NotebookData, NotebookRange, NotebookCellKind, NotebookCellStatusBarAlignment, NotebookCellStatusBarItem, NotebookEdit, NotebookRendererScript, NotebookControllerAffinity, NotebookEditorRevealType,
   TabInputText, TabInputTextDiff, TabInputNotebook, TabInputNotebookDiff, TabInputCustom,
   LanguageModelChat, LanguageModelChatMessage, LanguageModelTextPart, LanguageModelTextPart2, LanguageModelDataPart, LanguageModelDataPart2, LanguageModelThinkingPart, LanguageModelToolCallPart, LanguageModelToolResultPart, LanguageModelToolResultPart2, LanguageModelToolResult, LanguageModelPromptTsxPart, LanguageModelError,
   ChatCompletionItem, ChatRequestTurn, ChatRequestTurn2, ChatResponseMarkdownPart, ChatResponseProgressPart, ChatResponseReferencePart, ChatResponseThinkingProgressPart, ChatResponseTurn, ChatResponseTurn2, ChatResponseWarningPart, ChatToolInvocationPart, ChatVariableLevel,
@@ -3115,6 +3282,8 @@ const vscodeApi = {
   version,
   // internal
   _handleMessage: handleMessage,
+  _resolvePortAttributes: resolvePortAttributes,
+  _refreshMcpServerDefinitions: refreshMcpServerDefinitions,
   _initDefaults(defaults) { _schemaDefaults = defaults || {}; },
 };
 
