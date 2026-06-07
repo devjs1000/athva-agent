@@ -59,6 +59,7 @@ export class ExtensionRuntime {
   private status: RuntimeStatus = "stopped";
   private opts: ExtensionRuntimeOptions;
   private msgBuffer = "";
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingChildren = new Map<string, (nodes: TreeNode[]) => void>();
   private pendingCompletions = new Map<string, (items: RuntimeCompletionItem[]) => void>();
   private registeredViews = new Set<string>();
@@ -154,6 +155,7 @@ export class ExtensionRuntime {
       });
 
       this.process = await cmd.spawn();
+      this.armStartupWatchdog();
 
       // Send initial workspace context
       this.send({
@@ -169,6 +171,7 @@ export class ExtensionRuntime {
 
   async stop(): Promise<void> {
     this.setStatus("stopped");
+    this.clearStartupWatchdog();
     if (this.process) {
       try { await this.process.kill(); } catch {}
       this.process = null;
@@ -368,7 +371,27 @@ export class ExtensionRuntime {
 
   private setStatus(status: RuntimeStatus, message?: string) {
     this.status = status;
+    if (status === "active" || status === "error" || status === "stopped") {
+      this.clearStartupWatchdog();
+    }
     this.opts.onStatus?.(status, message);
+  }
+
+  private armStartupWatchdog() {
+    this.clearStartupWatchdog();
+    this.startupTimer = setTimeout(() => {
+      if (this.status !== "starting") return;
+      this.setStatus(
+        "error",
+        "Extension host did not activate within 15 seconds. This usually means the extension host or app-server is incompatible with Athva; check the extension logs for unsupported feature or webview errors. For Codex, `workspace_dependencies` mismatches are a common cause."
+      );
+    }, 15_000);
+  }
+
+  private clearStartupWatchdog() {
+    if (!this.startupTimer) return;
+    clearTimeout(this.startupTimer);
+    this.startupTimer = null;
   }
 }
 

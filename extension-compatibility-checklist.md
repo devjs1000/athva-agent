@@ -389,5 +389,6 @@ This file describes current code-level support in Athva. It is intentionally con
 ## Notes
 
 - Athva currently installs extensions into a global app data store and imports a narrow subset of VSIX contributions: color themes, file icon themes, snippets, command metadata, view metadata, and some tree-view runtime behavior.
+- Athva is a Tauri-based desktop app with embedded webviews and a bridged extension host, so Codex splash/loading failures should be triaged as Tauri webview or app-server compatibility issues first, not as Electron-only behavior.
 - Athva does not currently provide a full VS Code extension host, LSP client, DAP client, webview container, workspace trust model, or extension permission model.
 - The unchecked extension target lists above are intentionally left as test backlog items, not negative judgments about individual extensions.
