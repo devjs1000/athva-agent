@@ -22,6 +22,11 @@ export class FileExplorer {
   private rootPath: string = "";
   // Track loaded dir containers so we can refresh specific dirs
   private dirContainers: Map<string, { el: HTMLElement; depth: number }> = new Map();
+  // Invalidates in-flight renders when the whole tree is reloaded, so two
+  // concurrent loadRoot calls can't interleave their appends
+  private renderToken = 0;
+  // Dedupe concurrent refreshes of the same directory
+  private refreshing: Map<string, Promise<void>> = new Map();
 
   constructor(containerId: string, onFileSelect: OnFileSelect, onDirectorySelect?: OnDirectorySelect) {
     this.container = document.getElementById(containerId)!;
@@ -58,12 +63,14 @@ export class FileExplorer {
   }
 
   async loadRoot(rootPath: string) {
+    const token = ++this.renderToken;
     this.rootPath = rootPath;
     this.container.innerHTML = "";
     this.dirContainers.clear();
+    this.refreshing.clear();
     this.contextMenu.setProjectRoot(rootPath);
     this.dirContainers.set(rootPath, { el: this.container, depth: 0 });
-    await this.renderDir(this.container, rootPath, 0);
+    await this.renderDir(this.container, rootPath, 0, token);
   }
 
   setOnRename(cb: (oldPath: string, newPath: string) => void) {
@@ -93,23 +100,35 @@ export class FileExplorer {
   }
 
   async refreshDir(dirPath: string) {
+    const inFlight = this.refreshing.get(dirPath);
+    if (inFlight) return inFlight;
+
     const entry = this.dirContainers.get(dirPath);
-    if (entry) {
-      entry.el.innerHTML = "";
-      await this.renderDir(entry.el, dirPath, entry.depth);
-    } else {
+    if (!entry) {
       // Refresh root as fallback
       await this.loadRoot(this.rootPath);
+      return;
     }
+
+    const run = (async () => {
+      entry.el.innerHTML = "";
+      await this.renderDir(entry.el, dirPath, entry.depth, this.renderToken);
+    })().finally(() => {
+      this.refreshing.delete(dirPath);
+    });
+    this.refreshing.set(dirPath, run);
+    await run;
   }
 
-  private async renderDir(parent: HTMLElement, dirPath: string, depth: number) {
+  private async renderDir(parent: HTMLElement, dirPath: string, depth: number, token: number = this.renderToken) {
     let entries: FileEntry[];
     try {
       entries = await invoke<FileEntry[]>("read_dir", { path: dirPath });
     } catch {
       return;
     }
+    // A newer loadRoot cleared the tree while we were reading — drop this render
+    if (token !== this.renderToken) return;
 
     for (const entry of entries) {
       const item = document.createElement("div");
@@ -180,7 +199,7 @@ export class FileExplorer {
         // Track this dir container for refresh
         this.dirContainers.set(entry.path, { el: children, depth: depth + 1 });
 
-        let loaded = false;
+        let loadPromise: Promise<void> | null = null;
         item.addEventListener("click", async () => {
           const isExpanded = children.classList.contains("expanded");
           const chevron = item.querySelector(".tree-chevron") as HTMLElement;
@@ -190,10 +209,12 @@ export class FileExplorer {
             chevron.classList.remove("expanded");
             icon.innerHTML = getFolderIcon(entry.name, false);
           } else {
-            if (!loaded) {
-              await this.renderDir(children, entry.path, depth + 1);
-              loaded = true;
+            // Reuse the in-flight load so rapid double-clicks can't start two
+            // renders that interleave their appended items
+            if (!loadPromise) {
+              loadPromise = this.renderDir(children, entry.path, depth + 1, token);
             }
+            await loadPromise;
             children.classList.add("expanded");
             chevron.classList.add("expanded");
             icon.innerHTML = getFolderIcon(entry.name, true);

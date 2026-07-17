@@ -37,7 +37,7 @@ import { registerRuntimeFileIconThemes, setActiveRuntimeFileIconTheme } from "./
 import { setExtensionSnippets } from "./modules/snippet-store";
 import { loadInstalledExtensionSupport, type ExtensionCommand, type ExtensionCompatibilityIssue, type ExtensionSupportSnapshot, type InstalledExtensionRecord, type ExtensionViewContainer } from "./modules/vscode-extension-support";
 import { CommandPalette } from "./modules/command-palette";
-import { getOrCreateRuntime, getRuntime, type ExtensionRuntime, type RuntimeCompletionItem, type TreeNode } from "./modules/extension-runtime";
+import { getOrCreateRuntime, getRuntime, getAllRuntimes, type ExtensionRuntime, type RuntimeCompletionItem, type TreeNode } from "./modules/extension-runtime";
 import { ProjectSwitcher } from "./modules/project-switcher";
 import { DocsWorkspace } from "./modules/docs-workspace";
 import { ContextManager } from "./modules/context-manager";
@@ -1729,6 +1729,7 @@ function ensureRuntimeCompletionProvider() {
         if (runtime.getStatus() === "stopped" || runtime.getStatus() === "error") {
           try {
             await runtime.start();
+            runtime.notifyActiveEditor(editor.getActiveEditorContext());
           } catch {
             continue;
           }
@@ -2177,9 +2178,12 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     },
     onViewRegistered: (viewId, viewType) => {
       if (activeVcId !== vc.id) return;
+      // Extensions may register views for containers we don't show (e.g. Codex's
+      // secondarySidebar twin) — don't let them clobber this container's panel.
+      const view = snapshot.views.find((v) => v.id === viewId && v.containerId === vc.id);
+      if (!view) return;
       if (viewType === "webview") {
-        const viewName = snapshot.views.find((v) => v.id === viewId)?.name ?? viewId;
-        bodyEl.innerHTML = renderWebviewLoading(snapshot.displayName, viewName);
+        bodyEl.innerHTML = renderWebviewLoading(snapshot.displayName, view.name);
         return;
       }
       void renderLiveTree(viewId, bodyEl, runtime, snapshot, vc);
@@ -2191,12 +2195,13 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
     onNotification: (level, message) => showToast(message, level === "error" ? 5000 : 3000),
     onWebviewHtml: (viewId, html) => {
       if (!html.trim()) return;
-      const viewName = snapshot.views.find((v) => v.id === viewId)?.name ?? viewId;
+      const view = snapshot.views.find((v) => v.id === viewId && v.containerId === vc.id);
+      if (!view) return;
       if (activeVcId === vc.id) {
         const bridgeId = `${vc.extensionIdentifier}:${viewId}`;
         webviewBridgeRuntimeById.set(bridgeId, runtime);
         webviewBridgeViewIdById.set(bridgeId, viewId);
-        bodyEl.innerHTML = renderWebviewInline(snapshot.displayName, viewName, rewriteFileUrlsToAssetUrls(String(html ?? "")), bridgeId);
+        bodyEl.innerHTML = renderWebviewInline(snapshot.displayName, view.name, rewriteFileUrlsToAssetUrls(String(html ?? "")), bridgeId);
       }
     },
     onWebviewPostMessage: (viewId, message) => {
@@ -2218,6 +2223,7 @@ async function loadExtensionViewPanel(vc: ExtensionViewContainer, bodyEl: HTMLEl
   if (runtime.getStatus() === "stopped" || runtime.getStatus() === "error") {
     try {
       await runtime.start();
+      runtime.notifyActiveEditor(editor.getActiveEditorContext());
     } catch {
       recordExtensionDiagnostic(vc.extensionIdentifier, {
         source: "extension-host",
@@ -2464,7 +2470,10 @@ function ensureInlineWebviewAssetBridge() {
 
 function rewriteFileUrlsToAssetUrls(html: string): string {
   const source = String(html ?? "");
-  const re = /file:\/\/\/[^\s"'<>`\\)]+/gi;
+  // Spaces are allowed: install paths like "…/Application Support/…" appear
+  // unencoded in extension webview HTML (e.g. Codex's <base href>). URLs are
+  // quoted in attributes/JS strings, so quotes/angle brackets end the match.
+  const re = /file:\/\/\/[^\r\n\t"'<>`\\)]+/gi;
   const matches = Array.from(new Set(source.match(re) ?? []));
   if (!matches.length) return source;
 
@@ -3022,6 +3031,18 @@ async function uninstallExtensionFromPreview(identifier: string) {
   showToast(`${payload.displayName} removed.`, 2500);
 }
 
+// Debounced mirror of the active file + selection into all extension hosts so
+// extensions (Claude Code, …) have a real activeTextEditor to read context from.
+let extEditorContextTimer: ReturnType<typeof setTimeout> | null = null;
+function broadcastActiveEditorToExtensions() {
+  if (extEditorContextTimer) clearTimeout(extEditorContextTimer);
+  extEditorContextTimer = setTimeout(() => {
+    extEditorContextTimer = null;
+    const ctx = editor.getActiveEditorContext();
+    for (const rt of getAllRuntimes()) rt.notifyActiveEditor(ctx);
+  }, 250);
+}
+
 async function openFileWithGuards(path: string, name: string, line?: number, column?: number) {
   const fileName = name || path.split("/").pop() || "";
   const shouldProtectEnv = appSettings.security?.enabled && appSettings.security.protectEnvFiles;
@@ -3044,6 +3065,7 @@ async function openFileWithGuards(path: string, name: string, line?: number, col
   const docRoot = docsWorkspace?.containsPath(path) ? docsWorkspace.getRootPath() : undefined;
   await editor.openFile(path, name, line, column, docRoot);
   fileExplorer.setActiveFile(path);
+  broadcastActiveEditorToExtensions();
   if (docRoot) {
     docsWorkspace.setActivePage(path);
   } else if (docsWorkspace?.isOpen()) {
@@ -3119,6 +3141,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Init editor
   editor = new Editor("monaco-editor", "editor-tabs", "editor-empty");
+  editor.setOnActiveContextChange(broadcastActiveEditorToExtensions);
   editor.setExtensionContextMenuItems(buildEditorExtensionContextMenuItems);
   editor.applySettings(appSettings.editor);
   editor.setAISettings(() => appSettings.ai);

@@ -566,6 +566,11 @@ export class Editor {
       if (this.blameEnabled) this.clearBlame();
     });
 
+    // Notify listeners (extension host bridge) when cursor/selection moves
+    this.monacoEditor.onDidChangeCursorSelection(() => {
+      this.onActiveContextChange?.();
+    });
+
     // Initially hide editor
     this.editorEl.style.display = "none";
 
@@ -1056,6 +1061,39 @@ export class Editor {
     if (model) return model.getValue();
     const tab = this.tabs.find((t) => t.path === this.activeTab);
     return tab?.content ?? "";
+  }
+
+  private onActiveContextChange: (() => void) | null = null;
+
+  setOnActiveContextChange(cb: () => void) {
+    this.onActiveContextChange = cb;
+  }
+
+  /** Active file + selection for the extension host bridge (0-based positions). */
+  getActiveEditorContext(): {
+    filePath: string;
+    content: string;
+    languageId: string;
+    selection: { startLine: number; startCharacter: number; endLine: number; endCharacter: number };
+  } | null {
+    const path = this.activeTab;
+    // Only real files on disk — skip internal athva:// panels and web tabs
+    if (!path || !path.startsWith("/")) return null;
+    const model = this.monacoEditor.getModel();
+    const tab = this.tabs.find((t) => t.path === path);
+    const content = model?.getValue() ?? tab?.content ?? "";
+    const sel = this.monacoEditor.getSelection();
+    return {
+      filePath: path,
+      content,
+      languageId: model?.getLanguageId() ?? "plaintext",
+      selection: {
+        startLine: Math.max(0, (sel?.startLineNumber ?? 1) - 1),
+        startCharacter: Math.max(0, (sel?.startColumn ?? 1) - 1),
+        endLine: Math.max(0, (sel?.endLineNumber ?? 1) - 1),
+        endCharacter: Math.max(0, (sel?.endColumn ?? 1) - 1),
+      },
+    };
   }
 
   insertText(text: string) {

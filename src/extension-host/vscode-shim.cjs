@@ -619,6 +619,9 @@ class TextDocument {
     const endLine = Math.max(startLine, range.end.line);
     const selected = lines.slice(startLine, endLine + 1);
     if (!selected.length) return "";
+    if (selected.length === 1) {
+      return selected[0].slice(range.start.character, range.end.character);
+    }
     selected[0] = selected[0].slice(range.start.character);
     selected[selected.length - 1] = selected[selected.length - 1].slice(0, range.end.character);
     return selected.join("\n");
@@ -1051,6 +1054,49 @@ function guessMime(filePath) {
   }
 }
 
+function guessLanguageId(filePath) {
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  switch (ext) {
+    case ".ts": return "typescript";
+    case ".tsx": return "typescriptreact";
+    case ".js":
+    case ".mjs":
+    case ".cjs": return "javascript";
+    case ".jsx": return "javascriptreact";
+    case ".json": return "json";
+    case ".css": return "css";
+    case ".scss": return "scss";
+    case ".less": return "less";
+    case ".html":
+    case ".htm": return "html";
+    case ".md": return "markdown";
+    case ".py": return "python";
+    case ".rs": return "rust";
+    case ".go": return "go";
+    case ".java": return "java";
+    case ".c": return "c";
+    case ".h":
+    case ".hpp":
+    case ".cc":
+    case ".cpp": return "cpp";
+    case ".rb": return "ruby";
+    case ".php": return "php";
+    case ".sh":
+    case ".zsh":
+    case ".bash": return "shellscript";
+    case ".yml":
+    case ".yaml": return "yaml";
+    case ".toml": return "toml";
+    case ".xml": return "xml";
+    case ".sql": return "sql";
+    case ".swift": return "swift";
+    case ".kt": return "kotlin";
+    case ".vue": return "vue";
+    case ".svelte": return "svelte";
+    default: return "plaintext";
+  }
+}
+
 function encodeDataUri(filePath) {
   try {
     const bytes = fs.readFileSync(filePath);
@@ -1127,6 +1173,7 @@ const onDidCloseTextDocumentEmitter = new EventEmitter();
 const onDidChangeTextDocumentEmitter = new EventEmitter();
 const onDidChangeActiveTextEditorEmitter = new EventEmitter();
 const onDidChangeVisibleTextEditorsEmitter = new EventEmitter();
+const onDidChangeTextEditorSelectionEmitter = new EventEmitter();
 let _clipboardText = "";
 const onDidOpenNotebookDocumentEmitter = new EventEmitter();
 const onDidCloseNotebookDocumentEmitter = new EventEmitter();
@@ -1895,7 +1942,7 @@ const window = {
   },
   onDidChangeActiveTextEditor: onDidChangeActiveTextEditorEmitter.event,
   onDidChangeVisibleTextEditors: onDidChangeVisibleTextEditorsEmitter.event,
-  onDidChangeTextEditorSelection: new EventEmitter().event,
+  onDidChangeTextEditorSelection: onDidChangeTextEditorSelectionEmitter.event,
   get activeNotebookEditor() { return activeNotebookEditorState; },
   set activeNotebookEditor(editor) {
     activeNotebookEditorState = editor && typeof editor === "object"
@@ -3278,6 +3325,49 @@ async function handleMessage(msg) {
       } catch {}
     }
     send({ type: "terminalLinkResult", id: msg.id, handled });
+  }
+
+  if (msg.type === "activeEditor") {
+    const filePath = String(msg.filePath || "");
+    if (!filePath) {
+      window.activeTextEditor = null;
+      window.visibleTextEditors = [];
+      return;
+    }
+    const uri = Uri.file(filePath);
+    const content = typeof msg.content === "string" ? msg.content : "";
+    const languageId = String(msg.languageId || "") || guessLanguageId(filePath);
+    const target = uri.toString();
+    let doc = textDocuments.find((d) => d && (d.uri?.toString?.() || "") === target);
+    if (doc) {
+      if (doc._content !== content) {
+        updateTrackedTextDocument(uri, content, { languageId, fireChange: true });
+      } else if (typeof languageId === "string" && languageId) {
+        doc.languageId = languageId;
+      }
+    } else {
+      doc = trackOpenTextDocument(new TextDocument(uri, content, languageId, 1));
+      onDidOpenTextDocumentEmitter.fire(doc);
+    }
+    const editor = makeTextEditor(doc);
+    const sel = msg.selection && typeof msg.selection === "object" ? msg.selection : null;
+    editor.selection = sel
+      ? new Selection(
+          Math.max(0, Number(sel.startLine) || 0),
+          Math.max(0, Number(sel.startCharacter) || 0),
+          Math.max(0, Number(sel.endLine) || 0),
+          Math.max(0, Number(sel.endCharacter) || 0)
+        )
+      : new Selection(0, 0, 0, 0);
+    editor.selections = [editor.selection];
+    window.activeTextEditor = editor;
+    window.visibleTextEditors = [editor];
+    setActiveTab(new TabInputText(uri), path.basename(filePath) || "Untitled", ViewColumn.One);
+    onDidChangeTextEditorSelectionEmitter.fire({
+      textEditor: editor,
+      selections: editor.selections,
+      kind: undefined,
+    });
   }
 
   if (msg.type === "webviewMessage") {

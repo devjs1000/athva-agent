@@ -39,6 +39,14 @@ export interface RuntimeSearchOptions {
 
 export type RuntimeStatus = "stopped" | "starting" | "active" | "error";
 
+export interface ActiveEditorState {
+  filePath: string;
+  content: string;
+  languageId?: string;
+  // 0-based, VS Code convention
+  selection?: { startLine: number; startCharacter: number; endLine: number; endCharacter: number };
+}
+
 export interface ExtensionRuntimeOptions {
   extensionId: string;
   installPath: string;
@@ -300,6 +308,27 @@ export class ExtensionRuntime {
     });
   }
 
+  private lastActiveEditor: ActiveEditorState | null = null;
+
+  // Mirror the renderer's active file + selection into the extension host so
+  // extensions (Claude Code, Copilot, …) see a real vscode.window.activeTextEditor.
+  notifyActiveEditor(state: ActiveEditorState | null) {
+    this.lastActiveEditor = state;
+    if (!this.process) return;
+    this.sendActiveEditor();
+  }
+
+  private sendActiveEditor() {
+    const state = this.lastActiveEditor;
+    this.send({
+      type: "activeEditor",
+      filePath: state?.filePath ?? "",
+      content: state?.content ?? "",
+      languageId: state?.languageId ?? "",
+      selection: state?.selection ?? null,
+    });
+  }
+
   updateWorkspace(folders: string[], configuration?: Record<string, unknown>) {
     this.opts.workspaceFolders = folders;
     if (configuration) this.opts.configuration = configuration;
@@ -334,6 +363,9 @@ export class ExtensionRuntime {
     switch (msg.type) {
       case "activated":
         this.setStatus("active");
+        // Replay editor context that predates activation (host buffers messages,
+        // but a restart would otherwise leave the extension without context).
+        if (this.lastActiveEditor) this.sendActiveEditor();
         break;
 
       case "error":
@@ -484,6 +516,10 @@ export function getOrCreateRuntime(opts: ExtensionRuntimeOptions): ExtensionRunt
 
 export function getRuntime(extensionId: string): ExtensionRuntime | undefined {
   return runtimeRegistry.get(extensionId);
+}
+
+export function getAllRuntimes(): ExtensionRuntime[] {
+  return [...runtimeRegistry.values()];
 }
 
 export async function stopAllRuntimes() {
