@@ -940,8 +940,9 @@ export class Chatbot {
     this.showStopButton(true);
     this.sendBtn.setAttribute("disabled", "true");
 
-    const MAX_TURNS = 30;
+    const MAX_TURNS = 50;
     let turns = 0;
+    let consecutiveFailedTurns = 0;
 
     try {
       while (turns < MAX_TURNS) {
@@ -1007,9 +1008,14 @@ export class Chatbot {
         // Execute all tool calls
         const results = await this.executeToolCalls(assistantToolCalls);
 
-        // Persist tool results
+        // Persist tool results (errors uncompressed so corrective guidance survives)
         for (const { tc, result, denied } of results) {
-          const compressed = denied ? `[${tc.name}] Denied by user.` : compressToolResult(tc.name, result);
+          const errored = tc.status === "error";
+          const compressed = denied
+            ? `[${tc.name}] Denied by user.`
+            : errored
+              ? `[${tc.name}] Error: ${result}`
+              : compressToolResult(tc.name, result);
           this.session.messages.push({
             role: "tool",
             content: compressed,
@@ -1023,6 +1029,17 @@ export class Chatbot {
         this.scrollToBottom();
 
         const allDenied = results.every((r) => r.denied);
+
+        const allFailed = results.length > 0 && results.every((r) => r.tc.status === "error" || r.denied);
+        consecutiveFailedTurns = allFailed ? consecutiveFailedTurns + 1 : 0;
+        if (consecutiveFailedTurns >= 3) {
+          const lastErr = results[results.length - 1]?.result || "unknown error";
+          const msg = `Stopping: 3 consecutive turns of failed tool calls. Last error: ${lastErr}`;
+          this.addDOMMessage("assistant", msg);
+          this.session.messages.push({ role: "assistant", content: msg });
+          break;
+        }
+
         if (allDenied || this.agentAborted) break;
       }
 

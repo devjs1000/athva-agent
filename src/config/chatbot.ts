@@ -4,8 +4,8 @@ export const CHAT_SYSTEM_PROMPT = `You are Athva, a helpful AI coding assistant.
 
 export const MAX_PROJECT_CONTEXT_CHARS = 2200;
 export const MAX_COMPACTED_SUMMARY_CHARS = 1800;
-export const AGENT_COMPACT_THRESHOLD_TOKENS = 4000;
-export const AGENT_KEEP_RECENT_MESSAGES = 4;
+export const AGENT_COMPACT_THRESHOLD_TOKENS = 40000;
+export const AGENT_KEEP_RECENT_MESSAGES = 8;
 
 // ── Native Tool Definitions (JSON Schema) ──
 
