@@ -22,11 +22,14 @@ export interface NativeToolDef {
 export const NATIVE_AGENT_TOOLS: NativeToolDef[] = [
   {
     name: "read_file",
-    description: "Read the contents of a single file. Use batch_read when you need 2 or more files.",
+    description:
+      "Read a file with line numbers (format: '    N→text'; strip that prefix when quoting text for edit_file). Reads up to 800 lines from offset. Use batch_read for 2+ files.",
     input_schema: {
       type: "object",
       properties: {
         path: { type: "string", description: "Absolute or project-relative file path to read." },
+        offset: { type: "string", description: "Optional 1-based start line (default 1)." },
+        limit: { type: "string", description: "Optional max lines to read (default 800)." },
       },
       required: ["path"],
     },

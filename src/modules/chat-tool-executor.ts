@@ -37,7 +37,7 @@ function isProtectedDeletePath(filePath: string): boolean {
 // ── Tool Result Compression ──
 
 export { compressToolResult } from "./agent-format";
-import { applyEdit, buildEditPreview } from "./agent-format";
+import { applyEdit, buildEditPreview, formatLineNumberedRead } from "./agent-format";
 
 // ── Shell Command Execution ──
 
@@ -337,11 +337,9 @@ export async function executeTool(tc: ToolCall, ctx: ToolExecContext): Promise<s
       if (content.trim().length === 0) {
         return "(empty or whitespace-only file)";
       }
-      const lines = content.split("\n");
-      if (content.length > 15000) {
-        return content.substring(0, 15000) + `\n\n… [truncated: ${lines.length} lines, ${content.length} chars total. Use search_content for targeted access.]`;
-      }
-      return content;
+      const offset = Number(tc.args.offset) || 1;
+      const limit = Number(tc.args.limit) || undefined;
+      return formatLineNumberedRead(content, offset, limit);
     }
 
     case "write_file": {
@@ -441,7 +439,7 @@ export async function executeTool(tc: ToolCall, ctx: ToolExecContext): Promise<s
 
       const results: string[] = [];
       let totalSize = 0;
-      const MAX_BATCH_SIZE = 15000;
+      const MAX_BATCH_SIZE = 24000;
 
       for (const filePath of paths) {
         if (isBlockedPath(filePath)) {
