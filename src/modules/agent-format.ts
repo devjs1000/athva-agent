@@ -30,6 +30,24 @@ export function applyEdit(
   return { content: updated, occurrences };
 }
 
+export const READ_DEFAULT_LIMIT_LINES = 800;
+
+export function formatLineNumberedRead(content: string, offset = 1, limit = READ_DEFAULT_LIMIT_LINES): string {
+  const lines = content.split("\n");
+  const total = lines.length;
+  const start = Math.min(Math.max(1, Math.floor(offset) || 1), total);
+  const count = Math.max(1, Math.floor(limit) || READ_DEFAULT_LIMIT_LINES);
+  const end = Math.min(total, start + count - 1);
+  const body = lines
+    .slice(start - 1, end)
+    .map((line, i) => `${String(start + i).padStart(5)}→${line}`)
+    .join("\n");
+  if (end < total) {
+    return `${body}\n…[file continues: ${total} total lines. Call read_file with offset=${end + 1} to continue.]`;
+  }
+  return body;
+}
+
 export function buildEditPreview(updatedContent: string, newString: string, contextLines = 3): string {
   const lines = updatedContent.split("\n");
   let start = 0;
