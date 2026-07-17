@@ -2,6 +2,11 @@
 
 export type ChatMode = "chat" | "agent" | "workflow";
 
+export interface TodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -27,6 +32,7 @@ export interface ChatSession {
   updatedAt: number;
   compactedSummary?: string;
   projectPath?: string;
+  todos?: TodoItem[];
   contextState?: {
     mode: "auto" | "manual";
     selectedPaths: string[];

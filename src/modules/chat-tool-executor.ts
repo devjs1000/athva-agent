@@ -2,7 +2,7 @@
 // Extracted from chatbot.ts for modularity
 
 import { invoke } from "@tauri-apps/api/core";
-import type { ToolCall } from "./chat-store";
+import type { ToolCall, TodoItem } from "./chat-store";
 import type { AgentAccess } from "./settings";
 import type { ExecutorAction, ExecutorResult } from "./chat-workflow";
 import { PROJECT_ROOT_TOKEN } from "./chat-workflow";
@@ -201,6 +201,7 @@ export interface ToolExecContext extends ShellContext {
   onFileChanged: (path: string) => void;
   projectContext: string;
   setProjectContext: (ctx: string) => void;
+  setTodos?: (todos: TodoItem[]) => void;
 }
 
 interface SearchMatch {
@@ -506,6 +507,31 @@ export async function executeTool(tc: ToolCall, ctx: ToolExecContext): Promise<s
       const result = await runShellCommand(cmd, projectPath, ctx);
       if (!result.trim()) return "No changes detected.";
       return result;
+    }
+
+    case "todo_write": {
+      const raw = tc.args.todos as unknown;
+      let parsed: unknown = raw;
+      if (typeof raw === "string") {
+        try { parsed = JSON.parse(raw); } catch { throw new Error("todo_write: todos must be a JSON array of {content, status} objects"); }
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error("todo_write: todos must be a non-empty array of {content, status} objects");
+      }
+      const todos: TodoItem[] = parsed.map((t) => {
+        const item = t as { content?: unknown; status?: unknown };
+        const content = String(item.content || "").trim();
+        const status = String(item.status || "pending");
+        if (!content) throw new Error("todo_write: every todo needs non-empty content");
+        if (!["pending", "in_progress", "completed"].includes(status)) {
+          throw new Error(`todo_write: invalid status "${status}" (use pending | in_progress | completed)`);
+        }
+        return { content, status: status as TodoItem["status"] };
+      });
+      ctx.setTodos?.(todos);
+      const done = todos.filter((t) => t.status === "completed").length;
+      const active = todos.filter((t) => t.status === "in_progress").length;
+      return `Todos updated: ${done} done, ${active} in progress, ${todos.length - done - active} pending.`;
     }
 
     default:

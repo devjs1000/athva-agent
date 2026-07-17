@@ -14,7 +14,16 @@ export interface NativeToolDef {
   description: string;
   input_schema: {
     type: "object";
-    properties: Record<string, { type: string; description: string; enum?: string[]; items?: { type: string } }>;
+    properties: Record<string, {
+      type: string;
+      description: string;
+      enum?: string[];
+      items?: {
+        type: string;
+        properties?: Record<string, { type: string; description: string; enum?: string[] }>;
+        required?: string[];
+      };
+    }>;
     required: string[];
   };
 }
@@ -144,6 +153,29 @@ export const NATIVE_AGENT_TOOLS: NativeToolDef[] = [
     },
   },
   {
+    name: "todo_write",
+    description:
+      "Create or update the task todo list. Call this at the start of any task with 3+ steps, and again whenever a step's status changes. Each call REPLACES the whole list. Keep exactly one item in_progress.",
+    input_schema: {
+      type: "object",
+      properties: {
+        todos: {
+          type: "array",
+          description: "The complete todo list.",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "Short imperative description of the step." },
+              status: { type: "string", description: "Step status.", enum: ["pending", "in_progress", "completed"] },
+            },
+            required: ["content", "status"],
+          },
+        },
+      },
+      required: ["todos"],
+    },
+  },
+  {
     name: "ask_user",
     description: "Ask the user a question when the task is genuinely ambiguous and cannot be resolved by inspecting the project. Batch all questions into a single call.",
     input_schema: {
@@ -203,7 +235,7 @@ export function getToolDefsForAccess(access: { fileRead: boolean; fileWrite: boo
     if (["read_file", "batch_read", "list_dir", "search_files", "search_content", "git_diff"].includes(t.name)) return access.fileRead;
     if (["write_file", "edit_file", "delete_path"].includes(t.name)) return access.fileWrite;
     if (t.name === "run_command") return access.terminal;
-    if (t.name === "ask_user") return true;
+    if (t.name === "ask_user" || t.name === "todo_write") return true;
     return false;
   });
 }

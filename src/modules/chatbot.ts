@@ -322,6 +322,7 @@ export class Chatbot {
     this.syncCurrentSessionInList();
     this.renderSessionList();
     this.renderMessages();
+    this.renderTodoCard();
     this.updateModeUI();
     this.updatePlaceholder();
     this.inputEl.focus();
@@ -339,6 +340,7 @@ export class Chatbot {
       this.syncCurrentSessionInList();
       this.renderSessionList();
       this.renderMessages();
+      this.renderTodoCard();
       this.updateModeUI();
       this.updatePlaceholder();
     }
@@ -752,6 +754,8 @@ export class Chatbot {
     await this.refreshActiveTaskContext(text);
 
     if (this.session.mode === "agent") {
+      this.session.todos = [];
+      this.renderTodoCard();
       await this.runAgentLoop(settings, startIndex, text);
     } else {
       await this.runChatResponse(settings, startIndex, text);
@@ -1560,7 +1564,29 @@ export class Chatbot {
       onFileChanged: (path) => this.onFileChanged(path),
       projectContext: this.projectContext,
       setProjectContext: (ctx) => { this.projectContext = ctx; },
+      setTodos: (todos) => {
+        this.session.todos = todos;
+        this.renderTodoCard();
+        void saveSession(this.session);
+      },
     };
+  }
+
+  private renderTodoCard() {
+    let card = document.getElementById("chat-todo-card");
+    const todos = this.session.todos || [];
+    if (todos.length === 0) { card?.remove(); return; }
+    if (!card) {
+      card = document.createElement("div");
+      card.id = "chat-todo-card";
+      const inputWrap = this.inputEl.parentElement;
+      if (inputWrap) inputWrap.insertAdjacentElement("beforebegin", card);
+      else this.messagesEl.insertAdjacentElement("afterend", card);
+    }
+    const icon = (s: string) => (s === "completed" ? "☑" : s === "in_progress" ? "▸" : "☐");
+    card.innerHTML = todos
+      .map((t) => `<div class="chat-todo-item chat-todo-${t.status}">${icon(t.status)} ${this.escapeHtml(t.content)}</div>`)
+      .join("");
   }
 
   /** Set element content with URLs linkified. Links open on Cmd/Ctrl+click. */

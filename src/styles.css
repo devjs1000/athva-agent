@@ -12600,3 +12600,16 @@ body.zen-mode #btn-back-home {
     transition: none;
   }
 }
+
+/* ── Agent todo card ── */
+#chat-todo-card {
+  margin: 6px 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.9;
+}
+.chat-todo-completed { opacity: 0.55; text-decoration: line-through; }
+.chat-todo-in_progress { font-weight: 600; }
