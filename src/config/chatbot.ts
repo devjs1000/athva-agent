@@ -47,8 +47,23 @@ export const NATIVE_AGENT_TOOLS: NativeToolDef[] = [
     },
   },
   {
+    name: "edit_file",
+    description:
+      "Replace an exact string in an existing file. Preferred over write_file for all changes to existing files. old_string must match the file text exactly (copy it from read_file output WITHOUT the line-number prefixes) and must be unique unless replace_all is \"true\".",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute or project-relative file path." },
+        old_string: { type: "string", description: "Exact existing text to replace, without line-number prefixes." },
+        new_string: { type: "string", description: "Replacement text." },
+        replace_all: { type: "string", description: "Set to \"true\" to replace every occurrence.", enum: ["true", "false"] },
+      },
+      required: ["path", "old_string", "new_string"],
+    },
+  },
+  {
     name: "write_file",
-    description: "Write or create a file with the given content. Overwrites if it already exists.",
+    description: "Create a NEW file, or fully replace one when a rewrite is unavoidable. For changes to existing files use edit_file instead.",
     input_schema: {
       type: "object",
       properties: {
@@ -183,7 +198,7 @@ export function toOpenAITools(tools: NativeToolDef[]): OpenAIToolParam[] {
 export function getToolDefsForAccess(access: { fileRead: boolean; fileWrite: boolean; terminal: boolean }): NativeToolDef[] {
   return NATIVE_AGENT_TOOLS.filter((t) => {
     if (["read_file", "batch_read", "list_dir", "search_files", "search_content", "git_diff"].includes(t.name)) return access.fileRead;
-    if (["write_file", "delete_path"].includes(t.name)) return access.fileWrite;
+    if (["write_file", "edit_file", "delete_path"].includes(t.name)) return access.fileWrite;
     if (t.name === "run_command") return access.terminal;
     if (t.name === "ask_user") return true;
     return false;

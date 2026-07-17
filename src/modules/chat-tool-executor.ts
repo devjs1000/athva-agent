@@ -37,6 +37,7 @@ function isProtectedDeletePath(filePath: string): boolean {
 // ── Tool Result Compression ──
 
 export { compressToolResult } from "./agent-format";
+import { applyEdit, buildEditPreview } from "./agent-format";
 
 // ── Shell Command Execution ──
 
@@ -351,6 +352,18 @@ export async function executeTool(tc: ToolCall, ctx: ToolExecContext): Promise<s
       await invoke("write_file", { path: tc.args.path, content: tc.args.content });
       ctx.onFileChanged(tc.args.path);
       return `File written: ${tc.args.path}`;
+    }
+
+    case "edit_file": {
+      if (!access.fileWrite) throw new Error("File write permission denied");
+      if (isBlockedPath(tc.args.path)) throw new Error(`Blocked: editing "${tc.args.path}" is not allowed`);
+      const original = await invoke<string>("read_file", { path: tc.args.path });
+      const replaceAll = String(tc.args.replace_all || "false") === "true";
+      const edited = applyEdit(original, String(tc.args.old_string ?? ""), String(tc.args.new_string ?? ""), replaceAll);
+      await invoke("write_file", { path: tc.args.path, content: edited.content });
+      ctx.onFileChanged(tc.args.path);
+      const preview = buildEditPreview(edited.content, String(tc.args.new_string ?? ""));
+      return `Edited ${tc.args.path} (${edited.occurrences} replacement${edited.occurrences === 1 ? "" : "s"}).\n${preview}`;
     }
 
     case "delete_path": {

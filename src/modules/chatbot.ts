@@ -1131,7 +1131,7 @@ export class Chatbot {
 
       // Only mutable tools need approval when autoApprove is false
       const needsApproval = !access.autoApprove && (
-        tc.name === "write_file" || tc.name === "delete_path" || tc.name === "run_command"
+        tc.name === "write_file" || tc.name === "edit_file" || tc.name === "delete_path" || tc.name === "run_command"
       );
 
       const approved = needsApproval ? await this.requestApproval(tc, toolEl) : true;
