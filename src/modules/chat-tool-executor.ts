@@ -36,62 +36,7 @@ function isProtectedDeletePath(filePath: string): boolean {
 
 // ── Tool Result Compression ──
 
-export function compressToolResult(toolName: string, result: string): string {
-  const HARD_CAP = 1400;
-
-  switch (toolName) {
-    case "read_file":
-    case "batch_read": {
-      if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-      const lineCount = result.split("\n").length;
-      const truncated = result.substring(0, 1100);
-      const lastNewline = truncated.lastIndexOf("\n");
-      const clean = lastNewline > 800 ? truncated.substring(0, lastNewline) : truncated;
-      return `[${toolName}] ${clean}\n…[truncated: ${lineCount} total lines, ${result.length} chars]`;
-    }
-
-    case "search_content": {
-      const lines = result.split("\n");
-      if (lines.length <= 18) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${lines.slice(0, 18).join("\n")}\n…[${lines.length - 18} more matches omitted]`;
-    }
-
-    case "list_dir": {
-      const entries = result.split("\n");
-      if (entries.length <= 24) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${entries.slice(0, 24).join("\n")}\n…[${entries.length - 24} more entries omitted]`;
-    }
-
-    case "run_command": {
-      if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-      const head = result.substring(0, 700);
-      const tail = result.substring(Math.max(0, result.length - 450));
-      return `[${toolName}] ${head}\n…[${result.length} chars total, showing head+tail]…\n${tail}`;
-    }
-
-    case "git_diff": {
-      if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${result.substring(0, 1100)}\n…[diff truncated: ${result.length} chars total]`;
-    }
-
-    case "write_file":
-    case "delete_path":
-      return `[${toolName}] ${result}`;
-
-    case "make_plan":
-      return `[${toolName}] ${result}`;
-
-    case "search_files": {
-      const paths = result.split("\n");
-      if (paths.length <= 12) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${paths.slice(0, 12).join("\n")}\n…[${paths.length - 12} more files omitted]`;
-    }
-
-    default:
-      if (result.length <= HARD_CAP) return `[${toolName}] ${result}`;
-      return `[${toolName}] ${result.substring(0, HARD_CAP)}\n…[truncated]`;
-  }
-}
+export { compressToolResult } from "./agent-format";
 
 // ── Shell Command Execution ──
 

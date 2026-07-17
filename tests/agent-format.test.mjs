@@ -1,7 +1,41 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyEdit, buildEditPreview, formatLineNumberedRead } from "../src/modules/agent-format.ts";
+import { applyEdit, buildEditPreview, formatLineNumberedRead, compressToolResult } from "../src/modules/agent-format.ts";
+
+test("compressToolResult passes reads under 12000 chars through", () => {
+  const content = "x".repeat(11000);
+  assert.equal(compressToolResult("read_file", content), `[read_file] ${content}`);
+});
+
+test("compressToolResult truncates big reads on a line boundary with offset hint", () => {
+  const content = Array.from({ length: 2000 }, (_, i) => `line-${i}-padding-padding`).join("\n");
+  const out = compressToolResult("read_file", content);
+  assert.ok(out.length < 12400);
+  assert.match(out, /truncated: 2000 total lines/);
+  assert.match(out, /offset/);
+});
+
+test("compressToolResult keeps head and tail of long command output", () => {
+  const content = "HEAD" + "x".repeat(6000) + "TAIL";
+  const out = compressToolResult("run_command", content);
+  assert.match(out, /^\[run_command\] HEAD/);
+  assert.match(out, /TAIL$/);
+  assert.ok(out.length < 4300);
+});
+
+test("compressToolResult passes edit_file results through unchanged", () => {
+  const r = "Edited src/x.ts (1 replacement).\n    1→a";
+  assert.equal(compressToolResult("edit_file", r), `[edit_file] ${r}`);
+});
+
+test("compressToolResult keeps 40 search_content lines", () => {
+  const content = Array.from({ length: 60 }, (_, i) => `m${i}`).join("\n");
+  const out = compressToolResult("search_content", content);
+  assert.match(out, /m39/);
+  assert.doesNotMatch(out, /m40\b/);
+  assert.match(out, /20 more matches omitted/);
+});
 
 test("applyEdit replaces a unique occurrence", () => {
   const r = applyEdit("const a = 1;\nconst b = 2;\n", "const b = 2;", "const b = 3;", false);

@@ -66,3 +66,64 @@ export function buildEditPreview(updatedContent: string, newString: string, cont
     .map((line, i) => `${String(start + i + 1).padStart(5)}→${line}`)
     .join("\n");
 }
+
+export function compressToolResult(toolName: string, result: string): string {
+  switch (toolName) {
+    case "read_file":
+    case "batch_read": {
+      const CAP = 12000;
+      if (result.length <= CAP) return `[${toolName}] ${result}`;
+      const lineCount = result.split("\n").length;
+      const truncated = result.substring(0, CAP);
+      const lastNewline = truncated.lastIndexOf("\n");
+      const clean = lastNewline > CAP - 400 ? truncated.substring(0, lastNewline) : truncated;
+      const shownLines = clean.split("\n").length;
+      return `[${toolName}] ${clean}\n…[truncated: ${lineCount} total lines. Call read_file with offset=${shownLines + 1} for the rest, or search_content for targeted access.]`;
+    }
+
+    case "run_command": {
+      const CAP = 4000;
+      if (result.length <= CAP) return `[${toolName}] ${result}`;
+      const head = result.substring(0, 2500);
+      const tail = result.substring(result.length - 1500);
+      return `[${toolName}] ${head}\n…[${result.length} chars total, showing head+tail]…\n${tail}`;
+    }
+
+    case "git_diff": {
+      const CAP = 6000;
+      if (result.length <= CAP) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${result.substring(0, CAP)}\n…[diff truncated: ${result.length} chars total]`;
+    }
+
+    case "search_content": {
+      const lines = result.split("\n");
+      if (lines.length <= 40) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${lines.slice(0, 40).join("\n")}\n…[${lines.length - 40} more matches omitted]`;
+    }
+
+    case "search_files": {
+      const paths = result.split("\n");
+      if (paths.length <= 30) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${paths.slice(0, 30).join("\n")}\n…[${paths.length - 30} more files omitted]`;
+    }
+
+    case "list_dir": {
+      const entries = result.split("\n");
+      if (entries.length <= 50) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${entries.slice(0, 50).join("\n")}\n…[${entries.length - 50} more entries omitted]`;
+    }
+
+    case "edit_file":
+    case "write_file":
+    case "delete_path":
+    case "make_plan":
+    case "todo_write":
+      return `[${toolName}] ${result}`;
+
+    default: {
+      const CAP = 3000;
+      if (result.length <= CAP) return `[${toolName}] ${result}`;
+      return `[${toolName}] ${result.substring(0, CAP)}\n…[truncated]`;
+    }
+  }
+}
