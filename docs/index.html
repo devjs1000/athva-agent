@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Athva — an AI-native code editor, open source</title>
+<meta name="description" content="Athva is an open-source, native AI-native code editor built on Tauri 2 and Rust, with a real VS Code extension host and a native agentic tool-use loop.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<style>
+  @font-face {
+    font-family: 'JBM';
+    src: local('JetBrains Mono'), local('SFMono-Regular');
+  }
+
+  :root {
+    --bg: #0a0c10;
+    --bg-raised: #10131a;
+    --bg-tab: #0d0f14;
+    --text: #e8eaed;
+    --text-dim: #8b93a1;
+    --text-faint: #545c6b;
+    --accent: #5b8cff;
+    --accent-soft: #5b8cff33;
+    --mint: #7fe8b8;
+    --border: #ffffff14;
+    --border-strong: #ffffff26;
+    --red: #ff6b6b;
+    --saffron: #ff9a3c;
+    --india-green: #2fbf71;
+    --font-display: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    --font-body: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  }
+
+  :root[data-theme="light"] {
+    --bg: #f6f7f9;
+    --bg-raised: #ffffff;
+    --bg-tab: #eef0f3;
+    --text: #14161a;
+    --text-dim: #565d6b;
+    --text-faint: #9299a6;
+    --accent: #3a63d6;
+    --accent-soft: #3a63d61a;
+    --mint: #1f9d6f;
+    --border: #00000014;
+    --border-strong: #00000024;
+    --red: #d64545;
+    --saffron: #e07b1f;
+    --india-green: #17954f;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f7f9;
+      --bg-raised: #ffffff;
+      --bg-tab: #eef0f3;
+      --text: #14161a;
+      --text-dim: #565d6b;
+      --text-faint: #9299a6;
+      --accent: #3a63d6;
+      --accent-soft: #3a63d61a;
+      --mint: #1f9d6f;
+      --border: #00000014;
+      --border-strong: #00000024;
+      --red: #d64545;
+      --saffron: #e07b1f;
+      --india-green: #17954f;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  ::selection { background: var(--accent-soft); color: var(--text); }
+
+  .deck {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .slide {
+    position: relative;
+    min-height: 100vh;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tabbar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--bg-tab);
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    height: 42px;
+    flex-shrink: 0;
+  }
+
+  .dots {
+    display: flex;
+    gap: 7px;
+    margin-right: 16px;
+  }
+  .dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .tab {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-faint);
+    padding: 10px 14px;
+    border-right: 1px solid var(--border);
+    letter-spacing: 0.01em;
+  }
+  .tab.active {
+    color: var(--text);
+    background: var(--bg-raised);
+    border-top: 2px solid var(--accent);
+    margin-top: -1px;
+  }
+
+  .tab-meta {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(40px, 8vw, 110px);
+    gap: 28px;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--mint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 7px; height: 7px;
+    background: var(--mint);
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 20%, transparent);
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2.4rem, 5.4vw, 4.6rem);
+    line-height: 1.05;
+    margin: 0;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  h1 .dim { color: var(--text-faint); }
+  h1 .accent { color: var(--accent); }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.7rem, 3.4vw, 2.6rem);
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  p.lede {
+    font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+    line-height: 1.6;
+    color: var(--text-dim);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+
+  .card {
+    background: var(--bg-tab);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .card .k {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .card .v {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+  .card .d {
+    font-size: 0.94rem;
+    color: var(--text-dim);
+    line-height: 1.55;
+  }
+
+  .code {
+    font-family: var(--font-mono);
+    font-size: 0.92rem;
+    line-height: 1.7;
+    background: var(--bg-tab);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-dim);
+  }
+  .code .c1 { color: var(--mint); }
+  .code .c2 { color: var(--accent); }
+  .code .c3 { color: var(--text-faint); }
+  .code .c4 { color: var(--red); }
+
+  .stat-row { display: flex; gap: 40px; flex-wrap: wrap; }
+  .stat .num {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 3.4vw, 3rem);
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .lbl {
+    font-size: 0.85rem;
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+    margin-top: 4px;
+  }
+
+  .list-arrow {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .list-arrow li {
+    list-style: none;
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+    font-size: 1.05rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .list-arrow li::before {
+    content: '→';
+    color: var(--accent);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+  .list-arrow { padding: 0; margin: 0; }
+  .list-arrow b { color: var(--text); font-weight: 600; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 5px 11px;
+    border-radius: 20px;
+    border: 1px solid var(--border-strong);
+    color: var(--text-dim);
+  }
+  .pill-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .footer-slide {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px clamp(40px, 8vw, 110px);
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .wordmark .cursor {
+    display: inline-block;
+    width: 3px; height: 0.85em;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: -0.1em;
+    animation: blink 1.1s step-end infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark .cursor { animation: none; }
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .kicker-num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .diagram {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .diagram .node {
+    background: var(--bg-tab);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 12px 16px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .diagram .node.hi { border-color: var(--accent); color: var(--accent); }
+  .diagram .arrow { color: var(--text-faint); padding: 0 10px; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: start;
+  }
+
+  .quiet-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .quiet-list li { display: flex; gap: 12px; font-size: 1rem; color: var(--text-dim); }
+  .quiet-list .tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--mint);
+    flex-shrink: 0;
+    padding-top: 3px;
+  }
+
+  .cta-block {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    align-items: flex-start;
+  }
+  .btn-row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .btn {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 13px 22px;
+    border-radius: 7px;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+  }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #05070a;
+    font-weight: 600;
+  }
+
+  @media (max-width: 860px) {
+    .grid2, .grid3, .two-col { grid-template-columns: 1fr; }
+    .stat-row { gap: 26px; }
+  }
+
+  .logo {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    display: block;
+  }
+  .brand-row { display: flex; align-items: center; gap: 12px; }
+
+  .hero-brand {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    flex-wrap: wrap;
+  }
+  .logo-hero {
+    width: clamp(72px, 9vw, 96px);
+    height: clamp(72px, 9vw, 96px);
+    border-radius: 20px;
+    display: block;
+    box-shadow:
+      0 0 0 1px var(--border-strong),
+      0 18px 45px -14px #c0161680;
+  }
+  .hero-brand .name-block { display: flex; flex-direction: column; gap: 2px; }
+  .hero-brand .devanagari {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 2.6vw, 2.2rem);
+    line-height: 1.1;
+    letter-spacing: 0.01em;
+  }
+  .hero-brand .latin {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .tricolor {
+    display: flex;
+    width: 148px;
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .tricolor i { flex: 1; }
+  .tricolor .s { background: var(--saffron); }
+  .tricolor .w { background: var(--accent); }
+  .tricolor .g { background: var(--india-green); }
+
+  .india-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--saffron);
+  }
+  .india-eyebrow .sep { color: var(--text-faint); }
+  .india-eyebrow .green { color: var(--india-green); }
+
+  blockquote.vow {
+    margin: 0;
+    padding-left: 22px;
+    border-left: 3px solid var(--saffron);
+    font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+    line-height: 1.65;
+    color: var(--text-dim);
+    max-width: 60ch;
+  }
+  blockquote.vow b { color: var(--text); font-weight: 600; }
+
+  .shot-wrap {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 30px 70px -30px #000000a0;
+    background: var(--bg-tab);
+  }
+  .shot-wrap img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .shot-cap {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 10px;
+    letter-spacing: 0.02em;
+  }
+
+  .shot-slide .content {
+    justify-content: flex-start;
+    padding-top: clamp(32px, 5vw, 60px);
+    gap: 20px;
+  }
+  .shot-slide h2 { font-size: clamp(1.5rem, 2.8vw, 2.1rem); }
+
+  a.linklike {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent-soft);
+  }
+</style>
+</head>
+<body>
+
+<div class="deck">
+
+  <!-- SLIDE 1 — HERO -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">00_athva.md</div>
+      <div class="tab-meta">v0.1.0 · MIT · unreleased</div>
+    </div>
+    <div class="content">
+      <div class="hero-brand">
+        <img class="logo-hero" src="assets/logo.png" alt="Athva logo — अथवा in Devanagari">
+        <div class="name-block">
+          <span class="devanagari">अथवा</span>
+          <span class="latin">athva · अथवा — "or else, another way"</span>
+        </div>
+      </div>
+      <div class="tricolor" aria-hidden="true"><i class="s"></i><i class="w"></i><i class="g"></i></div>
+      <div class="india-eyebrow">Today, I am open-sourcing Athva <span class="sep">·</span> <span class="green">One of India's first open-source code editors 🇮🇳</span></div>
+      <h1>Tell it the task.<br><span class="dim">Watch your editor</span><br><span class="accent">build it for you.</span></h1>
+      <p class="lede">This is not autocomplete. Athva's agent reads your entire repo, opens the terminal, runs git, drives real VS Code extensions — and keeps looping until the job is <em>done</em>. A full native IDE with an AI that works like a teammate, not a suggestion box. Made in India. MIT-licensed. Yours forever, for ₹0.</p>
+      <div class="pill-row">
+        <span class="pill">Agent with real hands — fs · git · shell</span>
+        <span class="pill">Runs your VS Code extensions</span>
+        <span class="pill">Any model — Claude, GPT, Gemini, local</span>
+        <span class="pill">Native Rust + Tauri 2 speed</span>
+        <span class="pill">₹0 · MIT · free forever</span>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span><a class="linklike" href="https://github.com/devjs1000/athva-agent" target="_blank" rel="noopener">github.com/devjs1000/athva-agent</a></span>
+      <span>01 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 2 — BUILT IN INDIA -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">01_bharat.md</div>
+      <div class="tab-meta">जय हिन्द</div>
+    </div>
+    <div class="content">
+      <div class="india-eyebrow">Built in India <span class="sep">·</span> <span class="green">for the world</span></div>
+      <h2>Every great developer nation deserves its own tools.</h2>
+      <blockquote class="vow">Millions of Indian developers power the world's codebases every day — yet almost every editor we open was imagined somewhere else. <b>Athva is a small act of belief:</b> that world-class developer tools can be dreamed, designed, and shipped from India — and open-sourced, so they belong to everyone.</blockquote>
+      <ul class="list-arrow" style="margin-top: 6px;">
+        <li><b>From India, not just in India.</b> Conceived, architected, and built here — the Devanagari on the logo isn't decoration, it's the name.</li>
+        <li><b>Open by conviction.</b> The tools a nation's developers depend on shouldn't be black boxes owned abroad. MIT-licensed, auditable, forkable.</li>
+        <li><b>An invitation.</b> If you've ever wanted an Indian project on your contribution graph you're proud of — this is it. जय हिन्द, and happy hacking.</li>
+      </ul>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>02 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 2 — PROBLEM -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">01_problem.md</div>
+      <div class="tab-meta">why now</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">The problem</div>
+      <h2>AI coding tools stopped at the chat box.</h2>
+      <div class="grid3" style="margin-top: 10px;">
+        <div class="card">
+          <div class="k">Bolted on</div>
+          <div class="v">Extension, not editor</div>
+          <div class="d">Most AI coding tools are a panel wedged into an existing IDE — the agent can suggest, but the editor wasn't designed around it.</div>
+        </div>
+        <div class="card">
+          <div class="k">Closed loop</div>
+          <div class="v">Can't touch your tools</div>
+          <div class="d">Terminal, git, extensions, debuggers — the agent sees text, not the environment a developer actually works in.</div>
+        </div>
+        <div class="card">
+          <div class="k">Locked in</div>
+          <div class="v">One vendor, one model</div>
+          <div class="d">Proprietary editors tie you to a single provider's roadmap, pricing, and model choice.</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>03 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 3 — WHAT IS ATHVA -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">02_what.md</div>
+      <div class="tab-meta">the idea</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">What we built</div>
+      <h2>The editor <em>is</em> the agent's environment.</h2>
+      <p class="lede" style="margin-top: -8px;">Athva rebuilds the IDE from the ground up so the agent loop is a first-class citizen — not a plugin talking to an API over a wall.</p>
+      <ul class="list-arrow" style="margin-top: 6px;">
+        <li><b>Native, not embedded.</b> Rust + Tauri 2 core, so the agent's tool calls run as real system operations — file I/O, shell, git — not sandboxed approximations.</li>
+        <li><b>Runs real VS Code extensions.</b> A from-scratch <code style="font-family:var(--font-mono)">vscode-shim</code> re-implements the extension host API, so the ecosystem you already use just works.</li>
+        <li><b>Model-agnostic by design.</b> Anthropic, OpenAI, Google, Mistral, and more — swap providers without leaving the editor.</li>
+      </ul>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>04 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 3B — SCREENSHOTS: WELCOME + SHELL -->
+  <section class="slide shot-slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">screenshots_01.png</div>
+      <div class="tab-meta">the app, not a mockup</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">What it looks like</div>
+      <h2>A real editor shell — projects, files, terminal, agent, all native.</h2>
+      <div class="grid2" style="margin-top: 4px;">
+        <div>
+          <div class="shot-wrap"><img src="assets/welcome.jpg" alt="Athva welcome screen showing recent projects and quick actions"></div>
+          <div class="shot-cap">Welcome — recent projects, clone, quick access</div>
+        </div>
+        <div>
+          <div class="shot-wrap"><img src="assets/editor-shell.jpg" alt="Athva editor shell with file explorer, terminal, and AI chat panel"></div>
+          <div class="shot-cap">Editor shell — explorer, terminal, Athva AI chat panel</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>05 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE — EDITOR EXPERIENCE -->
+  <section class="slide shot-slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">screenshots_02.png</div>
+      <div class="tab-meta">zero learning curve</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Editor experience</div>
+      <h2>Feels exactly like your normal editor — because it is one.</h2>
+      <p class="lede" style="margin-top: -6px;">Explorer, tabs, minimap, hover tooltips with go-to-definition, integrated terminal, git branch in the status bar — everything is where your muscle memory expects it. You don't relearn an editor to get the agent; you just open your project and keep coding.</p>
+      <div class="shot-wrap" style="margin-top: 4px;"><img src="assets/editor-experience.jpg" alt="Athva editing main.ts with file explorer, hover tooltip showing module definition, minimap, and status bar — a familiar full editor experience"></div>
+      <div class="shot-cap">main.ts open in Athva — hovers, definitions, minimap, terminal: the editor you already know</div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>06 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 3C — SCREENSHOTS: EXTENSIONS + BROWSER TAB -->
+  <section class="slide shot-slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">screenshots_03.png</div>
+      <div class="tab-meta">extensions in the wild</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">The shim, in action</div>
+      <h2>Your VS Code extensions. A built-in browser tab. In the same window.</h2>
+      <div class="grid2" style="margin-top: 4px;">
+        <div>
+          <div class="shot-wrap"><img src="assets/extensions.jpg" alt="Athva extensions marketplace showing installed VS Code extensions including Claude Code"></div>
+          <div class="shot-cap">Extensions — real VSIX packages, installed and running</div>
+        </div>
+        <div>
+          <div class="shot-wrap"><img src="assets/browser-tab.jpg" alt="Athva built-in browser tab open to YouTube inside the editor"></div>
+          <div class="shot-cap">Browser tabs — open docs or the web without leaving the IDE</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>07 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 4 — AGENT LOOP -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">03_agent-loop.ts</div>
+      <div class="tab-meta">core loop</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">How it works</div>
+      <h2>One clean loop. No hidden state machine.</h2>
+      <div class="code" style="margin-top: 4px;">runAgentLoop()
+  <span class="c3">→</span> <span class="c2">streamAgentTurn()</span>     <span class="c3">// native tool_use / function_calling over SSE</span>
+  <span class="c3">→</span> <span class="c2">executeToolCalls()</span>    <span class="c3">// real fs, git, shell, search — via Tauri</span>
+  <span class="c3">→</span> <span class="c1">loop</span> until done <span class="c3">or MAX_TURNS</span>
+
+<span class="c3">// no legacy phase-based workflow. one path, same for every provider.</span></div>
+      <div class="diagram" style="margin-top: 8px;">
+        <div class="node hi">Anthropic / OpenAI</div>
+        <div class="arrow">→</div>
+        <div class="node">native tool_use</div>
+        <div class="arrow">→</div>
+        <div class="node">Tauri command</div>
+        <div class="arrow">→</div>
+        <div class="node">your repo</div>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>08 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 5 — EXTENSION COMPATIBILITY -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">04_vscode-shim.md</div>
+      <div class="tab-meta">compatibility</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Under the hood</div>
+      <h2>We re-implemented the VS Code API. On purpose.</h2>
+      <div class="two-col">
+        <p class="lede">Rather than lock users into a brand-new, empty ecosystem, Athva ships a real extension host — <code style="font-family:var(--font-mono)">vscode-shim</code> — so extensions built for VS Code run largely unmodified.</p>
+        <ul class="quiet-list">
+          <li><span class="tag">SCM</span>Source control providers, diffing, staged/unstaged state</li>
+          <li><span class="tag">LANG</span>Language providers — completions, diagnostics, hovers</li>
+          <li><span class="tag">DEBUG</span>Debug adapters and tracker lifecycle</li>
+          <li><span class="tag">TERM</span>Terminal profiles and link handlers</li>
+          <li><span class="tag">NB</span>Notebook rendering, kernels, cell status bars</li>
+          <li><span class="tag">CMD</span>Command execution, webviews, custom URI schemes</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>09 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 6 — PROVIDERS -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">05_providers.json</div>
+      <div class="tab-meta">model support</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Bring your own model</div>
+      <h2>No single vendor owns your agent.</h2>
+      <div class="grid3" style="margin-top: 6px;">
+        <div class="card"><div class="k">Native tool use</div><div class="v">Anthropic</div><div class="d">tool_use blocks over SSE</div></div>
+        <div class="card"><div class="k">Native tool use</div><div class="v">OpenAI</div><div class="d">function_calling over SSE</div></div>
+        <div class="card"><div class="k">Compatible</div><div class="v">Google · Mistral · MiMo</div><div class="d">Streaming with tool-call fallback parsing</div></div>
+      </div>
+      <p class="lede" style="margin-top: 4px;">Switch providers mid-project. Point it at a local model later. The agent loop doesn't care.</p>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>10 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 7 — WHY OPEN SOURCE -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">06_why-oss.md</div>
+      <div class="tab-meta">license: MIT</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Why open source</div>
+      <h2>The editor you trust with your repo shouldn't be a black box.</h2>
+      <ul class="list-arrow">
+        <li><b>Trust.</b> An agent with shell and filesystem access is worth auditing — so you can.</li>
+        <li><b>Speed.</b> The extension ecosystem is enormous. We can't cover it alone; contributors can.</li>
+        <li><b>Direction.</b> No roadmap dictated by a fundraising story — built in the open, shaped by the people using it.</li>
+      </ul>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>11 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 8 — WHERE IT STANDS -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">07_status.md</div>
+      <div class="tab-meta">honest state</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Where it stands today</div>
+      <h2>Early. Working. Moving fast.</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="num">v0.1.0</div><div class="lbl">pre-release</div></div>
+        <div class="stat"><div class="num">5</div><div class="lbl">model providers wired in</div></div>
+        <div class="stat"><div class="num">~30k</div><div class="lbl">lines, core modules + shim</div></div>
+        <div class="stat"><div class="num">10</div><div class="lbl">native agent tools</div></div>
+      </div>
+      <p class="lede" style="margin-top: 10px;">The agent loop, native tool-use, and the core extension shim work today. Coverage of the long tail of the VS Code API is ongoing — that's exactly the kind of gap contributors close fastest.</p>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>12 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 9 — HOW TO CONTRIBUTE -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">08_contribute.md</div>
+      <div class="tab-meta">good first issues welcome</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Get involved</div>
+      <h2>The shim needs more of the API. The agent needs more tools.</h2>
+      <div class="grid3" style="margin-top: 6px;">
+        <div class="card"><div class="k">Good first PR</div><div class="v">Extension host coverage</div><div class="d">Pick an unimplemented VS Code API in vscode-shim and wire it up against the compatibility checklist.</div></div>
+        <div class="card"><div class="k">Good first PR</div><div class="v">New agent tool</div><div class="d">Add a tool definition + Tauri command + executor case — the pattern is consistent across all ten.</div></div>
+        <div class="card"><div class="k">Good first PR</div><div class="v">Provider adapter</div><div class="d">Wire native tool-use for a provider currently on the regex fallback path.</div></div>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span>13 / 14</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 10 — CTA -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">09_start.sh</div>
+      <div class="tab-meta">let's go</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Try it</div>
+      <h1 style="font-size: clamp(2rem, 4.4vw, 3.4rem);">Clone it.<br>Break it.<br><span class="accent">Send a PR.</span></h1>
+      <div class="code" style="max-width: 560px;">git clone https://github.com/devjs1000/athva-agent
+<span class="c3">cd</span> athva-agent
+pnpm install
+pnpm tauri dev</div>
+      <div class="cta-block">
+        <div class="btn-row">
+          <a class="btn primary" href="https://github.com/devjs1000/athva-agent" target="_blank" rel="noopener" style="text-decoration:none;">★ Star on GitHub</a>
+          <a class="btn" href="https://github.com/devjs1000/athva-agent/issues" target="_blank" rel="noopener" style="text-decoration:none;">Open an issue</a>
+          <a class="btn" href="https://github.com/devjs1000" target="_blank" rel="noopener" style="text-decoration:none;">@devjs1000 on GitHub</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span><a class="linklike" href="https://github.com/devjs1000/athva-agent" target="_blank" rel="noopener">github.com/devjs1000/athva-agent</a></span>
+      <span>14 / 14 · MIT licensed · made with ❤️ in India</span>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>
