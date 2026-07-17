@@ -510,6 +510,68 @@
     text-decoration: none;
     border-bottom: 1px solid var(--accent-soft);
   }
+
+  .dl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .dl-grid { grid-template-columns: 1fr; } }
+  .dl-card {
+    background: var(--bg-tab);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 26px 26px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .dl-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 20px 50px -25px var(--accent-soft);
+  }
+  .dl-card .os-ico { font-size: 30px; line-height: 1; }
+  .dl-card .os-name {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+  }
+  .dl-card .os-note { font-size: 0.88rem; color: var(--text-faint); line-height: 1.5; min-height: 2.6em; }
+  .dl-card .detected-tag {
+    display: none;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mint);
+  }
+  .dl-card.active .detected-tag { display: block; }
+  .dl-btn {
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    text-align: center;
+    padding: 12px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .dl-card.active .dl-btn.main {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #05070a;
+    font-weight: 700;
+  }
+  .dl-alt {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .dl-alt a { color: var(--text-dim); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
+  .dl-status {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+  }
 </style>
 </head>
 <body>
@@ -546,7 +608,52 @@
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
       <span><a class="linklike" href="https://github.com/devjs1000/athva-agent" target="_blank" rel="noopener">github.com/devjs1000/athva-agent</a></span>
-      <span>01 / 14</span>
+      <span>01 / 15</span>
+    </div>
+  </section>
+
+  <!-- SLIDE — DOWNLOAD -->
+  <section class="slide">
+    <div class="tabbar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="tab active">00_download.sh</div>
+      <div class="tab-meta">pick your OS</div>
+    </div>
+    <div class="content">
+      <div class="eyebrow">Download</div>
+      <h2>Get Athva on your machine — <span style="color:var(--accent)">free, right now.</span></h2>
+      <div class="dl-grid" style="margin-top: 6px;">
+        <div class="dl-card" id="dl-mac">
+          <div class="detected-tag">● detected — this one's yours</div>
+          <div class="os-ico">⌘</div>
+          <div class="os-name">macOS</div>
+          <div class="os-note">Apple Silicon &amp; Intel · macOS 11+ · .dmg installer</div>
+          <a class="dl-btn main" data-os="mac" data-kind="main" href="https://github.com/devjs1000/athva-agent/releases/latest">Download .dmg</a>
+          <div class="dl-alt"><a data-os="mac" data-kind="intel" href="https://github.com/devjs1000/athva-agent/releases/latest">Intel .dmg</a></div>
+        </div>
+        <div class="dl-card" id="dl-win">
+          <div class="detected-tag">● detected — this one's yours</div>
+          <div class="os-ico">⊞</div>
+          <div class="os-name">Windows</div>
+          <div class="os-note">Windows 10 / 11 · 64-bit · installer</div>
+          <a class="dl-btn main" data-os="win" data-kind="main" href="https://github.com/devjs1000/athva-agent/releases/latest">Download .exe</a>
+          <div class="dl-alt"><a data-os="win" data-kind="msi" href="https://github.com/devjs1000/athva-agent/releases/latest">.msi</a></div>
+        </div>
+        <div class="dl-card" id="dl-linux">
+          <div class="detected-tag">● detected — this one's yours</div>
+          <div class="os-ico">🐧</div>
+          <div class="os-name">Linux</div>
+          <div class="os-note">Any distro via AppImage · Debian/Ubuntu · Fedora</div>
+          <a class="dl-btn main" data-os="linux" data-kind="main" href="https://github.com/devjs1000/athva-agent/releases/latest">Download .AppImage</a>
+          <div class="dl-alt"><a data-os="linux" data-kind="deb" href="https://github.com/devjs1000/athva-agent/releases/latest">.deb</a><a data-os="linux" data-kind="rpm" href="https://github.com/devjs1000/athva-agent/releases/latest">.rpm</a></div>
+        </div>
+      </div>
+      <div class="dl-status" id="dl-status">Fetching the latest release…</div>
+    </div>
+    <div class="footer-slide">
+      <span class="wordmark">athva<span class="cursor"></span></span>
+      <span><a class="linklike" href="https://github.com/devjs1000/athva-agent/releases" target="_blank" rel="noopener">all releases on GitHub</a></span>
+      <span>02 / 15</span>
     </div>
   </section>
 
@@ -569,7 +676,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>02 / 14</span>
+      <span>03 / 15</span>
     </div>
   </section>
 
@@ -603,7 +710,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>03 / 14</span>
+      <span>04 / 15</span>
     </div>
   </section>
 
@@ -626,7 +733,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>04 / 14</span>
+      <span>05 / 15</span>
     </div>
   </section>
 
@@ -653,7 +760,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>05 / 14</span>
+      <span>06 / 15</span>
     </div>
   </section>
 
@@ -673,7 +780,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>06 / 14</span>
+      <span>07 / 15</span>
     </div>
   </section>
 
@@ -700,7 +807,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>07 / 14</span>
+      <span>08 / 15</span>
     </div>
   </section>
 
@@ -732,7 +839,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>08 / 14</span>
+      <span>09 / 15</span>
     </div>
   </section>
 
@@ -760,7 +867,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>09 / 14</span>
+      <span>10 / 15</span>
     </div>
   </section>
 
@@ -783,7 +890,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>10 / 14</span>
+      <span>11 / 15</span>
     </div>
   </section>
 
@@ -805,7 +912,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>11 / 14</span>
+      <span>12 / 15</span>
     </div>
   </section>
 
@@ -829,7 +936,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>12 / 14</span>
+      <span>13 / 15</span>
     </div>
   </section>
 
@@ -851,7 +958,7 @@
     </div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
-      <span>13 / 14</span>
+      <span>14 / 15</span>
     </div>
   </section>
 
@@ -880,11 +987,65 @@ pnpm tauri dev</div>
     <div class="footer-slide">
       <span class="wordmark">athva<span class="cursor"></span></span>
       <span><a class="linklike" href="https://github.com/devjs1000/athva-agent" target="_blank" rel="noopener">github.com/devjs1000/athva-agent</a></span>
-      <span>14 / 14 · MIT licensed · made with ❤️ in India</span>
+      <span>15 / 15 · MIT licensed · made with ❤️ in India</span>
     </div>
   </section>
 
 </div>
+
+<script>
+(function () {
+  var REPO = 'devjs1000/athva-agent';
+  var RELEASES_PAGE = 'https://github.com/' + REPO + '/releases/latest';
+
+  function detectOS() {
+    var ua = navigator.userAgent;
+    var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    if (/Mac|iPhone|iPad/i.test(plat) || /Macintosh/i.test(ua)) return 'mac';
+    if (/Win/i.test(plat) || /Windows/i.test(ua)) return 'win';
+    if (/Linux|X11/i.test(plat + ua) && !/Android/i.test(ua)) return 'linux';
+    return null;
+  }
+
+  var os = detectOS();
+  if (os) {
+    var card = document.getElementById('dl-' + os);
+    if (card) card.classList.add('active');
+  }
+
+  var status = document.getElementById('dl-status');
+
+  function pick(assets, test) {
+    for (var i = 0; i < assets.length; i++) {
+      if (test(assets[i].name.toLowerCase())) return assets[i].browser_download_url;
+    }
+    return null;
+  }
+
+  function setHref(osKey, kind, url) {
+    if (!url) return;
+    var links = document.querySelectorAll('[data-os="' + osKey + '"][data-kind="' + kind + '"]');
+    for (var i = 0; i < links.length; i++) links[i].href = url;
+  }
+
+  fetch('https://api.github.com/repos/' + REPO + '/releases/latest')
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (rel) {
+      var a = rel.assets || [];
+      setHref('mac', 'main', pick(a, function (n) { return n.endsWith('.dmg') && n.indexOf('aarch64') !== -1; }) || pick(a, function (n) { return n.endsWith('.dmg'); }));
+      setHref('mac', 'intel', pick(a, function (n) { return n.endsWith('.dmg') && (n.indexOf('x64') !== -1 || n.indexOf('x86_64') !== -1); }));
+      setHref('win', 'main', pick(a, function (n) { return n.endsWith('.exe'); }));
+      setHref('win', 'msi', pick(a, function (n) { return n.endsWith('.msi'); }));
+      setHref('linux', 'main', pick(a, function (n) { return n.endsWith('.appimage'); }));
+      setHref('linux', 'deb', pick(a, function (n) { return n.endsWith('.deb'); }));
+      setHref('linux', 'rpm', pick(a, function (n) { return n.endsWith('.rpm'); }));
+      if (status) status.textContent = 'Latest release: ' + (rel.tag_name || rel.name || '') + ' — direct downloads wired up.';
+    })
+    .catch(function () {
+      if (status) status.textContent = 'First public release is on its way — the buttons take you to the GitHub releases page.';
+    });
+})();
+</script>
 
 </body>
 </html>
