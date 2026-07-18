@@ -21,6 +21,7 @@
       }
     ],
     "security": {
+      "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,
         "scope": ["$APPCONFIG/**", "$HOME/**"]

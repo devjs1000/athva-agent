@@ -25,3 +25,4 @@ dist-ssr
 *.sw?
 src/extension-host/rg
 src/extension-host/rg.exe
+.athva
