@@ -17,6 +17,19 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder
 pub mod network;
 pub mod audio;
 
+// On Windows, a bare Command::new spawns a visible console window for every
+// subprocess (git, curl, taskkill, …). CREATE_NO_WINDOW suppresses it.
+fn new_cmd(program: &str) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 // ── Project management ──
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -89,7 +102,7 @@ fn get_startup_open_path() -> Option<String> {
     STARTUP_OPEN_PATH.get().cloned().unwrap_or(None)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_env_masked(path: String) -> Result<String, String> {
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut out = String::with_capacity(content.len());
@@ -189,11 +202,11 @@ fn check_path_exists(path: String) -> bool {
     PathBuf::from(&path).exists()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn kill_process_tree(pid: u32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        Command::new("taskkill")
+        new_cmd("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .status()
             .map_err(|e| e.to_string())?;
@@ -207,9 +220,9 @@ fn kill_process_tree(pid: u32) -> Result<(), String> {
 
         let pid_args: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
         if !pid_args.is_empty() {
-            let _ = Command::new("kill").arg("-TERM").args(&pid_args).status();
+            let _ = new_cmd("kill").arg("-TERM").args(&pid_args).status();
             thread::sleep(Duration::from_millis(250));
-            let _ = Command::new("kill").arg("-KILL").args(&pid_args).status();
+            let _ = new_cmd("kill").arg("-KILL").args(&pid_args).status();
         }
 
         return Ok(());
@@ -218,7 +231,7 @@ fn kill_process_tree(pid: u32) -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn collect_child_pids(pid: u32) -> Result<Vec<u32>, String> {
-    let output = Command::new("pgrep")
+    let output = new_cmd("pgrep")
         .args(["-P", &pid.to_string()])
         .output()
         .map_err(|e| e.to_string())?;
@@ -316,7 +329,7 @@ pub struct FileEntry {
     pub is_dir: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
     let dir = PathBuf::from(&path);
     if !dir.is_dir() {
@@ -344,7 +357,7 @@ fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
     Ok(entries)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_file(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
@@ -357,7 +370,7 @@ fn validate_path(path: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn write_file(path: String, content: String) -> Result<(), String> {
     let p = validate_path(&path)?;
     if let Some(parent) = p.parent() {
@@ -368,7 +381,7 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 
 // ── File operations (for context menu) ──
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_file(path: String) -> Result<(), String> {
     let p = validate_path(&path)?;
     if p.exists() {
@@ -380,7 +393,7 @@ fn create_file(path: String) -> Result<(), String> {
     fs::write(&p, "").map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_dir(path: String) -> Result<(), String> {
     let p = validate_path(&path)?;
     if p.exists() {
@@ -389,14 +402,14 @@ fn create_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&p).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
     let src = validate_path(&old_path)?;
     let dst = validate_path(&new_path)?;
     fs::rename(&src, &dst).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_path(path: String) -> Result<(), String> {
     let p = validate_path(&path)?;
     if p.is_dir() {
@@ -406,11 +419,11 @@ fn delete_path(path: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
+        new_cmd("open")
             .arg("-R")
             .arg(&path)
             .spawn()
@@ -418,7 +431,7 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
+        new_cmd("explorer")
             .arg("/select,")
             .arg(&path)
             .spawn()
@@ -426,7 +439,7 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        std::process::Command::new("xdg-open")
+        new_cmd("xdg-open")
             .arg(PathBuf::from(&path).parent().unwrap_or(&PathBuf::from(".")))
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -436,7 +449,7 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
 
 // ── File search (recursive listing for quick-open) ──
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search_files(root: String, query: String, max_results: usize) -> Vec<FileEntry> {
     let root_path = PathBuf::from(&root);
     let query_lower = query.to_lowercase();
@@ -519,7 +532,7 @@ pub struct SearchMatch {
     pub match_end: usize,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search_in_files(
     root: String,
     query: String,
@@ -610,7 +623,7 @@ fn grep_file(path: &PathBuf, re: &regex::Regex, max: usize, results: &mut Vec<Se
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn replace_in_files(
     paths: Vec<String>,
     query: String,
@@ -660,7 +673,7 @@ pub struct GitStatus {
 }
 
 fn run_git(dir: &str, args: &[&str]) -> Result<String, String> {
-    let output = std::process::Command::new("git")
+    let output = new_cmd("git")
         .args(args)
         .current_dir(dir)
         .output()
@@ -673,7 +686,7 @@ fn run_git(dir: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn run_git_bytes(dir: &str, args: &[&str]) -> Result<Vec<u8>, String> {
-    let output = std::process::Command::new("git")
+    let output = new_cmd("git")
         .args(args)
         .current_dir(dir)
         .output()
@@ -685,7 +698,7 @@ fn run_git_bytes(dir: &str, args: &[&str]) -> Result<Vec<u8>, String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_status(path: String) -> GitStatus {
     // Check if it's a git repo
     if run_git(&path, &["rev-parse", "--is-inside-work-tree"]).is_err() {
@@ -736,7 +749,7 @@ pub struct GitBranch {
     pub current: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_sync(path: String) -> Result<String, String> {
     // Pull then push
     run_git(&path, &["pull", "--rebase"])?;
@@ -744,17 +757,17 @@ fn git_sync(path: String) -> Result<String, String> {
     Ok("Synced successfully".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_pull(path: String) -> Result<String, String> {
     run_git(&path, &["pull"])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_push(path: String) -> Result<String, String> {
     run_git(&path, &["push"])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_list_branches(path: String) -> Result<Vec<GitBranch>, String> {
     let current = run_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
     let output = run_git(
@@ -779,7 +792,7 @@ fn git_list_branches(path: String) -> Result<Vec<GitBranch>, String> {
     Ok(branches)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_switch_branch(path: String, branch: String) -> Result<String, String> {
     run_git(&path, &["checkout", &branch])
 }
@@ -799,7 +812,7 @@ pub struct GitContributionDay {
     pub count: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
     let output = run_git_bytes(&path, &["status", "--porcelain=v1", "-z", "-uall"])?;
     let mut files: Vec<GitFileChange> = Vec::new();
@@ -865,29 +878,29 @@ fn git_changed_files(path: String) -> Result<Vec<GitFileChange>, String> {
     Ok(files)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage(path: String, file: String) -> Result<String, String> {
     run_git(&path, &["add", "--", &file])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage(path: String, file: String) -> Result<String, String> {
     // repos with no commits yet have no HEAD — fall back to rm --cached
     run_git(&path, &["reset", "HEAD", "--", &file])
         .or_else(|_| run_git(&path, &["rm", "--cached", "--force", "--", &file]))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage_all(path: String) -> Result<String, String> {
     run_git(&path, &["add", "-A"])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage_all(path: String) -> Result<String, String> {
     run_git(&path, &["reset", "HEAD"])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_discard_file(path: String, file: String) -> Result<String, String> {
     // Check if the file is untracked
     let status = run_git(&path, &["status", "--porcelain", "--", &file])?;
@@ -901,12 +914,12 @@ fn git_discard_file(path: String, file: String) -> Result<String, String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_commit(path: String, message: String) -> Result<String, String> {
     run_git(&path, &["commit", "-m", &message])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_diff_stat(path: String) -> Result<String, String> {
     // Compact summary: staged + unstaged stat
     let staged = run_git(&path, &["diff", "--cached", "--stat"]).unwrap_or_default();
@@ -924,7 +937,7 @@ fn git_diff_stat(path: String) -> Result<String, String> {
     Ok(result)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, String> {
     if staged {
         run_git(&path, &["diff", "--cached", "--", &file])
@@ -933,7 +946,7 @@ fn git_diff_file(path: String, file: String, staged: bool) -> Result<String, Str
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_contribution_days(
     path: String,
     since: Option<String>,
@@ -980,7 +993,7 @@ struct GitLogEntry {
     refs: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_log_graph(path: String, max_count: Option<u32>) -> Result<Vec<GitLogEntry>, String> {
     let max = max_count.unwrap_or(500).to_string();
     let output = run_git(
@@ -1023,7 +1036,7 @@ struct GitAuthorStat {
     commits: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_author_stats(path: String) -> Result<Vec<GitAuthorStat>, String> {
     let output = run_git(&path, &["shortlog", "-sn", "--all", "HEAD"])?;
     let mut result = Vec::new();
@@ -1066,7 +1079,7 @@ fn unix_to_ymd(ts: i64) -> String {
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_blame_file(path: String, file: String) -> Result<Vec<GitBlameLine>, String> {
     let output = run_git(&path, &["blame", "--line-porcelain", "--", &file])?;
     let mut result: Vec<GitBlameLine> = Vec::new();
@@ -1115,12 +1128,12 @@ fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> 
     fs::write(&path, settings).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_secret(key: String, value: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let service = "com.devjs1000.athva-agent";
-        let status = Command::new("security")
+        let status = new_cmd("security")
             .args([
                 "add-generic-password",
                 "-U",
@@ -1142,12 +1155,12 @@ fn set_secret(key: String, value: String) -> Result<(), String> {
     Err("Secure secret storage is not supported on this platform yet".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_secret(key: String) -> Result<Option<String>, String> {
     #[cfg(target_os = "macos")]
     {
         let service = "com.devjs1000.athva-agent";
-        let out = Command::new("security")
+        let out = new_cmd("security")
             .args(["find-generic-password", "-s", service, "-a", key.as_str(), "-w"])
             .output()
             .map_err(|e| e.to_string())?;
@@ -1164,12 +1177,12 @@ fn get_secret(key: String) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_secret(key: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let service = "com.devjs1000.athva-agent";
-        let out = Command::new("security")
+        let out = new_cmd("security")
             .args(["delete-generic-password", "-s", service, "-a", key.as_str()])
             .output()
             .map_err(|e| e.to_string())?;
@@ -1490,7 +1503,7 @@ fn remove_extension_by_identifier(root: &PathBuf, identifier: &str) -> Result<bo
 }
 
 fn download_file(url: &str, destination: &PathBuf) -> Result<(), String> {
-    let output = Command::new("curl")
+    let output = new_cmd("curl")
         .args([
             "-fsSL",
             "--max-time",
@@ -1516,7 +1529,7 @@ fn download_file(url: &str, destination: &PathBuf) -> Result<(), String> {
 
 fn extract_vsix(vsix_path: &PathBuf, destination: &PathBuf) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    let output = Command::new("powershell")
+    let output = new_cmd("powershell")
         .args([
             "-NoProfile",
             "-Command",
@@ -1530,7 +1543,7 @@ fn extract_vsix(vsix_path: &PathBuf, destination: &PathBuf) -> Result<(), String
         .map_err(|e| format!("Failed to start PowerShell: {e}"))?;
 
     #[cfg(not(target_os = "windows"))]
-    let output = Command::new("unzip")
+    let output = new_cmd("unzip")
         .args([
             "-oq",
             &vsix_path.to_string_lossy(),
@@ -1637,7 +1650,7 @@ fn set_exec_bits_recursive(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search_vscode_extensions(
     query: String,
     limit: usize,
@@ -1683,7 +1696,7 @@ fn search_vscode_extensions(
         })
     };
 
-    let output = Command::new("curl")
+    let output = new_cmd("curl")
         .args([
             "-fsSL",
             "--max-time",
@@ -1728,7 +1741,7 @@ fn search_vscode_extensions(
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_installed_vscode_extensions(
     app: tauri::AppHandle,
     project_path: String,
@@ -1755,7 +1768,7 @@ fn list_installed_vscode_extensions(
     Ok(installed)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn install_vscode_extension(
     app: tauri::AppHandle,
     project_path: String,
@@ -1804,7 +1817,7 @@ fn install_vscode_extension(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn uninstall_vscode_extension(
     app: tauri::AppHandle,
     identifier: String,
@@ -1818,7 +1831,7 @@ fn uninstall_vscode_extension(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn check_vscode_extension_updates(
     extensions: Vec<ExtensionUpdateQuery>,
 ) -> Result<Vec<ExtensionUpdateInfo>, String> {
@@ -2314,7 +2327,7 @@ fn report_web_media_state(
 
 // ── Touch ID (macOS) ──
 
-#[tauri::command]
+#[tauri::command(async)]
 fn touchid_authenticate(reason: String) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
@@ -2340,7 +2353,7 @@ print(ok ? "ok" : "fail")
             reason = reason.replace('"', "'")
         );
 
-        let output = std::process::Command::new("swift")
+        let output = new_cmd("swift")
             .args(["-"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -2381,7 +2394,7 @@ var err: NSError?
 let ok = ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err)
 print(ok ? "yes" : "no")
 "#;
-        let output = std::process::Command::new("swift")
+        let output = new_cmd("swift")
             .args(["-"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -2462,7 +2475,7 @@ fn f32_to_blob(v: &[f32]) -> Vec<u8> {
     v.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_init() -> Result<(), String> {
     let conn = get_conn()?;
     conn.execute_batch(
@@ -2481,7 +2494,7 @@ fn memory_init() -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_add(
     content: String,
     embedding: Vec<f32>,
@@ -2503,7 +2516,7 @@ fn memory_add(
     Ok(conn.last_insert_rowid())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_search(
     query_embedding: Vec<f32>,
     memory_type: String,
@@ -2579,7 +2592,7 @@ fn memory_search(
     Ok(scored.into_iter().take(limit).map(|(_, e)| e).collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_list(
     memory_type: String,
     project_path: Option<String>,
@@ -2606,7 +2619,7 @@ fn memory_list(
     Ok(entries)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_delete(id: i64) -> Result<(), String> {
     let conn = get_conn()?;
     conn.execute("DELETE FROM memories WHERE id = ?1", params![id])
@@ -2614,7 +2627,7 @@ fn memory_delete(id: i64) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_clear(memory_type: String, project_path: Option<String>) -> Result<(), String> {
     let conn = get_conn()?;
     conn.execute(
@@ -2625,7 +2638,7 @@ fn memory_clear(memory_type: String, project_path: Option<String>) -> Result<(),
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn memory_stats(project_path: Option<String>) -> Result<MemoryStats, String> {
     let conn = get_conn()?;
     let global_count: i64 = conn
